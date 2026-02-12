@@ -486,6 +486,7 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 |------|----------|
 | Claude Code | `CLAUDE.md` (도구 고유 기능에 맞춘 구현 매핑) |
 | Cursor, Copilot, Codex, Windsurf 등 | `AGENTS.md` (모델 무관 공통 지시서) |
+| 설계 철학·아키텍처 이해 | `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` (전체 조감도 + WHY) |
 
 두 파일의 절대 기준과 설계 원칙은 동일합니다.
 
