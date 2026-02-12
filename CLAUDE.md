@@ -42,20 +42,24 @@ Claude Code 기반의 에이전트 워크플로우 자동화 프로젝트.
 
 ```
 AgenticWorkflow/
-├── CLAUDE.md                    ← 이 파일 (프로젝트 수준 지시)
+├── CLAUDE.md                              ← 이 파일 (Claude Code 전용 지시서)
+├── AGENTS.md                              ← 모든 AI 에이전트 공통 지시서
+├── README.md                              ← 프로젝트 소개
+├── AGENTICWORKFLOW-USER-MANUAL.md         ← 이 코드베이스 자체의 사용자 매뉴얼
 ├── .claude/
 │   └── skills/
-│       ├── workflow-generator/  ← 워크플로우 설계·생성 스킬
+│       ├── workflow-generator/            ← 워크플로우 설계·생성 스킬
 │       │   ├── SKILL.md
-│       │   └── references/      (claude-code-patterns, workflow-template, document-analysis-guide)
-│       └── doctoral-writing/    ← 박사급 학술 글쓰기 스킬
+│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide)
+│       └── doctoral-writing/              ← 박사급 학술 글쓰기 스킬
 │           ├── SKILL.md
-│           └── references/      (clarity-checklist, common-issues, before-after-examples, discipline-guides, korean-quick-reference)
-├── prompt/                      ← 프롬프트 자료
-│   ├── crystalize-prompt.md     (프롬프트 압축 기법)
-│   ├── distill-partner.md       (에센스 추출 및 최적화 인터뷰)
-│   └── crawling-skill-sample.md (크롤링 스킬 샘플)
-└── coding-resource/             ← 참고 자료
+│           └── references/                (clarity-checklist, common-issues, before-after-examples, discipline-guides, korean-quick-reference)
+├── prompt/                                ← 프롬프트 자료
+│   ├── crystalize-prompt.md               (프롬프트 압축 기법)
+│   ├── distill-partner.md                 (에센스 추출 및 최적화 인터뷰)
+│   └── crawling-skill-sample.md           (크롤링 스킬 샘플)
+└── coding-resource/                       ← 이론적 기반 자료
+    └── recursive language models.pdf      (장기기억 구현 이론)
 ```
 
 ## 스킬 사용 판별
