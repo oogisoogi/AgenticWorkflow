@@ -66,9 +66,14 @@ AgenticWorkflow/
 
 두 파일의 절대 기준과 설계 원칙은 동일합니다. 차이는 도구별 구현 매핑의 구체성뿐입니다.
 
-## 매뉴얼
+## 문서 읽기 순서
 
-이 코드베이스 자체의 사용법은 [`AGENTICWORKFLOW-USER-MANUAL.md`](AGENTICWORKFLOW-USER-MANUAL.md)를 참조하세요.
+| 순서 | 문서 | 목적 |
+|------|------|------|
+| 1 | **README.md** (이 파일) | 프로젝트 개요 파악 |
+| 2 | [`AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`](AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md) | 설계 철학과 아키텍처 이해 |
+| 3 | [`AGENTICWORKFLOW-USER-MANUAL.md`](AGENTICWORKFLOW-USER-MANUAL.md) | 실제 사용법 학습 |
+| 4 | `AGENTS.md` / `CLAUDE.md` | 사용하는 AI 도구에 맞는 지시서 참조 |
 
 > 이 코드베이스로 만든 개별 프로젝트의 사용법과 혼동하지 마세요.
 > 개별 프로젝트의 매뉴얼은 해당 프로젝트 내에 별도로 존재합니다.

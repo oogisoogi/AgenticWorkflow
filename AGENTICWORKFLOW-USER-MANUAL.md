@@ -9,6 +9,7 @@
 | 문서 | 대상 |
 |------|------|
 | **이 문서 (`AGENTICWORKFLOW-USER-MANUAL.md`)** | AgenticWorkflow 코드베이스 자체의 사용법 — 워크플로우를 설계하고 구현하는 방법 |
+| **`README.md`** | 프로젝트 첫 소개 — 개요, 목표, 문서 읽기 순서 |
 | **`AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`** | 설계 철학, 아키텍처 전체 조감도, 구성 요소 간 관계 — "왜 이렇게 설계했는가"를 이해할 때 |
 | **개별 프로젝트 매뉴얼** (각 프로젝트 내) | AgenticWorkflow로 만든 특정 프로젝트의 사용법 — 완성된 시스템의 실행과 운영 |
 
