@@ -721,10 +721,10 @@ graph TB
 
 ```mermaid
 graph TB
-    ARCH["ARCHITECTURE-AND-PHILOSOPHY.md<br/><b>WHY + HOW 전체 조감도</b><br/>설계 철학, 아키텍처, 패턴"]
+    ARCH["AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md<br/><b>WHY + HOW 전체 조감도</b><br/>설계 철학, 아키텍처, 패턴"]
     AGENTS["AGENTS.md<br/><b>범용 원칙</b><br/>모델·도구 무관 공통 규칙"]
     CLAUDE["CLAUDE.md<br/><b>Claude Code 전용</b><br/>구현 매핑 + 스킬 라우팅"]
-    MANUAL["USER-MANUAL.md<br/><b>사용법</b><br/>Phase 1·2 조작 가이드"]
+    MANUAL["AGENTICWORKFLOW-USER-MANUAL.md<br/><b>사용법</b><br/>Phase 1·2 조작 가이드"]
     README["README.md<br/><b>소개</b><br/>프로젝트 개요 + 시작점"]
 
     ARCH --> AGENTS
