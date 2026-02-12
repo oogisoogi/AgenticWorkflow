@@ -129,6 +129,7 @@ Orchestrator (품질 조율 + 흐름 관리)
 AgenticWorkflow/
 ├── CLAUDE.md          ← Claude Code 전용 지시서
 ├── AGENTS.md          ← 이 파일 (모델 무관 공통 지시서)
+├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
 ├── .claude/
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성
