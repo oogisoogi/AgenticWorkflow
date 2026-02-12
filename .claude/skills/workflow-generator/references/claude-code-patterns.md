@@ -1,0 +1,627 @@
+# Claude Code Implementation Patterns
+
+workflow.md를 Claude Code에서 실행하기 위한 구현 패턴.
+
+## 핵심 구성요소
+
+### 1. Sub-agents
+
+`.claude/agents/` 디렉터리에 `.md` 파일로 정의하는 전문 에이전트.
+단일 세션 내에서 컨텍스트를 위임하여 독립적 작업 수행.
+
+```markdown
+# .claude/agents/researcher.md
+---
+name: researcher
+description: 웹 검색 및 자료 조사 전문. 리서치 작업 시 자동 위임.
+model: sonnet
+tools: Read, Glob, Grep, WebSearch, WebFetch
+maxTurns: 30
+memory: project
+---
+
+당신은 리서치 전문가입니다.
+주어진 주제에 대해 체계적으로 자료를 수집하고 요약합니다.
+
+## 작업 원칙
+- 모든 정보에 출처(URL) 필수
+- 핵심 인사이트를 구조화된 형식으로 정리
+- 수집 결과를 마크다운 파일로 저장
+```
+
+```markdown
+# .claude/agents/writer.md
+---
+name: writer
+description: 컨텐츠 작성 전문
+model: opus
+tools: Read, Write, Edit, Glob, Grep
+skills:
+  - writing-style
+memory: project
+---
+
+당신은 전문 작가입니다.
+리서치 자료를 기반으로 고품질 콘텐츠를 작성합니다.
+```
+
+```markdown
+# .claude/agents/reviewer.md
+---
+name: reviewer
+description: 품질 검토 및 피드백 생성. 코드/문서 변경 후 자동 리뷰.
+model: sonnet
+tools: Read, Glob, Grep
+permissionMode: plan
+---
+
+당신은 엄격한 편집자입니다.
+다음 기준으로 검토하세요:
+- 정확성, 일관성, 완성도
+- 출처 검증 여부
+- 대상 독자 적합성
+```
+
+**Frontmatter 주요 필드:**
+
+| 필드 | 설명 | 예시 |
+|-----|------|------|
+| `name` | 고유 식별자 | `researcher` |
+| `description` | 자동 위임 트리거 설명 | `"리서치 작업 시 자동 위임"` |
+| `model` | 사용 모델 | `opus`, `sonnet`, `haiku` |
+| `tools` | 허용 도구 (쉼표 구분) | `Read, Write, Bash` |
+| `disallowedTools` | 차단 도구 | `Write, Edit` |
+| `permissionMode` | 권한 모드 | `default`, `plan`, `dontAsk` |
+| `maxTurns` | 최대 턴 수 | `30` |
+| `memory` | 영속 메모리 범위 | `user`, `project`, `local` |
+| `skills` | 주입할 스킬 목록 | `[writing-style]` |
+| `mcpServers` | 사용 가능 MCP 서버 | `[slack, github]` |
+| `hooks` | 에이전트 스코프 훅 | (아래 Hooks 섹션 참조) |
+
+**설계 원칙:**
+- 단일 책임: 에이전트당 하나의 역할
+- 명확한 입출력: Task 단위로 정의
+- 도구 최소화: 필요한 도구만 할당
+- 모델 적정 배치: 복잡도에 따라 opus/sonnet/haiku 선택
+
+**모델 선택 가이드:**
+
+| 모델 | 적합한 작업 | 품질 특성 |
+|-----|-----------|----------|
+| `opus` | 복잡한 분석, 연구, 작문 — 최고 품질이 필요한 핵심 작업 | 최고 수준 |
+| `sonnet` | 수집, 스캐닝, 구조화 — 안정적 품질의 반복 작업 | 높은 수준 |
+| `haiku` | 대시보드, 상태 확인, 단순 판단 — 복잡도가 낮은 보조 작업 | 충분한 수준 |
+
+---
+
+### 2. Agent Teams (Swarm)
+
+여러 독립 세션이 협업하는 팀 기반 병렬 작업 시스템.
+Sub-agent와 달리 각 팀원이 완전히 독립된 컨텍스트를 가짐.
+
+> **실험적 기능** — `settings.json`에서 활성화 필요
+
+```json
+// settings.json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+```
+
+**아키텍처:**
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    Team Lead                          │
+│  (TaskCreate → 할당 → SendMessage → 조율)              │
+│  ★ SOT 쓰기 권한: state.yaml 갱신은 Team Lead만 수행    │
+├──────────┬──────────┬────────────────────────────────┤
+│ Teammate │ Teammate │ Teammate                       │
+│@researcher│ @writer │ @data-processor                │
+│(독립 세션) │(독립 세션)│ (독립 세션)                     │
+│ 읽기 전용  │ 읽기 전용 │ 읽기 전용                       │
+└──────────┴──────────┴────────────────────────────────┘
+     │            │           │
+     ├── Shared Task List ────┤  ← 작업 할당/추적 도구
+     │  (~/.claude/tasks/)    │
+     └── SOT (state.yaml) ───┘  ← 워크플로우 상태 (Team Lead만 쓰기)
+```
+
+**팀 생성 → 작업 → 종료 흐름:**
+
+```markdown
+## workflow.md 내 Agent Team 정의
+
+### Team: content-pipeline
+- **Members**:
+  - `@researcher` (sonnet): 자료 수집
+  - `@writer` (opus): 콘텐츠 작성
+  - `@fact-checker` (haiku): 사실 검증
+- **Shared Tasks**: `~/.claude/tasks/content-pipeline/`
+- **Coordination**: Team Lead가 TaskCreate로 할당, 완료 시 자동 통보
+```
+
+**워크플로우에서의 표기법:**
+
+```markdown
+### 2. (team) 병렬 리서치
+- **Team**: `content-pipeline`
+- **Tasks**:
+  - `@researcher`: 웹 소스에서 최신 트렌드 수집
+  - `@data-processor`: 기존 데이터 정리 및 통계 분석
+- **Join**: 모든 팀원 완료 후 Step 3으로
+```
+
+**Sub-agent vs Agent Team — 품질 기준 선택:**
+
+> 속도나 비용이 아니라, **어떤 구조가 최종 결과물의 품질을 가장 높이는가**로 선택한다.
+
+**Agent Team이 품질을 높이는 경우:**
+- 서로 다른 전문 영역을 각각 최고 수준으로 깊이 처리해야 할 때
+- 다관점 분석/교차 검증으로 단일 에이전트보다 풍부한 결과를 얻을 수 있을 때
+- 각 전문가가 독립 컨텍스트에서 100% 집중해야 품질이 나올 때
+
+**Sub-agent가 품질을 높이는 경우:**
+- 하나의 전문가가 깊은 맥락을 유지하며 일관되게 처리해야 할 때
+- 단계 간 맥락 전달의 정확성이 결과 품질의 핵심일 때
+- 순차적 의존성이 강해 앞 단계의 품질이 뒤 단계에 직결될 때
+
+---
+
+### 3. Hooks
+
+워크플로우 라이프사이클의 특정 시점에 자동으로 실행되는 결정론적 자동화.
+코드 포맷팅, 품질 검증, 보안 게이트 등에 활용.
+
+**설정 위치:**
+
+| 위치 | 범위 | 공유 가능 |
+|------|------|----------|
+| `~/.claude/settings.json` | 전역 (모든 프로젝트) | 아니오 |
+| `.claude/settings.json` | 프로젝트 | 예 (커밋 가능) |
+| `.claude/settings.local.json` | 프로젝트 (로컬) | 아니오 |
+| Agent frontmatter `hooks:` | 에이전트 스코프 | 예 |
+
+**주요 Hook 이벤트:**
+
+| 이벤트 | 발생 시점 | 차단 가능 | 워크플로우 용도 |
+|--------|---------|----------|-------------|
+| `SessionStart` | 세션 시작/재개 | 아니오 | 컨텍스트 복원, 환경변수 설정 |
+| `PreToolUse` | 도구 실행 전 | 예 | 위험 명령 차단, 입력 수정 |
+| `PostToolUse` | 도구 실행 후 | 아니오 | 자동 포맷팅, 로그 기록 |
+| `Stop` | Claude 응답 완료 | 예 | 컨텍스트 저장, 요약 생성 |
+| `UserPromptSubmit` | 사용자 입력 후 | 예 | 입력 검증, 전처리 |
+| `SubagentStart` | 서브에이전트 생성 | 아니오 | 환경 준비 |
+| `SubagentStop` | 서브에이전트 종료 | 예 | 결과 검증 |
+| `TeammateIdle` | 팀원 대기 전환 | 예 | 추가 작업 할당 |
+| `TaskCompleted` | 태스크 완료 | 예 | 품질 게이트 (exit 2로 차단) |
+| `PreCompact` | 컨텍스트 압축 전 | 아니오 | 중요 상태 보존 |
+
+**Hook 타입:**
+
+```json
+// Type 1: Command — 셸 스크립트 실행
+{
+  "type": "command",
+  "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/validate.py",
+  "timeout": 30
+}
+
+// Type 2: Prompt — LLM 단일턴 판단
+{
+  "type": "prompt",
+  "prompt": "이 변경이 기존 API 호환성을 깨뜨리는지 평가하세요. $ARGUMENTS",
+  "model": "haiku"
+}
+
+// Type 3: Agent — 서브에이전트 기반 검증 (최대 50턴)
+{
+  "type": "agent",
+  "prompt": "테스트 스위트를 실행하고 결과를 검증하세요. $ARGUMENTS",
+  "timeout": 120
+}
+```
+
+**워크플로우 적용 예시:**
+
+```json
+// .claude/settings.json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | xargs prettier --write 2>/dev/null || true",
+            "statusMessage": "자동 포맷팅 중..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/block-destructive.sh && bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/block-destructive.sh || true"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "완료된 태스크의 산출물 품질을 검증하세요. 기준 미달 시 거부하세요.",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/restore_context.py && python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/restore_context.py || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Exit Code 규칙:**
+
+| 코드 | 동작 | 사용 시점 |
+|------|------|---------|
+| `0` | 허용 (JSON 출력 파싱) | 정상 통과 |
+| `2` | 차단 (stderr → Claude에 피드백) | 위험 행동 방지, 품질 미달 |
+| 기타 | 논블로킹 에러 (로그만) | 디버그 정보 |
+
+**에이전트 내장 Hook (frontmatter):**
+
+```markdown
+---
+name: db-reader
+description: 읽기 전용 DB 쿼리 실행
+tools: Bash
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "./scripts/validate-readonly-query.sh"
+---
+```
+
+---
+
+### 4. Slash Commands
+
+사용자 인터랙션 및 워크플로우 제어.
+`.claude/commands/` 디렉터리에 `.md` 파일로 정의.
+
+```markdown
+# .claude/commands/start-workflow.md
+---
+description: "워크플로우 실행 시작"
+---
+
+workflow.md에서 $ARGUMENTS 워크플로우를 읽고
+순차적으로 각 단계를 실행합니다.
+```
+
+```markdown
+# .claude/commands/review-output.md
+---
+description: "산출물 검토 및 승인/반려"
+---
+
+현재 단계의 산출물을 표시하고 사용자의 승인/반려를 대기합니다.
+- 승인 시: 다음 단계로 자동 진행
+- 반려 시: 피드백을 에이전트에 전달하여 재작업
+```
+
+### 5. Skills 연동
+
+재사용 가능한 지식/로직 패키지.
+
+```markdown
+# workflow.md 내 skill 참조
+
+### 5. 글 작성
+- **Agent**: `@writer`
+- **Skills**: `[writing-style]`, `[seo-optimization]`
+- **Task**: 개요를 기반으로 최종 글 작성
+```
+
+### 6. MCP Server 연동
+
+외부 서비스 통합. `.claude/settings.json` 또는 `.mcp.json`에 정의.
+
+```json
+// .mcp.json
+{
+  "mcpServers": {
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/mcp-server"],
+      "env": { "NOTION_TOKEN": "${NOTION_TOKEN}" }
+    },
+    "slack": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-slack"],
+      "env": { "SLACK_TOKEN": "${SLACK_TOKEN}" }
+    }
+  }
+}
+```
+
+---
+
+## 워크플로우 실행 패턴
+
+### Pattern 1: Sequential Pipeline (Sub-agent)
+
+단계가 순차적으로 실행되는 기본 패턴.
+
+```
+@agent-1 → @agent-2 → (human) → @agent-3 → @agent-4
+```
+
+**품질 근거:** 단일 전문가의 깊은 맥락 유지가 결과 일관성·정확도를 높임
+
+### Pattern 2: Parallel Branches (Agent Team)
+
+독립적인 단계가 병렬 실행.
+
+```
+               ┌→ @teammate-a ─┐
+(team-lead) ──┤                ├→ (human) → @agent-merge
+               └→ @teammate-b ─┘
+```
+
+**품질 근거:** 각 전문가의 독립 집중 + 다관점 결합이 단일 에이전트보다 풍부한 품질 달성
+
+### Pattern 3: Conditional Flow
+
+조건에 따라 분기.
+
+```
+@agent-1 → Condition? ─┬→ Path A → @agent-3
+                        └→ Path B → @agent-3
+```
+
+### Pattern 4: Hook-gated Pipeline
+
+자동 검증 게이트가 포함된 파이프라인.
+
+```
+@agent-1 → [Hook: 포맷 검증] → @agent-2 → [Hook: 품질 검증] → (human)
+                 ↓ fail                          ↓ fail
+            자동 재시도                      Claude에 피드백
+```
+
+**적합한 경우:** 코드 품질, 보안 검증, 산출물 표준 준수가 중요할 때
+
+### Pattern 5: Team + Hook 결합
+
+팀 작업에 품질 게이트를 결합한 고급 패턴.
+
+```
+(team-lead)
+  ├→ @researcher [TaskCompleted hook: 출처 검증]
+  ├→ @writer [TaskCompleted hook: 품질 검증]
+  └→ @fact-checker [SubagentStop hook: 결과 병합]
+       ↓ all complete
+  (human) → @editor → 최종본
+```
+
+---
+
+## Human-in-the-Loop 패턴
+
+### 검토 후 진행
+
+```markdown
+### 3. (human) 검토 및 승인
+- **Pause**: 자동 일시정지
+- **Display**: 이전 단계 결과물 표시
+- **Input**: 승인/반려/수정요청
+- **Resume**: `/approve` 또는 `/request-revision "피드백"`
+```
+
+### 선택형 입력
+
+```markdown
+### 3. (human) 옵션 선택
+- **Display**: 옵션 목록 표시
+- **Input**: 번호 또는 항목 선택
+- **Command**: `/select 1,3,5`
+```
+
+### Hook 기반 자동 품질 게이트
+
+사람 개입 없이 자동으로 품질을 검증하는 패턴.
+
+```markdown
+### 3. (hook) 자동 품질 검증
+- **Event**: `TaskCompleted`
+- **Type**: `agent`
+- **Check**: 산출물이 품질 기준 충족 여부
+- **Pass**: 다음 단계로 자동 진행
+- **Fail**: exit 2 → 에이전트에 피드백 전달, 재작업
+```
+
+---
+
+## 상태 관리 (SOT 설계)
+
+> **절대 기준 2 적용**: 워크플로우의 모든 공유 상태는 **단일 파일(SOT)**에 집중한다. 쓰기 권한은 Orchestrator(또는 Team Lead)만 갖는다.
+>
+> **절대 기준 1 우선**: SOT 구조가 최종 결과물의 품질을 저하시키는 경우(예: 단일 쓰기 지점이 정보 병목을 일으켜 에이전트가 stale data로 작업하는 경우), 품질을 위한 구조 조정이 허용된다. SOT는 품질을 보장하기 위한 **수단**이지, 품질을 제약하는 **목적**이 아니다.
+
+### SOT 파일 구조
+
+```yaml
+# .claude/state.yaml — 단일 SOT 파일
+workflow:
+  name: "blog-pipeline"
+  current_step: 3
+  status: "paused"
+  outputs:
+    step-1: "raw-contents.md"
+    step-2: "insights-list.md"
+  pending_input:
+    type: "selection"
+    options: [...]
+```
+
+### 쓰기 권한 규칙
+
+| 구조 | SOT 쓰기 권한자 | 다른 에이전트 |
+|------|----------------|-------------|
+| Sub-agent 순차 | Orchestrator | 결과를 Orchestrator에 반환 → Orchestrator가 SOT 갱신 |
+| Agent Team | Team Lead | 팀원은 산출물 파일만 생성 → Team Lead가 SOT에 상태 병합 |
+| Hook 기반 | Hook script | SOT 읽기만 (검증용). 상태 변경 불가 |
+
+> **절대 기준 1 우선 예외**: 위 규칙이 품질 병목을 일으키는 경우(예: Team Lead가 유일한 쓰기 지점이라 팀원이 stale data로 작업), 다음 조건 하에 구조를 조정할 수 있다:
+> 1. **산출물 파일 직접 참조**: 팀원 간 산출물 파일(`.md`, `.json` 등)은 SOT를 거치지 않고 직접 읽기 허용 — SOT에는 최종 상태만 기록
+> 2. **판단 근거 문서화**: 왜 기본 SOT 패턴이 품질을 저하시키는지 워크플로우에 명시
+> 3. **SOT 자체는 유지**: 구조를 조정하더라도 SOT 파일 자체를 제거하지 않는다 — 최종 상태 기록의 단일 지점은 보존
+
+### 계층적 메모리 구조
+
+```
+전역 메모리 (SOT — 단일 파일)
+  └─ .claude/state.yaml
+       ├─ workflow 상태 (current_step, status)
+       ├─ 단계별 산출물 경로 (outputs)
+       └─ 에러/롤백 정보
+
+로컬 메모리 (에이전트별 — 각자의 작업 컨텍스트)
+  ├─ Sub-agent: 위임받은 Task + 이전 단계 산출물 (읽기 전용)
+  ├─ Teammate: 할당된 Task + 필요 입력 파일 (읽기 전용)
+  └─ Hook: 검증 대상 산출물 (읽기 전용)
+```
+
+### Agent Team에서의 SOT 흐름
+
+**기본 패턴 (Default):**
+
+```
+Teammate A → 산출물 파일 생성 (output-a.md)
+Teammate B → 산출물 파일 생성 (output-b.md)
+     ↓ 완료 통보 (SendMessage)
+Team Lead → state.yaml에 상태 병합 (유일한 쓰기 지점)
+     ↓
+다음 단계로 진행
+```
+
+**품질 우선 패턴 (절대 기준 1 우선 적용 시):**
+
+```
+Teammate A → 산출물 파일 생성 (output-a.md)
+     ↓ Teammate B가 output-a.md를 직접 참조 (품질을 위한 교차 검증)
+Teammate B → 산출물 파일 생성 (output-b.md, output-a.md 참조 반영)
+     ↓ 완료 통보 (SendMessage)
+Team Lead → state.yaml에 최종 상태 병합 (SOT 단일 기록 지점은 유지)
+     ↓
+다음 단계로 진행
+```
+
+> **적용 조건**: 팀원 간 산출물 직접 참조는 교차 검증, 피드백 루프 등 **품질 향상이 입증되는 경우**에만 허용한다. 단순 편의를 위한 직접 참조는 허용하지 않는다. SOT 파일 자체의 단일 쓰기 지점은 어떤 경우에도 보존한다.
+
+> **주의**: Claude Code의 Task List(`~/.claude/tasks/{team-name}/`)는 **작업 할당/추적 도구**이지, 워크플로우 상태(SOT)가 아니다. 워크플로우의 진행 상태·산출물 경로·에러 정보는 반드시 SOT 파일(`state.yaml`)에서 관리한다.
+
+## 에러 처리
+
+```yaml
+error_handling:
+  on_agent_failure:
+    action: retry
+    max_attempts: 3
+
+  on_tool_failure:
+    action: notify_and_pause
+    message: "도구 실행 실패. 수동 개입 필요."
+
+  on_validation_failure:
+    action: rollback_to_step
+    step: previous
+
+  on_hook_failure:
+    action: log_and_continue
+    message: "Hook 실행 실패. 워크플로우는 계속 진행."
+```
+
+---
+
+## 데이터 전처리/후처리 패턴
+
+AI에게 전달하기 전에 code-level에서 데이터를 정제하여 분석 정확도와 결과 품질을 높이는 패턴.
+
+### 워크플로우 단계별 전처리 명시법
+
+```markdown
+### 2. 컨텐츠 분석
+- **Pre-processing**: `scripts/extract_body.py` — HTML에서 본문만 추출, 광고/네비게이션 제거
+- **Agent**: `@insight-extractor`
+- **Task**: 추출된 본문에서 핵심 인사이트 도출
+- **Output**: `insights-list.md`
+- **Post-processing**: `scripts/dedup_insights.py` — 중복 인사이트 제거, 유사도 0.9 이상 병합
+```
+
+### 전처리 스크립트 설계 기준
+
+| 기준 | Code-level 처리 | AI 에이전트 처리 |
+|------|----------------|----------------|
+| 데이터 필터링 (날짜, 키워드) | O | X |
+| 중복 제거 (hash, 유사도) | O | X |
+| 포맷 변환 (HTML→텍스트) | O | X |
+| 연관관계 계산 (그래프, 통계) | O | X |
+| 의미 분석, 판단, 요약 | X | O |
+| 창의적 생성, 작문 | X | O |
+
+### Hook 기반 자동 전처리
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [{
+          "type": "command",
+          "command": "python3 \"$CLAUDE_PROJECT_DIR\"/scripts/preprocess_input.py",
+          "statusMessage": "데이터 전처리 중..."
+        }]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 구성요소 비교 요약
+
+| 특성 | Sub-agent | Agent Team | Hook |
+|------|-----------|------------|------|
+| **세션** | 단일 (위임) | 다중 (독립) | N/A (자동화) |
+| **컨텍스트** | 부모와 분리 | 완전 독립 | 없음 |
+| **통신** | 결과만 반환 | 양방향 메시징 | 단방향 (exit code) |
+| **SOT 쓰기** | Orchestrator가 반환값으로 SOT 갱신 | **Team Lead만** SOT 갱신 (팀원은 산출물 파일만 생성) | SOT 읽기 전용 (검증만) |
+| **품질 기여** | 전문 집중 | 다관점 병렬 | 결정론적 검증 |
+| **적합한 작업** | 집중 작업, 탐색 | 병렬 협업, 대규모 | 검증, 포맷팅, 게이트 |
+| **지속 메모리** | memory 필드 | 없음 | 없음 |
+| **실행 방식** | 포그라운드/백그라운드 | 항상 병렬 | 동기/비동기 |
