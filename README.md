@@ -27,6 +27,7 @@ Phase 2: 워크플로우 구현  →  실제 동작하는 시스템 (최종 산�
 AgenticWorkflow/
 ├── CLAUDE.md              # Claude Code 전용 지시서
 ├── AGENTS.md              # 모든 AI 에이전트 공통 지시서
+├── AGENTICWORKFLOW-USER-MANUAL.md              # 사용자 매뉴얼
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  # 설계 철학 및 아키텍처 전체 조감도
 ├── .claude/skills/
 │   ├── workflow-generator/ # 워크플로우 설계·생성 스킬
