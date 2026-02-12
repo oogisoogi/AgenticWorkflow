@@ -50,6 +50,7 @@ Claude Code가 실행되면 `CLAUDE.md`를 자동으로 읽고, 프로젝트의 
 │ Phase 1: 워크플로우 설계          │
 │  workflow-generator 스킬 사용     │
 │  → workflow.md 생성 (설계도)      │
+│  → (선택) Distill 검증            │
 └─────────────────────────────────┘
         ↓
 ┌─────────────────────────────────┐
@@ -62,9 +63,78 @@ Claude Code가 실행되면 `CLAUDE.md`를 자동으로 읽고, 프로젝트의 
 
 ---
 
-## 3. Phase 1: 워크플로우 설계
+## 3. 절대 기준
 
-### 3.1 워크플로우 생성 요청
+이 코드베이스의 모든 설계·구현·수정 의사결정에 적용되는 최상위 규칙입니다.
+아래의 모든 원칙, 가이드라인, 관례보다 상위에 있습니다.
+
+### 절대 기준 1: 최종 결과물의 품질
+
+> **속도, 토큰 비용, 작업량, 분량 제한은 완전히 무시한다.**
+> 모든 의사결정의 유일한 기준은 **최종 결과물의 품질**이다.
+> 단계를 줄여서 빠르게 만드는 것보다, 단계를 늘려서라도 품질을 높이는 방향을 선택한다.
+
+### 절대 기준 2: 단일 파일 SOT + 계층적 메모리 구조
+
+> **단일 파일 SOT(Single Source of Truth) + 계층적 메모리 구조 설계 아래서, 수십 개의 에이전트가 동시에 작동해도 데이터 불일치가 발생하지 않는다.**
+
+- **상태 관리**: 모든 공유 상태는 단일 파일에 집중. 분산 금지.
+- **쓰기 권한**: SOT 파일 쓰기는 Orchestrator/Team Lead만. 나머지는 읽기 전용 + 산출물 파일 생성.
+- **충돌 방지**: 병렬 에이전트가 동일 파일을 동시 수정하는 구조 금지.
+
+### 절대 기준 간 우선순위
+
+> **절대 기준 1(품질)과 절대 기준 2(SOT)가 충돌할 경우, 절대 기준 1이 우선한다.**
+> SOT는 품질을 보장하기 위한 **수단**이지, 품질을 제약하는 **목적**이 아니다.
+
+이 세 절대 기준은 Phase 1(설계)과 Phase 2(구현) 모두에 적용됩니다.
+
+---
+
+## 4. 설계 원칙
+
+절대 기준에 종속되는 하위 원칙입니다. 워크플로우를 설계하고 구현할 때 반드시 적용합니다.
+
+### P1. 정확도를 위한 데이터 정제
+
+큰 데이터를 AI에게 그대로 전달하면 노이즈로 정확도가 하락합니다.
+
+- 각 단계에 **전처리(pre-processing)** 명시: 에이전트에게 넘기기 전 노이즈 제거
+- 각 단계에 **후처리(post-processing)** 명시: 산출물을 다음 단계에 전달하기 전 정제
+- 코드로 사전 계산 가능한 연관관계는 미리 처리 → AI가 판단·분석에 집중
+
+```
+Bad:  "수집된 전체 웹페이지 HTML을 에이전트에 전달"
+Good: "Python script로 본문만 추출 → 핵심 텍스트만 에이전트에 전달"
+```
+
+### P2. 전문성 기반 위임 구조
+
+각 작업을 가장 잘 수행할 수 있는 전문 에이전트에게 위임하여 품질을 극대화합니다.
+
+```
+Orchestrator (품질 조율 + 흐름 관리)
+  ├→ Agent A: 전문 리서치
+  ├→ Agent B: 심층 분석
+  └→ Agent C: 검증 및 품질 게이트
+```
+
+### P3. 리소스 정확성
+
+이미지, 파일, 외부 리소스가 필요한 단계에서는 정확한 경로를 명시합니다. placeholder 누락 불가.
+
+### P4. 질문 설계 규칙
+
+사용자에게 질문할 때:
+- 최대 4개까지만
+- 각 질문에 3개 정도의 선택지 제공
+- 모호한 부분이 없으면 질문 없이 진행
+
+---
+
+## 5. Phase 1: 워크플로우 설계
+
+### 5.1 워크플로우 생성 요청
 
 Claude Code에서 다음과 같이 요청합니다:
 
@@ -80,7 +150,7 @@ Claude Code에서 다음과 같이 요청합니다:
 
 `workflow-generator` 스킬이 자동으로 활성화됩니다.
 
-### 3.2 두 가지 케이스
+### 5.2 두 가지 케이스
 
 #### Case 1: 아이디어만 있는 경우
 
@@ -109,7 +179,9 @@ AI 동작:
 4. workflow.md 생성
 ```
 
-### 3.3 생성되는 workflow.md 구조
+문서 분석 시 AI는 `.claude/skills/workflow-generator/references/document-analysis-guide.md`의 체크리스트를 따릅니다.
+
+### 5.3 생성되는 workflow.md 구조
 
 모든 워크플로우는 3단계로 구성됩니다:
 
@@ -123,11 +195,11 @@ AI 동작:
 
 ## Research
 ### 1. [리서치 단계]
-- Pre-processing: [데이터 전처리]
+- Pre-processing: [데이터 전처리 — P1]
 - Agent: @[agent-name]
 - Task: [수행 작업]
 - Output: [산출물]
-- Post-processing: [산출물 정제]
+- Post-processing: [산출물 정제 — P1]
 
 ## Planning
 ### 2. [기획 단계]
@@ -141,9 +213,12 @@ AI 동작:
 
 ## Claude Code Configuration
 ### Sub-agents / Agent Team / Hooks / Slash Commands / Skills / MCP Servers
+### SOT (상태 관리)
 ```
 
-### 3.4 워크플로우 표기법
+표준 구조의 상세는 `.claude/skills/workflow-generator/references/workflow-template.md`를 참조하세요.
+
+### 5.4 워크플로우 표기법
 
 | 표기 | 의미 |
 |-----|------|
@@ -153,15 +228,31 @@ AI 동작:
 | `@agent-name` | Sub-agent 호출 |
 | `/command-name` | Slash command 실행 |
 
+### 5.5 (선택) Distill 검증
+
+workflow.md 생성 후, 품질을 극대화하기 위한 점검 단계입니다. `prompt/distill-partner.md`의 인터뷰 프레임워크를 사용합니다.
+
+| 점검 질문 | 목적 |
+|----------|------|
+| "이 단계가 최종 품질에 기여하는가?" | 품질에 무관한 단계만 제거 |
+| "이 단계를 자동화하면 품질이 더 안정적인가?" | 자동화 기회 발굴 |
+| "품질을 높이기 위해 추가해야 할 단계가 있는가?" | 검증/보강 단계 추가 |
+
+> 이 단계는 선택 사항이지만, 절대 기준 1(품질 최우선)에 따라 권장됩니다.
+
 ---
 
-## 4. Phase 2: 워크플로우 구현
+## 6. Phase 2: 워크플로우 구현
 
 workflow.md가 생성되면, 그 안에 정의된 구성요소를 실제로 만듭니다.
 
-### 4.1 구현해야 할 구성요소
+> **참고**: 아래 파일들은 **이 코드베이스로 새 프로젝트를 만들 때** 해당 프로젝트 내에 생성하는 것입니다.
+> AgenticWorkflow 코드베이스 자체에는 이 파일들이 없는 것이 정상입니다.
+> 코드베이스 자체는 스킬과 참조 자료만 포함하며, 구현 산출물은 각 프로젝트에 속합니다.
 
-| workflow.md에 정의된 것 | 실제로 만들 파일 | 위치 |
+### 6.1 구현해야 할 구성요소
+
+| workflow.md에 정의된 것 | 실제로 만들 파일 | 위치 (프로젝트 내) |
 |----------------------|---------------|------|
 | Sub-agents | `.md` 파일 | `.claude/agents/` |
 | Slash commands | `.md` 파일 | `.claude/commands/` |
@@ -170,7 +261,10 @@ workflow.md가 생성되면, 그 안에 정의된 구성요소를 실제로 만�
 | SOT 파일 | YAML/JSON | `.claude/state.yaml` |
 | MCP Server 설정 | JSON | `.mcp.json` |
 
-### 4.2 Sub-agent 만들기
+구현 패턴의 상세(Sub-agents frontmatter, Agent Team 아키텍처, Hook 이벤트, SOT 흐름 등)는
+`.claude/skills/workflow-generator/references/claude-code-patterns.md`를 참조하세요.
+
+### 6.2 Sub-agent 만들기
 
 workflow.md에 `@researcher`가 정의되어 있다면:
 
@@ -200,7 +294,7 @@ maxTurns: 30
 | `sonnet` | 수집, 스캐닝, 구조화 — 안정적 품질의 반복 작업 |
 | `haiku` | 상태 확인, 단순 판단 — 복잡도가 낮은 보조 작업 |
 
-### 4.3 Agent Team 설정 (병렬 협업)
+### 6.3 Agent Team 설정 (병렬 협업)
 
 workflow.md에 `(team)` 구간이 있다면:
 
@@ -221,7 +315,7 @@ Team Lead (조율 + SOT 쓰기)
   └→ Team Lead → state.yaml에 상태 병합 → 다음 단계
 ```
 
-### 4.4 Hooks 설정 (자동화 게이트)
+### 6.4 Hooks 설정 (자동화 게이트)
 
 workflow.md에 `(hook)` 구간이 있다면:
 
@@ -259,7 +353,7 @@ workflow.md에 `(hook)` 구간이 있다면:
 | `0` | 통과 |
 | `2` | 차단 — 에이전트에 피드백 전달, 재작업 |
 
-### 4.5 Slash Commands 만들기
+### 6.5 Slash Commands 만들기
 
 workflow.md에 사용자 개입 지점이 있다면:
 
@@ -274,7 +368,7 @@ description: "산출물 검토 및 승인/반려"
 - 반려 시: 피드백을 에이전트에 전달하여 재작업
 ```
 
-### 4.6 SOT 파일 초기화
+### 6.6 SOT 파일 초기화
 
 ```yaml
 # .claude/state.yaml
@@ -292,9 +386,9 @@ workflow:
 
 ---
 
-## 5. 실행 패턴
+## 7. 실행 패턴
 
-### 5.1 순차 파이프라인 (기본)
+### 7.1 순차 파이프라인 (기본)
 
 ```
 @agent-1 → @agent-2 → (human) 검토 → @agent-3
@@ -302,7 +396,7 @@ workflow:
 
 하나의 전문가가 깊은 맥락을 유지하며 일관되게 처리할 때.
 
-### 5.2 병렬 분기 (Agent Team)
+### 7.2 병렬 분기 (Agent Team)
 
 ```
            ┌→ @teammate-a ─┐
@@ -312,7 +406,7 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 
 서로 다른 전문 영역을 각각 최고 수준으로 처리할 때.
 
-### 5.3 자동 검증 게이트 (Hook)
+### 7.3 자동 검증 게이트 (Hook)
 
 ```
 @agent-1 → [Hook: 품질 검증] → @agent-2
@@ -324,38 +418,59 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 
 ---
 
-## 6. 스킬 사용
+## 8. 스킬 상세
 
-### 6.1 workflow-generator
+### 8.1 workflow-generator
 
 **트리거 키워드:** 워크플로우 만들어줘, 자동화 파이프라인 설계, 작업 흐름 정의
 
-**상세:** `.claude/skills/workflow-generator/SKILL.md` 참조
+**진입점:** `.claude/skills/workflow-generator/SKILL.md`
 
-### 6.2 doctoral-writing
+**Reference 파일 가이드:**
+
+| 파일 | 역할 | 사용 시점 |
+|------|------|----------|
+| `references/claude-code-patterns.md` | Sub-agents, Agent Teams, Hooks, SOT 등 구현 패턴 상세 | Phase 2에서 구성요소를 실제로 만들 때 |
+| `references/workflow-template.md` | workflow.md의 표준 구조와 표기 규칙 | Phase 1에서 workflow.md 생성 시 |
+| `references/document-analysis-guide.md` | 첨부 문서 분석 체크리스트와 출력 형식 | Phase 1 Case 2에서 문서 분석 시 |
+
+### 8.2 doctoral-writing
 
 **트리거 키워드:** 논문 스타일로 써줘, 학술적 글쓰기, 논문 문장 다듬기
+
+**진입점:** `.claude/skills/doctoral-writing/SKILL.md`
 
 **용도:**
 - 학위논문 챕터 검토 및 작성
 - 학술지 투고 논문 교정
 - 연구보고서, 학술 발표문 작성
 
-**상세:** `.claude/skills/doctoral-writing/SKILL.md` 참조
+**Reference 파일 가이드:**
+
+| 파일 | 역할 | 사용 시점 |
+|------|------|----------|
+| `references/clarity-checklist.md` | 명료성·간결성·학술적 엄밀성 평가 체크리스트 (VERIFY) | 원고 수정 후 검증할 때 |
+| `references/common-issues.md` | 빈출 학술 글쓰기 문제 카탈로그 + 해결법 (WHAT) | 반복 오류 패턴을 식별할 때 |
+| `references/before-after-examples.md` | 실제 박사 논문 수정 사례 (HOW — 실전) | 구체적 수정 예시가 필요할 때 |
+| `references/discipline-guides.md` | 인문·사회·자연과학 분야별 관례 (WHERE — 분야 맥락) | 분야별 인용 스타일, 인칭, 구조 확인 시 |
+| `references/korean-quick-reference.md` | 한국어 전용 ❌/✅ 변환 패턴 (HOW — 한국어) | 한국어 논문 작성 시 빠른 참조 |
+
+> **파일 간 역할 분담**: 동일 주제(예: 피동태 남용)가 여러 파일에 등장하지만, 이는 중복이 아닌 역할 분담입니다.
+> SKILL.md(WHY) → common-issues.md(WHAT) → korean-quick-reference.md / before-after-examples.md(HOW) → clarity-checklist.md(VERIFY)
 
 ---
 
-## 7. 프롬프트 자료
+## 9. 프롬프트 자료
 
-| 파일 | 용도 | 사용법 |
-|------|------|--------|
-| `prompt/crystalize-prompt.md` | 긴 AI 에이전트 지침을 핵심만 남겨 압축 | 프롬프트가 너무 길 때 압축 기법 적용 |
-| `prompt/distill-partner.md` | 에센스 추출 및 최적화 인터뷰 | 작업 계획이 복잡할 때 핵심/불필요/자동화 분류 |
-| `prompt/crawling-skill-sample.md` | 네이버 뉴스 크롤링 차단 방어 스킬 샘플 | 스킬 파일 작성법 참고용 |
+| 파일 | 용도 | 워크플로우 내 사용 시점 |
+|------|------|---------------------|
+| `prompt/crystalize-prompt.md` | 긴 AI 에이전트 지침을 핵심만 남겨 압축 | **Phase 2**: Sub-agent `.md` 작성 시 프롬프트가 너무 길 때 |
+| `prompt/distill-partner.md` | 에센스 추출 및 최적화 인터뷰 | **Phase 1**: Distill 검증 단계에서 워크플로우 품질 점검 시 |
+| `prompt/crawling-skill-sample.md` | 네이버 뉴스 크롤링 차단 방어 스킬 샘플 | **Phase 2**: 새 스킬 파일 작성법을 참고할 때 |
 
 ---
 
-## 8. 이론적 기반
+## 10. 이론적 기반
 
 `coding-resource/recursive language models.pdf`
 
@@ -363,7 +478,7 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 
 ---
 
-## 9. 다른 AI 도구에서 사용
+## 11. 다른 AI 도구에서 사용
 
 이 프로젝트는 Claude Code 외의 AI 코딩 도구에서도 동일한 원칙으로 작동하도록 설계되었습니다.
 
@@ -376,15 +491,18 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 
 ---
 
-## 10. 전체 요약: 워크플로우 설계 → 구현 체크리스트
+## 12. 전체 요약: 워크플로우 설계 → 구현 체크리스트
 
 ### Phase 1: 설계
 
 - [ ] 아이디어 또는 설명 문서 준비
 - [ ] `workflow-generator` 스킬로 `workflow.md` 생성
 - [ ] 생성된 워크플로우 검토 — 단계, 에이전트, 사람 개입 지점 확인
+- [ ] (선택) Distill 검증 — `prompt/distill-partner.md`로 품질 점검
 
 ### Phase 2: 구현
+
+> 아래 파일들은 새 프로젝트 내에 생성합니다 (이 코드베이스 자체가 아님).
 
 - [ ] Sub-agent `.md` 파일 생성 (`.claude/agents/`)
 - [ ] Slash command `.md` 파일 생성 (`.claude/commands/`)
@@ -397,6 +515,6 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 ### 검증
 
 - [ ] 워크플로우 전체 실행 테스트
-- [ ] 각 단계의 산출물 품질 확인
-- [ ] SOT 파일 일관성 확인
+- [ ] 각 단계의 산출물 품질 확인 (절대 기준 1)
+- [ ] SOT 파일 일관성 확인 (절대 기준 2)
 - [ ] Hook 게이트 정상 동작 확인
