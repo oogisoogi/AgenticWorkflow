@@ -31,7 +31,8 @@ AgenticWorkflow/
 │   ├── workflow-generator/ # 워크플로우 설계·생성 스킬
 │   └── doctoral-writing/   # 박사급 학술 글쓰기 스킬
 ├── prompt/                 # 프롬프트 자료
-└── coding-resource/        # 참고 자료
+└── coding-resource/        # 이론적 기반 자료
+    └── recursive language models.pdf
 ```
 
 ## 스킬
@@ -48,6 +49,10 @@ AgenticWorkflow/
 1. **품질 최우선** — 속도, 비용, 작업량보다 최종 결과물의 품질이 유일한 기준
 2. **단일 파일 SOT** — Single Source of Truth + 계층적 메모리 구조로 데이터 일관성 보장
 3. **품질 > SOT** — 두 기준이 충돌하면 품질이 우선. SOT는 수단이지 목적이 아님
+
+## 이론적 기반
+
+`coding-resource/recursive language models.pdf` — 장기기억(long-term memory) 구현에 필수적인 이론을 담은 논문입니다. 에이전트가 세션을 넘어 지식을 축적하고 활용하는 메커니즘의 이론적 토대입니다.
 
 ## AI 도구 호환성
 
