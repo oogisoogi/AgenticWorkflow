@@ -42,10 +42,11 @@ SYSTEM_OVERHEAD_TOKENS = 15_000
 EFFECTIVE_CAPACITY = CONTEXT_WINDOW_TOKENS - SYSTEM_OVERHEAD_TOKENS
 # 75% threshold
 THRESHOLD_75_TOKENS = int(EFFECTIVE_CAPACITY * 0.75)
-# Snapshot size target (characters) — keep under ~30KB for manageable Read
-MAX_SNAPSHOT_CHARS = 30_000
-# Dedup guard window (seconds)
-DEDUP_WINDOW_SECONDS = 10
+# Snapshot size target (characters) — Quality First (절대 기준 1)
+# Read tool handles up to 2000 lines. 100KB preserves decision context.
+MAX_SNAPSHOT_CHARS = 100_000
+# Dedup guard window (seconds) — reduced to avoid missing rapid changes
+DEDUP_WINDOW_SECONDS = 5
 # Max snapshots to retain per trigger type
 MAX_SNAPSHOTS = {
     "precompact": 3,
@@ -161,7 +162,7 @@ def _parse_assistant_entry(obj, timestamp):
             results.append({
                 "type": "assistant_text",
                 "timestamp": timestamp,
-                "content": _truncate(text, 2000),
+                "content": _truncate(text, 5000),
             })
     elif isinstance(content, list):
         for block in content:
@@ -175,7 +176,7 @@ def _parse_assistant_entry(obj, timestamp):
                     results.append({
                         "type": "assistant_text",
                         "timestamp": timestamp,
-                        "content": _truncate(text, 2000),
+                        "content": _truncate(text, 5000),
                     })
 
             elif block_type == "tool_use":
@@ -268,14 +269,14 @@ def _extract_tool_use_summary(tool_name, tool_input):
 def _extract_tool_result_summary(content):
     """Extract summary from tool_result content."""
     if isinstance(content, str):
-        return _truncate(content, 300)
+        return _truncate(content, 800)
     elif isinstance(content, list):
         texts = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
                 texts.append(block.get("text", ""))
         combined = "\n".join(texts)
-        return _truncate(combined, 300)
+        return _truncate(combined, 800)
     return ""
 
 
@@ -351,13 +352,13 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     sections.append("## 현재 작업 (Current Task)")
     if user_messages:
         first_msg = user_messages[0]["content"]
-        sections.append(_truncate(first_msg, 1500))
+        sections.append(_truncate(first_msg, 3000))
         # Latest context: show last user instruction if different from first
         if len(user_msgs_filtered) > 1:
             last_msg = user_msgs_filtered[-1]["content"]
             if last_msg != first_msg:
                 sections.append("")
-                sections.append(f"**마지막 사용자 지시:** {_truncate(last_msg, 500)}")
+                sections.append(f"**마지막 사용자 지시:** {_truncate(last_msg, 1000)}")
     else:
         sections.append("(사용자 메시지 없음)")
     sections.append("")
@@ -403,7 +404,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     sections.append("## 실행된 명령 (Commands Executed)")
     bash_ops = [t for t in tool_uses if t.get("tool_name") == "Bash"]
     if bash_ops:
-        for op in bash_ops[-10:]:  # Last 10 commands
+        for op in bash_ops[-20:]:  # Last 20 commands
             cmd = _truncate(op.get("command", ""), 150)
             desc = op.get("description", "")
             if cmd:
@@ -417,8 +418,8 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     # Section 6: User Messages (verbatim — last N)
     sections.append("## 사용자 요청 이력 (User Messages)")
     if user_msgs_filtered:
-        for i, msg in enumerate(user_msgs_filtered[-8:], 1):
-            sections.append(f"{i}. {_truncate(msg['content'], 500)}")
+        for i, msg in enumerate(user_msgs_filtered[-12:], 1):
+            sections.append(f"{i}. {_truncate(msg['content'], 800)}")
     else:
         sections.append("(사용자 메시지 없음)")
     sections.append("")
@@ -430,8 +431,8 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
         if len(t["content"]) > 100  # Skip very short responses
     ]
     if meaningful_texts:
-        for i, txt in enumerate(meaningful_texts[-5:], 1):
-            sections.append(f"{i}. {_truncate(txt['content'], 500)}")
+        for i, txt in enumerate(meaningful_texts[-8:], 1):
+            sections.append(f"{i}. {_truncate(txt['content'], 1000)}")
     else:
         sections.append("(Claude 응답 없음)")
     sections.append("")
@@ -440,7 +441,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     if work_log:
         sections.append("## 작업 로그 요약 (Work Log Summary)")
         sections.append(f"총 기록: {len(work_log)}개")
-        for entry in work_log[-15:]:  # Last 15 entries
+        for entry in work_log[-25:]:  # Last 25 entries
             ts = entry.get("timestamp", "")
             tool = entry.get("tool_name", "")
             summary = entry.get("summary", "")
@@ -693,32 +694,144 @@ def _get_file_size(entries):
 
 
 def _compress_snapshot(full_md, sections):
-    """If snapshot exceeds MAX_SNAPSHOT_CHARS, compress less critical sections."""
-    # Strategy: keep header, task, SOT, modified files, user messages
-    # Truncate: commands, Claude responses, work log
-    compressed_sections = []
-    skip_next = False
+    """Quality-focused compression (절대 기준 1: 품질 우선).
 
-    for section in sections:
-        if "## 실행된 명령" in section:
-            compressed_sections.append(section)
-            compressed_sections.append("(크기 제한으로 축약됨)")
-            skip_next = True
-            continue
-        if "## 작업 로그 요약" in section:
-            compressed_sections.append(section)
-            compressed_sections.append("(크기 제한으로 축약됨)")
-            skip_next = True
-            continue
-        if skip_next and section.startswith("##"):
-            skip_next = False
-        if skip_next:
-            continue
-        compressed_sections.append(section)
+    Compression priority (last resort first):
+      1. Deduplicate redundant entries within sections
+      2. Reduce commands section (keep first 3 + last 5)
+      3. Reduce work log (keep unique file paths only)
+      4. Reduce Claude responses (keep conclusions — last 200 chars of each)
+      5. Hard truncate only as absolute last resort
 
-    result = "\n".join(compressed_sections)
-    if len(result) > MAX_SNAPSHOT_CHARS:
-        return result[:MAX_SNAPSHOT_CHARS] + "\n\n(... 크기 초과로 잘림)"
+    Always preserved: Header, Current Task, SOT, Modified Files, User Messages
+    """
+    # Phase 1: Deduplicate — remove consecutive identical tool operations
+    deduped_sections = _dedup_sections(sections)
+    result = "\n".join(deduped_sections)
+    if len(result) <= MAX_SNAPSHOT_CHARS:
+        return result
+
+    # Phase 2: Compress commands (keep first 3 + last 5 for context)
+    compressed = _compress_section_entries(
+        deduped_sections, "## 실행된 명령", keep_first=3, keep_last=5
+    )
+    result = "\n".join(compressed)
+    if len(result) <= MAX_SNAPSHOT_CHARS:
+        return result
+
+    # Phase 3: Compress work log (keep last 10)
+    compressed = _compress_section_entries(
+        compressed, "## 작업 로그 요약", keep_first=0, keep_last=10
+    )
+    result = "\n".join(compressed)
+    if len(result) <= MAX_SNAPSHOT_CHARS:
+        return result
+
+    # Phase 4: Compress Claude responses (preserve conclusion — last 300 chars)
+    compressed = _compress_responses(compressed)
+    result = "\n".join(compressed)
+    if len(result) <= MAX_SNAPSHOT_CHARS:
+        return result
+
+    # Phase 5: Hard truncate (absolute last resort)
+    return result[:MAX_SNAPSHOT_CHARS] + "\n\n(... 크기 초과로 잘림 — 전체 내역은 latest.md 참조)"
+
+
+def _dedup_sections(sections):
+    """Remove consecutive duplicate entries within list-style sections."""
+    result = []
+    prev_line = None
+    for line in sections:
+        # Skip consecutive identical list items
+        if line.startswith("- ") and line == prev_line:
+            continue
+        result.append(line)
+        prev_line = line
+    return result
+
+
+def _compress_section_entries(sections, section_header, keep_first=0, keep_last=5):
+    """Compress a specific section's list entries, keeping first N + last N."""
+    result = []
+    in_section = False
+    section_entries = []
+
+    for line in sections:
+        if section_header in line:
+            in_section = True
+            result.append(line)
+            continue
+        if in_section and line.startswith("##"):
+            # End of section — emit compressed entries
+            _emit_compressed_entries(result, section_entries, keep_first, keep_last)
+            section_entries = []
+            in_section = False
+            result.append(line)
+            continue
+        if in_section and line.startswith("- "):
+            section_entries.append(line)
+            continue
+        if in_section and not line.strip():
+            section_entries.append(line)
+            continue
+        if in_section:
+            # Non-list content in section (e.g., "총 기록: N개")
+            result.append(line)
+            continue
+        result.append(line)
+
+    # If section was the last one
+    if section_entries:
+        _emit_compressed_entries(result, section_entries, keep_first, keep_last)
+
+    return result
+
+
+def _emit_compressed_entries(result, entries, keep_first, keep_last):
+    """Emit first N + last N entries with omission marker."""
+    # Filter out blank lines for counting
+    items = [e for e in entries if e.strip()]
+    blanks_after = [e for e in entries if not e.strip()]
+
+    total = len(items)
+    if total <= keep_first + keep_last:
+        result.extend(entries)
+        return
+
+    if keep_first > 0:
+        result.extend(items[:keep_first])
+    omitted = total - keep_first - keep_last
+    result.append(f"  (...{omitted}개 항목 생략...)")
+    result.extend(items[-keep_last:])
+    if blanks_after:
+        result.append("")
+
+
+def _compress_responses(sections):
+    """Compress Claude responses: keep conclusion (last 300 chars) of each."""
+    result = []
+    in_section = False
+
+    for line in sections:
+        if "## Claude 핵심 응답" in line:
+            in_section = True
+            result.append(line)
+            continue
+        if in_section and line.startswith("##"):
+            in_section = False
+            result.append(line)
+            continue
+        if in_section and (line.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8."))):
+            # Numbered response — keep prefix + conclusion
+            if len(line) > 400:
+                prefix = line[:50]
+                conclusion = line[-300:]
+                result.append(f"{prefix} (...) {conclusion}")
+            else:
+                result.append(line)
+            continue
+        result.append(line)
+
     return result
 
 

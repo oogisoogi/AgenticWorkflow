@@ -32,7 +32,7 @@ AgenticWorkflow/
 ├── COPYRIGHT.md              # 저작권
 ├── .claude/
 │   ├── settings.json      # Hook 설정
-│   ├── hooks/scripts/     # Context Preservation System (5개 스크립트)
+│   ├── hooks/scripts/     # Context Preservation System (6개 스크립트 + 디스패처)
 │   ├── context-snapshots/ # 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/ # 워크플로우 설계·생성 스킬
@@ -55,6 +55,7 @@ AgenticWorkflow/
 
 | 스크립트 | 트리거 | 역할 |
 |---------|--------|------|
+| `context_guard.py` | (Global Hook 디스패처) | Global Hook의 통합 진입점. `--mode`에 따라 적절한 스크립트로 라우팅 |
 | `save_context.py` | SessionEnd, PreCompact | 전체 스냅샷 저장 |
 | `restore_context.py` | SessionStart | 포인터+요약으로 복원 |
 | `update_work_log.py` | PostToolUse | 작업 로그 누적, 75% threshold 시 자동 저장 |

@@ -543,25 +543,200 @@ Team Lead → state.yaml에 최종 상태 병합 (SOT 단일 기록 지점은 �
 
 > **주의**: Claude Code의 Task List(`~/.claude/tasks/{team-name}/`)는 **작업 할당/추적 도구**이지, 워크플로우 상태(SOT)가 아니다. 워크플로우의 진행 상태·산출물 경로·에러 정보는 반드시 SOT 파일(`state.yaml`)에서 관리한다.
 
+## Task Management System (TaskCreate/TaskUpdate/TaskList)
+
+Claude Code의 내장 Task 관리 도구. Agent Team에서 작업 할당·추적·조율에 사용.
+
+> **SOT와의 관계**: Task List(`~/.claude/tasks/{team-name}/`)는 **작업 할당/추적 도구**이다. 워크플로우 상태(current_step, status, outputs)는 반드시 SOT(`state.yaml`)에서 관리한다. Task List는 SOT를 대체하지 않는다.
+
+### TaskCreate — 작업 생성
+
+```markdown
+## workflow.md 내 Task 설계
+
+### 2. (team) 병렬 리서치
+- **Team**: `research-pipeline`
+- **Task 정의**:
+
+  #### Task 1: 웹 트렌드 수집
+  - **subject**: "최신 AI 트렌드 웹 리서치"
+  - **description**: "2024-2025 AI 산업 트렌드를 웹에서 수집. 최소 10개 출처 필요. 결과를 research/trends.md에 저장"
+  - **activeForm**: "AI 트렌드 리서치 중"
+  - **owner**: `@researcher`
+  - **blocks**: [Task 3]  ← Task 3은 이 결과에 의존
+
+  #### Task 2: 기존 데이터 분석
+  - **subject**: "내부 데이터 통계 분석"
+  - **description**: "data/ 디렉터리의 CSV 파일 분석. 주요 지표 추출. 결과를 research/analysis.md에 저장"
+  - **activeForm**: "데이터 분석 중"
+  - **owner**: `@data-processor`
+  - **blocks**: [Task 3]
+
+  #### Task 3: 종합 인사이트 도출
+  - **subject**: "리서치 결과 종합 및 인사이트 도출"
+  - **description**: "research/trends.md + research/analysis.md를 종합. 핵심 인사이트 5개 도출"
+  - **blockedBy**: [Task 1, Task 2]  ← 의존성 명시
+  - **owner**: `@writer`
+```
+
+### TaskUpdate — 상태 관리 및 의존성
+
+**상태 전이 규칙:**
+
+```
+pending → in_progress → completed
+                     → (blocked → pending)  ← blockedBy 해소 시 자동 전환
+```
+
+**Team Lead의 Task 조율 패턴:**
+
+```markdown
+## Orchestrator 역할
+1. TaskCreate로 모든 Task 생성 + 의존성(blocks/blockedBy) 설정
+2. TaskUpdate로 owner 할당 → 팀원에게 SendMessage로 시작 통보
+3. 팀원이 완료 시:
+   a. TaskUpdate(status: completed) 호출
+   b. Team Lead에게 SendMessage로 완료 통보
+   c. Team Lead가 SOT(state.yaml) 갱신
+   d. blockedBy가 해소된 Task의 owner에게 시작 통보
+4. 모든 Task 완료 시 → 다음 워크플로우 단계로
+```
+
+### TaskList — 진행 상황 모니터링
+
+```markdown
+## Orchestrator 점검 패턴
+- 주기적으로 TaskList 호출하여 전체 진행 상황 파악
+- blocked Task가 있으면 차단 원인 분석
+- 완료된 Task의 산출물 품질 검증 후 SOT 갱신
+```
+
+---
+
+## Context Memory 연동 패턴
+
+워크플로우 실행 중 Context Preservation System을 활용하는 패턴.
+
+### 워크플로우 단계별 컨텍스트 전략
+
+```markdown
+## workflow.md 내 컨텍스트 명시
+
+### Phase 1: Research (컨텍스트 축적 단계)
+- **Context Strategy**: 최대 보존 모드
+- 모든 리서치 결과와 의사결정 근거를 스냅샷에 포함
+- Stop Hook이 매 응답 후 증분 스냅샷 자동 생성
+
+### Phase 2: Planning (컨텍스트 활용 단계)
+- **Context Strategy**: 선별적 참조 모드
+- Phase 1의 스냅샷을 참조하되, 계획 수립에 필요한 부분만 Read
+- SOT에 계획 상태 기록
+
+### Phase 3: Implementation (컨텍스트 분산 단계)
+- **Context Strategy**: 에이전트별 최소 컨텍스트
+- 각 에이전트는 자신의 Task description + 필요 입력 파일만 참조
+- Team Lead만 전체 맥락 유지 (SOT + 스냅샷)
+```
+
+### 장기 워크플로우에서의 세션 복구
+
+```markdown
+## 세션 복구 패턴 (워크플로우가 여러 세션에 걸칠 때)
+
+### 복구 흐름:
+1. SessionStart Hook이 latest.md 포인터 출력
+2. Claude가 Read tool로 스냅샷 로드
+3. SOT(state.yaml)에서 current_step 확인
+4. 해당 단계의 산출물 파일 존재 여부 검증
+5. 중단된 지점부터 워크플로우 재개
+
+### 워크플로우 설계 시 고려사항:
+- 각 단계의 산출물은 **반드시 파일로 저장** (메모리 내 데이터 금지)
+- SOT에 단계별 산출물 경로 기록 (outputs 필드)
+- 세션 복구 시 SOT만 읽으면 전체 상태 파악 가능하도록 설계
+```
+
+---
+
+## Orchestrator 고급 패턴
+
+### 재시도 패턴 (Retry with Feedback)
+
+```markdown
+### 3. 콘텐츠 작성 (재시도 포함)
+- **Agent**: `@writer`
+- **Task**: 리서치 기반 콘텐츠 작성
+- **Quality Gate**: TaskCompleted Hook (agent 타입)
+- **On Failure**:
+  - 시도 1: Hook 피드백을 에이전트에 전달 → 자동 재작업
+  - 시도 2: 추가 컨텍스트 제공 후 재시도
+  - 시도 3: (human) 수동 개입 요청
+- **Max Attempts**: 3
+- **SOT Update**: 각 시도의 결과를 state.yaml에 기록
+```
+
+### 에스컬레이션 패턴
+
+```markdown
+### Orchestrator 에스컬레이션 규칙:
+1. **자동 해결**: Hook 피드백 기반 재시도 (시도 1-2)
+2. **Team Lead 개입**: 에이전트 교체 또는 Task 분할 (시도 3)
+3. **Human 에스컬레이션**: AskUserQuestion으로 사용자 판단 요청 (시도 4+)
+
+### 에스컬레이션 시 SOT 기록:
+```yaml
+workflow:
+  current_step: 3
+  status: "escalated"
+  escalation:
+    reason: "3회 품질 검증 실패"
+    failed_attempts: 3
+    last_feedback: "출처 검증 미흡"
+```
+```
+
+### 조건부 라우팅 패턴
+
+```markdown
+### 4. 조건부 처리
+- **Input**: Step 3의 산출물
+- **Condition**: 산출물의 길이/복잡도에 따라 분기
+  - **Path A** (간단한 경우): `@quick-editor`로 직접 편집
+  - **Path B** (복잡한 경우): Agent Team으로 병렬 처리
+- **Condition Evaluator**:
+  - Hook (command 타입): 파일 크기/구조 검사 (결정론적)
+  - 또는 Hook (prompt 타입): haiku로 복잡도 판단 (의미적)
+- **SOT Update**: 선택된 경로를 state.yaml에 기록
+```
+
+---
+
 ## 에러 처리
 
 ```yaml
 error_handling:
   on_agent_failure:
-    action: retry
+    action: retry_with_feedback
     max_attempts: 3
+    escalation: human  # 3회 초과 시 사용자에게 에스컬레이션
 
   on_tool_failure:
     action: notify_and_pause
     message: "도구 실행 실패. 수동 개입 필요."
+    sot_update: true  # SOT에 에러 상태 기록
 
   on_validation_failure:
-    action: rollback_to_step
-    step: previous
+    action: retry_or_rollback
+    retry_with_feedback: true  # Hook 피드백을 에이전트에 전달
+    rollback_after: 3  # 3회 실패 후 이전 단계로 롤백
 
   on_hook_failure:
     action: log_and_continue
     message: "Hook 실행 실패. 워크플로우는 계속 진행."
+
+  on_context_overflow:
+    action: save_and_recover
+    description: "컨텍스트 초과 시 자동 저장 후 세션 복구 패턴 적용"
 ```
 
 ---

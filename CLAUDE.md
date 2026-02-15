@@ -31,10 +31,44 @@ Claude Code 기반의 에이전트 워크플로우 자동화 프로젝트.
 - **쓰기 권한**: SOT 파일 쓰기는 Orchestrator/Team Lead만. 나머지는 읽기 전용 + 산출물 파일 생성.
 - **충돌 방지**: 병렬 에이전트가 동일 파일을 동시 수정하는 구조 금지.
 
+### 절대 기준 3: 코드 변경 프로토콜 (Code Change Protocol)
+
+> **코드를 작성·수정·추가·삭제하기 전에, 반드시 아래 3단계를 내부적으로 수행한다.**
+> 이 프로토콜을 건너뛰는 것은 절대 기준 위반이다.
+> 프로토콜은 항상 수행하되, 분석 깊이는 변경의 영향 범위에 비례한다.
+
+**Step 1 — 의도 파악**:
+- 변경 목적(버그 수정/기능 추가/리팩토링/성능)과 제약(호환성, 기술 스택)을 1-2문장으로 정의
+- 경미한 변경(오타, 주석, 포맷팅)이면 "파급 효과 없음" 확인 후 즉시 실행 가능
+
+**Step 2 — 영향 범위 분석 (Ripple Effect Analysis)**:
+- 직접 의존 + 호출 관계 (caller/callee)
+- 구조적 관계 (상속, 합성, 참조)
+- 데이터 모델/스키마/타입 연쇄 변경
+- 테스트, 설정, 문서, API 스펙
+- 강결합·샷건 서저리 위험이 있으면 **반드시** 사전 고지 후 사용자와 협의
+
+**Step 3 — 변경 설계 (Change Plan)**:
+- 단계별 변경 순서 (어떤 파일/함수부터 → 의존성 전파 → 테스트/문서 정합)
+- 결합도 감소 / 응집도 증가 기회가 보이면 함께 제안 (실행은 사용자 승인 후)
+
+**비례성 규칙:**
+
+| 변경 규모 | 적용 깊이 |
+|----------|---------|
+| 경미 (오타, 주석) | Step 1만 — 파급 효과 없음 확인 |
+| 표준 (함수/로직 변경) | 전체 3단계 |
+| 대규모 (아키텍처, API) | 전체 3단계 + 사전 사용자 승인 필수 |
+
+**커뮤니케이션 규칙:**
+- 불필요하게 장황한 이론 설명은 피하고, 실질적인 코드와 구체적 단계 위주로 설명한다.
+- 중요한 설계 선택에는 간단한 이유를 덧붙인다.
+- 모호한 부분이 있어도 작업을 회피하지 말고, "합리적인 가정"을 명시한 뒤 최선의 설계를 제안한다.
+
 ### 절대 기준 간 우선순위
 
-> **절대 기준 1(품질)과 절대 기준 2(SOT)가 충돌할 경우, 절대 기준 1이 우선한다.**
-> SOT는 품질을 보장하기 위한 **수단**이지, 품질을 제약하는 **목적**이 아니다.
+> **절대 기준 1(품질)이 최상위이다. 절대 기준 2(SOT)와 절대 기준 3(CCP)은 품질을 보장하기 위한 동위 수단이다.**
+> 어느 기준이든 절대 기준 1과 충돌하면 품질이 이긴다. SOT와 CCP 모두 품질을 제약하는 **목적**이 아니라, 품질을 보장하기 위한 **수단**이다.
 
 ---
 
@@ -51,6 +85,7 @@ AgenticWorkflow/
 ├── .claude/
 │   ├── settings.json                      ← Hook 설정 (SessionEnd)
 │   ├── hooks/scripts/                     ← Context Preservation System
+│   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
 │   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처)
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터)
@@ -94,8 +129,12 @@ AgenticWorkflow/
 
 ### Hook 설정 위치
 
-- **Global** (`~/.claude/settings.json`): PreCompact, SessionStart, PostToolUse, Stop
-- **Project** (`.claude/settings.json`): SessionEnd
+- **Global** (`~/.claude/settings.json`): `context_guard.py` 통합 디스패처를 통해 4개 Hook 실행
+  - Stop → `context_guard.py --mode=stop` → `generate_context_summary.py`
+  - PostToolUse → `context_guard.py --mode=post-tool` → `update_work_log.py`
+  - PreCompact → `context_guard.py --mode=pre-compact` → `save_context.py --trigger precompact`
+  - SessionStart → `context_guard.py --mode=restore` → `restore_context.py`
+- **Project** (`.claude/settings.json`): SessionEnd → `save_context.py --trigger sessionend`
 
 ## 스킬 사용 판별
 
@@ -122,7 +161,7 @@ AgenticWorkflow/
 
 새로운 스킬을 만들거나 기존 스킬을 수정할 때:
 
-1. **절대 기준 3개를 반드시 포함**한다 — 해당 도메인에 맞게 맥락화하여 적용.
+1. **모든 절대 기준을 반드시 포함**한다 — 해당 도메인에 맞게 맥락화하여 적용 (코드 변경이 아닌 도메인의 경우 절대 기준 3은 N/A 가능).
 2. **파일 간 역할 분담**을 명확히 한다 — SKILL.md(WHY), references/(WHAT/HOW/VERIFY).
 3. **절대 기준 간 충돌 시나리오**를 구체적으로 명시한다 — 추상적 규칙이 아닌 실전 판단 기준.
 4. 수정 후 반드시 **절대 기준 관점에서 성찰**한다 — 문구만 넣지 않고 기존 내용과 충돌 여부를 점검.
