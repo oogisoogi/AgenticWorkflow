@@ -156,6 +156,27 @@ AgenticWorkflow/
 └── coding-resource/     ← 참고 자료
 ```
 
+### Context Preservation System
+
+컨텍스트 윈도우 소진, 세션 초기화, 컨텍스트 압축 시 작업 맥락이 상실되는 문제를 방지하는 자동 저장·복원 시스템이다.
+
+**핵심 원리:**
+- RLM 패턴 적용: 작업 내역을 **외부 메모리 객체**(MD 파일)로 영속화하고, 새 세션에서 포인터 기반으로 복원
+- P1 원칙 준수: 트랜스크립트 파싱·통계 산출은 Python 코드가 결정론적으로 수행. AI는 의미 해석에만 집중
+- 절대 기준 2 준수: SOT 파일(`state.yaml`)은 **읽기 전용**으로만 접근. 스냅샷은 별도 디렉터리(`context-snapshots/`)에 저장
+
+**데이터 흐름:**
+
+```
+작업 진행 중 ─→ [PostToolUse] update_work_log.py ─→ work_log.jsonl 누적
+                                                     │ (토큰 75% 초과 시)
+                                                     ↓
+세션 종료/압축 ─→ [SessionEnd/PreCompact] save_context.py ─→ latest.md 저장
+                                                              ↑
+새 세션 시작 ──→ [SessionStart] restore_context.py ───────→ 포인터+요약 출력
+                                                     AI가 Read tool로 전체 복원
+```
+
 ---
 
 ## 5. 구현 요소 매핑

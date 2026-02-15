@@ -72,6 +72,31 @@ AgenticWorkflow/
     └── recursive language models.pdf      (장기기억 구현 이론)
 ```
 
+## Context Preservation System
+
+컨텍스트 토큰 초과·`/clear`·압축 시 작업 내역 상실을 방지하는 자동 저장·복원 시스템이다.
+
+### 동작 원리
+
+| Hook 이벤트 | 스크립트 | 동작 |
+|------------|---------|------|
+| **SessionEnd** (`/clear`) | `save_context.py` | 전체 대화·작업 내역을 MD 스냅샷으로 저장 |
+| **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 |
+| **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약을 stdout으로 출력 |
+| **PostToolUse** | `update_work_log.py` | 작업 로그 누적. 토큰 75% 초과 시 proactive 저장 |
+| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 |
+
+### Claude의 활용 방법
+
+- 세션 시작 시 `[CONTEXT RECOVERY]` 메시지가 표시되면, 안내된 경로의 파일을 **반드시 Read tool로 읽어** 이전 맥락을 복원한다.
+- 스냅샷은 `.claude/context-snapshots/latest.md`에 저장된다.
+- Hook 스크립트는 SOT(`state.yaml`)를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수).
+
+### Hook 설정 위치
+
+- **Global** (`~/.claude/settings.json`): PreCompact, SessionStart, PostToolUse, Stop
+- **Project** (`.claude/settings.json`): SessionEnd
+
 ## 스킬 사용 판별
 
 | 사용자 요청 패턴 | 스킬 | 진입점 |

@@ -557,6 +557,101 @@ workflow:
 | **품질 기여** | 전문 집중 | 다관점 병렬 | 결정론적 검증 | 사람의 판단 |
 | **적합한 작업** | 집중·순차 작업 | 병렬 협업 | 검증·포맷팅·게이트 | 검토·승인·선택 |
 
+### 4.10 Context Preservation System — 컨텍스트 보존 시스템
+
+**설계 사상:** Claude Code의 컨텍스트 윈도우가 소진되면(`/clear`, 컨텍스트 압축), 진행 중이던 작업의 맥락이 완전히 상실된다. 이 시스템은 RLM 패턴을 적용하여 작업 내역을 **외부 메모리 객체**(MD 파일)로 영속화하고, 새 세션에서 포인터 기반으로 복원한다.
+
+**RLM 패턴 적용:**
+
+RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말고, 외부 환경의 객체로 취급하라" — 을 컨텍스트 보존에 적용했다:
+
+| RLM 개념 | Context Preservation 대응 | 설계 근거 |
+|---------|-------------------------|----------|
+| 외부 환경 객체 | `.claude/context-snapshots/latest.md` | 스냅샷을 외부 파일로 영속화 |
+| 포인터 기반 접근 | `restore_context.py`가 포인터+요약만 출력 | Claude가 Read tool로 전체 로드 (직접 주입 아님) |
+| Code-based Filtering | `_context_lib.py`가 트랜스크립트를 결정론적으로 파싱 | P1 원칙: 코드가 정제, AI가 해석 |
+| Variable Persistence | `work_log.jsonl`로 중간 상태 영속 저장 | 도구 사용마다 누적, 스냅샷 생성 시 활용 |
+
+**스크립트 아키텍처와 데이터 흐름:**
+
+```mermaid
+graph TB
+    subgraph "Hook 트리거"
+        SE["SessionEnd<br/>/clear"]
+        PC["PreCompact<br/>압축 전"]
+        PTU["PostToolUse<br/>도구 실행 후"]
+        ST["Stop<br/>응답 완료"]
+        SS["SessionStart<br/>세션 시작"]
+    end
+
+    subgraph "스크립트"
+        SAVE["save_context.py<br/>전체 스냅샷 저장"]
+        UWL["update_work_log.py<br/>작업 로그 누적 + threshold 저장"]
+        GCS["generate_context_summary.py<br/>증분 스냅샷"]
+        REST["restore_context.py<br/>포인터+요약 복원"]
+        LIB["_context_lib.py<br/>공유 라이브러리"]
+    end
+
+    subgraph "데이터"
+        SNAP["context-snapshots/latest.md<br/>스냅샷"]
+        WLOG["work_log.jsonl<br/>작업 로그"]
+        TRANS["transcript.jsonl<br/>(읽기 전용)"]
+        SOT2["state.yaml<br/>(읽기 전용)"]
+    end
+
+    SE --> SAVE
+    PC --> SAVE
+    PTU --> UWL
+    ST --> GCS
+    SS --> REST
+
+    SAVE --> LIB
+    UWL --> LIB
+    GCS --> LIB
+
+    LIB --> TRANS
+    LIB --> SOT2
+    LIB --> SNAP
+    UWL --> WLOG
+    LIB --> WLOG
+    REST --> SNAP
+
+    style SOT2 fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style SNAP fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+```
+
+**SOT 준수 (절대 기준 2):**
+
+| 대상 | 접근 권한 | 근거 |
+|------|---------|------|
+| `state.yaml` (SOT) | **읽기 전용** — 스냅샷에 SOT 상태를 기록하지만 수정하지 않음 | 절대 기준 2: SOT 쓰기는 Orchestrator만 |
+| `transcript.jsonl` | **읽기 전용** — 대화 내역 파싱 | Claude Code 시스템 파일, 수정 불가 |
+| `context-snapshots/` | **쓰기** — atomic write (temp → rename) | Hook 전용 산출물 디렉터리, SOT와 분리 |
+| `work_log.jsonl` | **쓰기** — fcntl.flock 파일 잠금 | Hook 전용 로그, SOT와 분리 |
+
+**P1 원칙 적용 (정확도를 위한 데이터 정제):**
+
+| 처리 | 담당 | 방식 |
+|------|------|------|
+| 트랜스크립트 파싱, 통계 산출 | **Python** (`_context_lib.py`) | 결정론적 — heuristic 추론 없음 |
+| 시스템 메시지 필터링 | **Python** (`_context_lib.py`) | `<system-reminder>` 등 자동 분류 |
+| 스냅샷 구조화 (섹션 배치, 압축) | **Python** (`_context_lib.py`) | verbatim 인용 + 구조화 메타데이터 |
+| 복원된 스냅샷 해석, 작업 맥락 파악 | **AI** (Claude) | Read tool로 스냅샷 로드 후 의미 해석 |
+
+**안전성 보장:**
+
+- **Atomic write**: 모든 파일 쓰기는 temp file → `os.rename` 패턴으로 중간 상태 노출 방지
+- **Dedup guard**: 10초 이내 중복 저장 방지
+- **File locking**: `work_log.jsonl` 접근 시 `fcntl.flock` 파일 잠금으로 동시성 보호
+- **Non-blocking**: 모든 Hook은 exit 0 반환 — 실패해도 Claude 동작을 차단하지 않음
+
+**Hook 설정 분리 (Global vs Project):**
+
+| 위치 | Hook 이벤트 | 근거 |
+|------|------------|------|
+| `~/.claude/settings.json` (Global) | PreCompact, SessionStart, PostToolUse, Stop | 모든 프로젝트에서 컨텍스트 보존 필요 |
+| `.claude/settings.json` (Project) | SessionEnd | `/clear` 감지는 프로젝트별 설정으로 커밋 공유 |
+
 ---
 
 ## 5. 설계 원칙 (Design Principles)
