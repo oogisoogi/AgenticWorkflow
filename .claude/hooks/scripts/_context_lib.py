@@ -55,6 +55,9 @@ MAX_SNAPSHOTS = {
     "stop": 5,
 }
 DEFAULT_MAX_SNAPSHOTS = 3
+# Knowledge Archive limits (Area 1: Cross-Session Knowledge Archive)
+MAX_KNOWLEDGE_INDEX_ENTRIES = 200
+MAX_SESSION_ARCHIVES = 20
 
 
 # =============================================================================
@@ -201,6 +204,8 @@ def _parse_assistant_entry(obj, timestamp):
                 elif tool_name == "Bash":
                     entry["command"] = tool_input.get("command", "")
                     entry["description"] = tool_input.get("description", "")
+                elif tool_name == "Read":
+                    entry["file_path"] = tool_input.get("file_path", "")
 
                 results.append(entry)
 
@@ -338,6 +343,10 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
         if not (m["content"].startswith("<") and ">" in m["content"][:50])
     ]
 
+    # Pre-compute structured data (used by multiple sections)
+    file_ops = _extract_file_operations(tool_uses, work_log)
+    read_ops = _extract_read_operations(tool_uses)
+
     # Build MD sections
     sections = []
 
@@ -375,9 +384,42 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
         sections.append("SOT 파일 없음 (state.yaml/state.json 미발견)")
     sections.append("")
 
+    # Section 2b: Resume Protocol (deterministic — P1 compliant)
+    # Compact actionable summary for session restoration.
+    # Positioned early so it survives hard truncation.
+    sections.append("## 복원 지시 (Resume Protocol)")
+    sections.append("<!-- Python 결정론적 생성 — P1 준수 -->")
+    sections.append("")
+    # Modified files with frequency
+    if file_ops:
+        sections.append("### 수정 중이던 파일")
+        for op in file_ops:
+            sections.append(f"- `{op['path']}` ({op['tool']}, {op['summary']})")
+    # Referenced files with frequency
+    if read_ops:
+        sections.append("### 참조하던 파일")
+        for op in read_ops[:10]:  # Top 10 for compact summary
+            sections.append(f"- `{op['path']}` (Read, {op['count']}회)")
+    # Session metadata
+    transcript_size = _get_file_size(entries)
+    estimated_tokens = int(transcript_size / CHARS_PER_TOKEN)
+    last_tool = ""
+    if tool_uses:
+        last_tu = tool_uses[-1]
+        last_tool_name = last_tu.get("tool_name", "")
+        last_tool_path = last_tu.get("file_path", "")
+        last_tool = f"{last_tool_name}"
+        if last_tool_path:
+            last_tool += f" → {last_tool_path}"
+    sections.append("### 세션 정보")
+    sections.append(f"- 종료 트리거: {trigger}")
+    sections.append(f"- 추정 토큰: ~{estimated_tokens:,}")
+    if last_tool:
+        sections.append(f"- 마지막 도구: {last_tool}")
+    sections.append("")
+
     # Section 3: Modified Files (deterministic — from structured metadata)
     sections.append("## 수정된 파일 (Modified Files)")
-    file_ops = _extract_file_operations(tool_uses, work_log)
     if file_ops:
         sections.append("| 파일 경로 | 도구 | 변경 요약 |")
         sections.append("|----------|------|---------|")
@@ -387,7 +429,29 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
         sections.append("(파일 수정 기록 없음)")
     sections.append("")
 
-    # Section 4: Statistics (positioned early — survives hard truncation)
+    # Section 3b: Referenced Files (deterministic — from Read tool metadata)
+    sections.append("## 참조된 파일 (Referenced Files)")
+    if read_ops:
+        sections.append("| 파일 경로 | 횟수 |")
+        sections.append("|----------|------|")
+        for op in read_ops[:20]:  # Top 20 most-read files
+            sections.append(f"| `{op['path']}` | {op['count']} |")
+    else:
+        sections.append("(파일 참조 기록 없음)")
+    sections.append("")
+
+    # Section 4: User Messages (verbatim — last N)
+    # 품질 최적화: 사용자 의도·지시 이력은 복원의 핵심이므로 Statistics/Commands보다 앞에 배치.
+    # Hard truncation(Phase 5) 시 생존 우선순위가 높아진다.
+    sections.append("## 사용자 요청 이력 (User Messages)")
+    if user_msgs_filtered:
+        for i, msg in enumerate(user_msgs_filtered[-12:], 1):
+            sections.append(f"{i}. {_truncate(msg['content'], 800)}")
+    else:
+        sections.append("(사용자 메시지 없음)")
+    sections.append("")
+
+    # Section 5: Statistics
     sections.append("## 대화 통계")
     transcript_size = _get_file_size(entries)
     estimated_tokens = int(transcript_size / CHARS_PER_TOKEN)
@@ -400,7 +464,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
         sections.append(f"- 마지막 사용자 메시지: \"{last_msg}\"")
     sections.append("")
 
-    # Section 5: Commands Executed (verbatim from Bash tool_use entries)
+    # Section 6: Commands Executed (verbatim from Bash tool_use entries)
     sections.append("## 실행된 명령 (Commands Executed)")
     bash_ops = [t for t in tool_uses if t.get("tool_name") == "Bash"]
     if bash_ops:
@@ -413,15 +477,6 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                 sections.append(f"- {op['content']}")
     else:
         sections.append("(명령 실행 기록 없음)")
-    sections.append("")
-
-    # Section 6: User Messages (verbatim — last N)
-    sections.append("## 사용자 요청 이력 (User Messages)")
-    if user_msgs_filtered:
-        for i, msg in enumerate(user_msgs_filtered[-12:], 1):
-            sections.append(f"{i}. {_truncate(msg['content'], 800)}")
-    else:
-        sections.append("(사용자 메시지 없음)")
     sections.append("")
 
     # Section 7: Claude Key Responses (verbatim — last N meaningful)
@@ -466,9 +521,13 @@ def _extract_file_operations(tool_uses, work_log=None):
 
     Uses entry['file_path'] (set by _parse_assistant_entry) instead of
     parsing summary strings. This is 100% deterministic.
+
+    Tracks ALL operations per path: shows last tool type and total count.
+    This ensures Resume Protocol accurately reflects the full extent of modifications.
     """
-    ops = []
-    seen_paths = set()
+    # Track operations per path (preserve insertion order)
+    path_order = []
+    ops_by_path = {}
 
     for tu in tool_uses:
         tool_name = tu.get("tool_name", "")
@@ -476,28 +535,43 @@ def _extract_file_operations(tool_uses, work_log=None):
         if tool_name in ("Write", "Edit"):
             # Use structured metadata — NOT string parsing
             path = tu.get("file_path", "")
+            if not path:
+                continue
 
-            if path and path not in seen_paths:
-                seen_paths.add(path)
+            if path not in ops_by_path:
+                path_order.append(path)
+                ops_by_path[path] = {"count": 0, "last_tool": "", "last_summary": ""}
 
-                if tool_name == "Write":
-                    line_count = tu.get("line_count", 0)
-                    summary = f"Write ({line_count} lines)"
-                else:
-                    summary = "Edit"
+            record = ops_by_path[path]
+            record["count"] += 1
+            record["last_tool"] = tool_name
 
-                ops.append({
-                    "path": path,
-                    "tool": tool_name,
-                    "summary": summary,
-                })
+            if tool_name == "Write":
+                line_count = tu.get("line_count", 0)
+                record["last_summary"] = f"Write ({line_count} lines)"
+            else:
+                record["last_summary"] = "Edit"
+
+    # Build result list in insertion order
+    ops = []
+    for path in path_order:
+        record = ops_by_path[path]
+        if record["count"] > 1:
+            summary = f"{record['last_summary']}, {record['count']}회 수정"
+        else:
+            summary = record["last_summary"]
+        ops.append({
+            "path": path,
+            "tool": record["last_tool"],
+            "summary": summary,
+        })
 
     # Supplement from work log (already structured)
     if work_log:
         for entry in work_log:
             path = entry.get("file_path", "")
-            if path and path not in seen_paths:
-                seen_paths.add(path)
+            if path and path not in ops_by_path:
+                ops_by_path[path] = True  # Mark as seen
                 ops.append({
                     "path": path,
                     "tool": entry.get("tool_name", ""),
@@ -505,6 +579,27 @@ def _extract_file_operations(tool_uses, work_log=None):
                 })
 
     return ops
+
+
+def _extract_read_operations(tool_uses):
+    """Extract Read operations with frequency count.
+
+    Deterministic extraction from tool_use entries.
+    Tracks which files Claude was consulting during the session.
+    Used for Resume Protocol and Knowledge Archive.
+    """
+    read_counts = {}
+    for tu in tool_uses:
+        if tu.get("tool_name") == "Read":
+            path = tu.get("file_path", "")
+            if path:
+                read_counts[path] = read_counts.get(path, 0) + 1
+
+    # Sort by frequency (most read first), then alphabetically
+    return sorted(
+        [{"path": p, "count": c} for p, c in read_counts.items()],
+        key=lambda x: (-x["count"], x["path"]),
+    )
 
 
 # =============================================================================
@@ -703,7 +798,7 @@ def _compress_snapshot(full_md, sections):
       4. Reduce Claude responses (keep conclusions — last 200 chars of each)
       5. Hard truncate only as absolute last resort
 
-    Always preserved: Header, Current Task, SOT, Modified Files, User Messages
+    Always preserved: Header, Current Task, SOT, Resume Protocol, Modified Files, Referenced Files, User Messages
     """
     # Phase 1: Deduplicate — remove consecutive identical tool operations
     deduped_sections = _dedup_sections(sections)
@@ -851,3 +946,171 @@ def read_stdin_json():
     except (json.JSONDecodeError, Exception):
         pass
     return {}
+
+
+# =============================================================================
+# Knowledge Archive (Area 1: Cross-Session Knowledge Archive)
+# =============================================================================
+
+def extract_session_facts(session_id, trigger, project_dir, entries, token_estimate=0):
+    """Extract deterministic session facts for knowledge-index.jsonl.
+
+    P1 Compliance: All fields are deterministic extractions.
+    No semantic inference, no heuristic judgment.
+    """
+    user_messages = [e for e in entries if e["type"] == "user_message"]
+    tool_uses = [e for e in entries if e["type"] == "tool_use"]
+
+    # First user message, first 100 chars (deterministic)
+    user_task = ""
+    if user_messages:
+        # Skip system-injected messages
+        for msg in user_messages:
+            content = msg.get("content", "")
+            if not (content.startswith("<") and ">" in content[:50]):
+                user_task = content[:100]
+                break
+
+    # Last user instruction (deterministic) — 품질 최적화
+    # 긴 세션에서 마지막 지시가 "현재 작업 상태"를 더 정확히 반영한다.
+    last_instruction = ""
+    if user_messages:
+        for msg in reversed(user_messages):
+            content = msg.get("content", "")
+            if not (content.startswith("<") and ">" in content[:50]):
+                if content[:100] != user_task:  # 첫 메시지와 동일하면 생략
+                    last_instruction = content[:100]
+                break
+
+    # Modified files — unique paths from Write/Edit
+    modified_files = sorted(set(
+        tu.get("file_path", "") for tu in tool_uses
+        if tu.get("tool_name") in ("Write", "Edit") and tu.get("file_path")
+    ))
+
+    # Read files — unique paths from Read
+    read_files = sorted(set(
+        tu.get("file_path", "") for tu in tool_uses
+        if tu.get("tool_name") == "Read" and tu.get("file_path")
+    ))
+
+    # Tool usage counts (deterministic)
+    tools_used = {}
+    for tu in tool_uses:
+        name = tu.get("tool_name", "unknown")
+        tools_used[name] = tools_used.get(name, 0) + 1
+
+    facts = {
+        "session_id": session_id,
+        "timestamp": datetime.now().isoformat(),
+        "project": project_dir,
+        "user_task": user_task,
+        "modified_files": modified_files,
+        "read_files": read_files,
+        "tools_used": tools_used,
+        "trigger": trigger,
+        "token_estimate": token_estimate,
+    }
+    if last_instruction:
+        facts["last_instruction"] = last_instruction
+    return facts
+
+
+def replace_or_append_session_facts(ki_path, facts):
+    """Append session facts to knowledge-index.jsonl with session_id dedup.
+
+    If an entry with the same session_id already exists, replaces it
+    (later saves have more complete data — e.g., sessionend after threshold).
+    Uses file locking for concurrent safety.
+
+    P1 Compliance: All operations are deterministic (JSON read/filter/write).
+    SOT Compliance: Only called from save_context.py and _trigger_proactive_save.
+    """
+    session_id = facts.get("session_id", "")
+    os.makedirs(os.path.dirname(ki_path), exist_ok=True)
+
+    with open(ki_path, "a+", encoding="utf-8") as f:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            f.seek(0)
+            lines = f.readlines()
+
+            # Filter out existing entry with same session_id
+            kept = []
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if session_id:
+                    try:
+                        entry = json.loads(stripped)
+                        if entry.get("session_id") == session_id:
+                            continue  # Remove old entry — will be replaced
+                    except json.JSONDecodeError:
+                        pass
+                kept.append(stripped + "\n")
+
+            # Append new entry
+            kept.append(json.dumps(facts, ensure_ascii=False) + "\n")
+
+            # Rewrite file atomically within lock
+            f.seek(0)
+            f.truncate(0)
+            f.writelines(kept)
+            f.flush()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def cleanup_knowledge_index(snapshot_dir):
+    """Rotate knowledge-index.jsonl to keep MAX_KNOWLEDGE_INDEX_ENTRIES entries.
+
+    Deterministic: keeps the most recent N entries, removes oldest.
+    """
+    ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+    if not os.path.exists(ki_path):
+        return
+
+    try:
+        lines = []
+        with open(ki_path, "r", encoding="utf-8") as f:
+            lines = [line for line in f if line.strip()]
+
+        if len(lines) <= MAX_KNOWLEDGE_INDEX_ENTRIES:
+            return
+
+        # Keep only the most recent entries
+        trimmed = lines[-MAX_KNOWLEDGE_INDEX_ENTRIES:]
+        atomic_write(ki_path, "".join(trimmed))
+    except Exception:
+        pass
+
+
+def cleanup_session_archives(snapshot_dir):
+    """Rotate session archives to keep MAX_SESSION_ARCHIVES files.
+
+    Keeps most recent by modification time.
+    """
+    sessions_dir = os.path.join(snapshot_dir, "sessions")
+    if not os.path.isdir(sessions_dir):
+        return
+
+    try:
+        files = []
+        for f in os.listdir(sessions_dir):
+            if f.endswith(".md"):
+                fpath = os.path.join(sessions_dir, f)
+                files.append((fpath, os.path.getmtime(fpath)))
+
+        if len(files) <= MAX_SESSION_ARCHIVES:
+            return
+
+        # Sort by mtime, newest first — remove oldest
+        files.sort(key=lambda x: x[1], reverse=True)
+        for fpath, _ in files[MAX_SESSION_ARCHIVES:]:
+            try:
+                os.unlink(fpath)
+            except OSError:
+                pass
+    except Exception:
+        pass

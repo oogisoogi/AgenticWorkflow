@@ -246,6 +246,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 - workflow.md 템플릿: `references/workflow-template.md`
 - Claude Code 구현 패턴 (Sub-agents, Teams, Hooks): `references/claude-code-patterns.md`
 - 문서 분석 가이드 (Case 2): `references/document-analysis-guide.md`
+- 컨텍스트 주입 패턴 (Sub-agent/Team 입력 전달): `references/context-injection-patterns.md`
 
 ## 최종 생성 절차
 

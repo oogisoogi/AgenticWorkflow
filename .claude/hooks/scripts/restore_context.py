@@ -9,11 +9,14 @@ RLM Pattern Implementation:
   - Does NOT inject the full snapshot content into stdout
   - Claude uses Read tool to load the external file when needed
   - This treats the snapshot as an "external environment object" (RLM)
+  - Knowledge Archive: includes pointers to knowledge-index.jsonl and sessions/
+  - Claude can Grep knowledge-index.jsonl for programmatic probing (RLM pattern)
 
 Output (stdout, exit 0):
   [CONTEXT RECOVERY]
   pointer to .claude/context-snapshots/latest.md
   + brief summary (≤500 chars)
+  + knowledge archive pointers (if available)
 
 SOT Compliance:
   - Read-only: reads latest.md and state.yaml, never modifies
@@ -99,9 +102,10 @@ def main():
 def _extract_brief_summary(content):
     """Extract key information from snapshot for brief summary.
 
-    Deterministic extraction from new snapshot structure:
+    Deterministic extraction from snapshot structure:
       - 현재 작업 (Current Task): first content line
       - 수정된 파일 (Modified Files): count of table rows
+      - 참조된 파일 (Referenced Files): count of table rows
       - 대화 통계: numeric stats lines
     """
     summary_parts = []
@@ -109,14 +113,18 @@ def _extract_brief_summary(content):
     lines = content.split("\n")
     current_section = ""
     files_count = 0
+    read_count = 0
 
     for line in lines:
-        # Section header detection (matches both old and new formats)
+        # Section header detection
         if line.startswith("## 현재 작업"):
             current_section = "task"
             continue
         elif line.startswith("## 수정된 파일"):
             current_section = "files"
+            continue
+        elif line.startswith("## 참조된 파일"):
+            current_section = "reads"
             continue
         elif line.startswith("## 대화 통계"):
             current_section = "stats"
@@ -136,14 +144,17 @@ def _extract_brief_summary(content):
             elif len(summary_parts) < 1:
                 summary_parts.append(("현재 작업", line[:200]))
         elif current_section == "files" and line.startswith("| `"):
-            # Count table data rows (file entries start with "| `path`")
             files_count += 1
+        elif current_section == "reads" and line.startswith("| `"):
+            read_count += 1
         elif current_section == "stats" and line.startswith("- "):
             summary_parts.append(("통계", line[:100]))
 
-    # Add file count as a single summary entry
+    # Add file counts as summary entries
     if files_count > 0:
         summary_parts.append(("수정 파일", f"{files_count}개 파일 수정됨"))
+    if read_count > 0:
+        summary_parts.append(("참조 파일", f"{read_count}개 파일 참조됨"))
 
     return summary_parts
 
@@ -200,6 +211,7 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
     task_info = ""
     latest_instruction = ""
     files_info = ""
+    reads_info = ""
     stats_info = []
 
     for label, content in summary:
@@ -209,6 +221,8 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             latest_instruction = content
         elif label == "수정 파일":
             files_info = content
+        elif label == "참조 파일":
+            reads_info = content
         elif label == "통계":
             stats_info.append(content)
 
@@ -223,11 +237,31 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             output_lines.append(f"■ {s}")
     if files_info:
         output_lines.append(f"■ {files_info}")
+    if reads_info:
+        output_lines.append(f"■ {reads_info}")
 
     # SOT warning
     if sot_warning:
         output_lines.append("")
         output_lines.append(f"⚠️ {sot_warning}")
+
+    # Knowledge Archive pointers (Area 1: Cross-Session)
+    snapshot_dir = os.path.dirname(latest_path)
+    ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+    sessions_dir = os.path.join(snapshot_dir, "sessions")
+
+    has_archive = os.path.exists(ki_path) or os.path.isdir(sessions_dir)
+    if has_archive:
+        output_lines.append("")
+        if os.path.exists(ki_path):
+            output_lines.append(f"■ 과거 세션 인덱스: {ki_path}")
+            recent = _get_recent_sessions(ki_path, 3)
+            for s in recent:
+                ts = s.get("timestamp", "")[:10]
+                task = s.get("user_task", "(기록 없음)")[:80]
+                output_lines.append(f"  - [{ts}] {task}")
+        if os.path.isdir(sessions_dir):
+            output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
 
     # Instruction for Claude
     output_lines.extend([
@@ -237,6 +271,27 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
     ])
 
     return "\n".join(output_lines)
+
+
+def _get_recent_sessions(ki_path, n=3):
+    """Read last N entries from knowledge-index.jsonl.
+
+    Deterministic: reads file, parses JSON lines, returns last N.
+    Non-blocking: returns empty list on any error.
+    """
+    try:
+        entries = []
+        with open(ki_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        return entries[-n:] if entries else []
+    except Exception:
+        return []
 
 
 def _format_age(seconds):

@@ -605,6 +605,8 @@ RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말�
 | 포인터 기반 접근 | `restore_context.py`가 포인터+요약만 출력 | Claude가 Read tool로 전체 로드 (직접 주입 아님) |
 | Code-based Filtering | `_context_lib.py`가 트랜스크립트를 결정론적으로 파싱 | P1 원칙: 코드가 정제, AI가 해석 |
 | Variable Persistence | `work_log.jsonl`로 중간 상태 영속 저장 | 도구 사용마다 누적, 스냅샷 생성 시 활용 |
+| 프로그래밍적 탐색 | `knowledge-index.jsonl` — Grep으로 검색 가능 | 과거 세션을 코드로 탐색 (RLM sub-call 대응) |
+| Resume Protocol | 스냅샷 내 결정론적 복원 지시 섹션 | 복원 품질의 바닥선(floor) 보장 |
 
 **스크립트 아키텍처와 데이터 흐름:**
 
@@ -633,6 +635,8 @@ graph TB
     subgraph "데이터"
         SNAP["context-snapshots/latest.md<br/>스냅샷"]
         WLOG["work_log.jsonl<br/>작업 로그"]
+        KI["knowledge-index.jsonl<br/>세션 간 축적 인덱스"]
+        SESS["sessions/<br/>세션별 아카이브"]
         TRANS["transcript.jsonl<br/>(읽기 전용)"]
         SOT2["state.yaml<br/>(읽기 전용)"]
     end
@@ -656,10 +660,17 @@ graph TB
     LIB --> SNAP
     UWL --> WLOG
     LIB --> WLOG
+    SAVE --> KI
+    SAVE --> SESS
+    UWL -->|"threshold 저장"| KI
+    UWL -->|"threshold 저장"| SESS
     REST --> SNAP
+    REST --> KI
 
     style SOT2 fill:#d4edda,stroke:#28a745,stroke-width:2px
     style SNAP fill:#fff3cd,stroke:#ffc107,stroke-width:2px
+    style KI fill:#e8daef,stroke:#8e44ad,stroke-width:2px
+    style SESS fill:#e8daef,stroke:#8e44ad,stroke-width:2px
 ```
 
 **SOT 준수 (절대 기준 2):**
@@ -670,6 +681,8 @@ graph TB
 | `transcript.jsonl` | **읽기 전용** — 대화 내역 파싱 | Claude Code 시스템 파일, 수정 불가 |
 | `context-snapshots/` | **쓰기** — atomic write (temp → rename) | Hook 전용 산출물 디렉터리, SOT와 분리 |
 | `work_log.jsonl` | **쓰기** — fcntl.flock 파일 잠금 | Hook 전용 로그, SOT와 분리 |
+| `knowledge-index.jsonl` | **쓰기** — replace_or_append (`save_context.py` + `update_work_log.py` threshold 경로) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup |
+| `sessions/` | **쓰기** — atomic write (`save_context.py` + `update_work_log.py` threshold 경로) | 세션 아카이브, SOT와 분리 |
 
 **P1 원칙 적용 (정확도를 위한 데이터 정제):**
 
@@ -678,6 +691,8 @@ graph TB
 | 트랜스크립트 파싱, 통계 산출 | **Python** (`_context_lib.py`) | 결정론적 — heuristic 추론 없음 |
 | 시스템 메시지 필터링 | **Python** (`_context_lib.py`) | `<system-reminder>` 등 자동 분류 |
 | 스냅샷 구조화 (섹션 배치, 압축) | **Python** (`_context_lib.py`) | verbatim 인용 + 구조화 메타데이터 |
+| Resume Protocol 생성 (수정/참조 파일 목록) | **Python** (`_context_lib.py`) | 결정론적 — tool_use 메타데이터에서 추출 |
+| 세션 간 인덱스 프로그래밍적 탐색 | **AI** (Claude) | Grep tool로 knowledge-index.jsonl 검색 |
 | 복원된 스냅샷 해석, 작업 맥락 파악 | **AI** (Claude) | Read tool로 스냅샷 로드 후 의미 해석 |
 
 **안전성 보장:**
@@ -686,6 +701,7 @@ graph TB
 - **Dedup guard**: 10초 이내 중복 저장 방지
 - **File locking**: `work_log.jsonl` 접근 시 `fcntl.flock` 파일 잠금으로 동시성 보호
 - **Non-blocking**: 모든 Hook은 exit 0 반환 — 실패해도 Claude 동작을 차단하지 않음
+- **Knowledge Archive 로테이션**: `knowledge-index.jsonl` 최대 200 엔트리, `sessions/` 최대 20 파일 유지
 
 **Hook 설정 분리 (Global vs Project):**
 

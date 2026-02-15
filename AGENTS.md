@@ -223,6 +223,8 @@ AgenticWorkflow/
 - RLM 패턴 적용: 작업 내역을 **외부 메모리 객체**(MD 파일)로 영속화하고, 새 세션에서 포인터 기반으로 복원
 - P1 원칙 준수: 트랜스크립트 파싱·통계 산출은 Python 코드가 결정론적으로 수행. AI는 의미 해석에만 집중
 - 절대 기준 2 준수: SOT 파일(`state.yaml`)은 **읽기 전용**으로만 접근. 스냅샷은 별도 디렉터리(`context-snapshots/`)에 저장
+- **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
+- **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터. 복원 품질의 바닥선 보장
 
 **데이터 흐름:**
 
@@ -231,8 +233,10 @@ AgenticWorkflow/
                                                      │ (토큰 75% 초과 시)
                                                      ↓
 세션 종료/압축 ─→ [SessionEnd/PreCompact] save_context.py ─→ latest.md 저장
-                                                              ↑
-새 세션 시작 ──→ [SessionStart] restore_context.py ───────→ 포인터+요약 출력
+                                                     │        + knowledge-index.jsonl 축적
+                                                     │        + sessions/ 아카이빙
+                                                     ↓
+새 세션 시작 ──→ [SessionStart] restore_context.py ───────→ 포인터+요약+과거세션 출력
                                                      AI가 Read tool로 전체 복원
 ```
 

@@ -20,6 +20,8 @@ Architecture:
   - Writes: Only to .claude/context-snapshots/
   - Dedup: Skips if latest.md was updated < 10 seconds ago
   - Atomic: temp file → rename
+  - Knowledge Archive: archives to sessions/, appends to knowledge-index.jsonl
+  - Rotation: cleanup_session_archives + cleanup_knowledge_index
 """
 
 import os
@@ -37,9 +39,14 @@ from _context_lib import (
     load_work_log,
     generate_snapshot_md,
     atomic_write,
+    replace_or_append_session_facts,
     cleanup_snapshots,
     should_skip_save,
     get_snapshot_dir,
+    estimate_tokens,
+    extract_session_facts,
+    cleanup_knowledge_index,
+    cleanup_session_archives,
 )
 
 
@@ -100,6 +107,36 @@ def main():
 
     # Cleanup old snapshots (keep per-trigger limits)
     cleanup_snapshots(snapshot_dir)
+
+    # --- Knowledge Archive (Area 1: Cross-Session) ---
+    # Archive snapshot to sessions/ directory
+    sessions_dir = os.path.join(snapshot_dir, "sessions")
+    os.makedirs(sessions_dir, exist_ok=True)
+    archive_name = f"{datetime.now().strftime('%Y-%m-%dT%H%M')}_{session_id[:8]}.md"
+    archive_path = os.path.join(sessions_dir, archive_name)
+    try:
+        atomic_write(archive_path, md_content)
+    except Exception:
+        pass  # Non-blocking
+
+    # Extract session facts and append to knowledge-index.jsonl
+    try:
+        estimated_tokens, _ = estimate_tokens(transcript_path, entries)
+        facts = extract_session_facts(
+            session_id=session_id,
+            trigger=trigger,
+            project_dir=project_dir,
+            entries=entries,
+            token_estimate=estimated_tokens,
+        )
+        ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+        replace_or_append_session_facts(ki_path, facts)
+    except Exception:
+        pass  # Non-blocking
+
+    # Cleanup archives and knowledge index (rotation)
+    cleanup_session_archives(snapshot_dir)
+    cleanup_knowledge_index(snapshot_dir)
 
     # Reset work log after successful full save (with lock to prevent race condition)
     work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")

@@ -92,10 +92,13 @@ AgenticWorkflow/
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적)
 │   │   └── generate_context_summary.py    (Stop 증분 스냅샷)
 │   ├── context-snapshots/                 ← 런타임 스냅샷 (gitignored)
+│   │   ├── latest.md                      (최신 스냅샷)
+│   │   ├── knowledge-index.jsonl          (세션 간 축적 인덱스 — RLM 프로그래밍적 탐색 대상)
+│   │   └── sessions/                      (세션별 아카이브)
 │   └── skills/
 │       ├── workflow-generator/            ← 워크플로우 설계·생성 스킬
 │       │   ├── SKILL.md
-│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide)
+│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide, context-injection-patterns)
 │       └── doctoral-writing/              ← 박사급 학술 글쓰기 스킬
 │           ├── SKILL.md
 │           └── references/                (clarity-checklist, common-issues, before-after-examples, discipline-guides, korean-quick-reference)
@@ -115,9 +118,9 @@ AgenticWorkflow/
 
 | Hook 이벤트 | 스크립트 | 동작 |
 |------------|---------|------|
-| **SessionEnd** (`/clear`) | `save_context.py` | 전체 대화·작업 내역을 MD 스냅샷으로 저장 |
-| **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 |
-| **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약을 stdout으로 출력 |
+| **SessionEnd** (`/clear`) | `save_context.py` | 전체 스냅샷 저장 + Knowledge Archive 아카이빙 |
+| **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
+| **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
 | **PostToolUse** | `update_work_log.py` | 작업 로그 누적. 토큰 75% 초과 시 proactive 저장 |
 | **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 |
 
@@ -125,6 +128,8 @@ AgenticWorkflow/
 
 - 세션 시작 시 `[CONTEXT RECOVERY]` 메시지가 표시되면, 안내된 경로의 파일을 **반드시 Read tool로 읽어** 이전 맥락을 복원한다.
 - 스냅샷은 `.claude/context-snapshots/latest.md`에 저장된다.
+- **Knowledge Archive**: `knowledge-index.jsonl`은 세션 간 축적되는 구조화된 인덱스이다. Grep tool로 프로그래밍적 탐색이 가능하다 (RLM 패턴).
+- **Resume Protocol**: 스냅샷에 포함된 "복원 지시" 섹션은 수정/참조 파일 목록과 세션 정보를 결정론적으로 제공한다.
 - Hook 스크립트는 SOT(`state.yaml`)를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수).
 
 ### Hook 설정 위치

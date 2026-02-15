@@ -36,6 +36,10 @@ from _context_lib import (
     generate_snapshot_md,
     atomic_write,
     cleanup_snapshots,
+    extract_session_facts,
+    replace_or_append_session_facts,
+    cleanup_knowledge_index,
+    cleanup_session_archives,
     THRESHOLD_75_TOKENS,
 )
 
@@ -163,6 +167,36 @@ def _trigger_proactive_save(project_dir, snapshot_dir, input_data=None):
 
         # Cleanup
         cleanup_snapshots(snapshot_dir)
+
+        # --- Knowledge Archive (Area 1: Cross-Session) ---
+        # Archive snapshot to sessions/ directory
+        try:
+            sessions_dir = os.path.join(snapshot_dir, "sessions")
+            os.makedirs(sessions_dir, exist_ok=True)
+            archive_name = f"{timestamp}_{session_id[:8]}.md"
+            archive_path = os.path.join(sessions_dir, archive_name)
+            atomic_write(archive_path, md_content)
+        except Exception:
+            pass  # Non-blocking
+
+        # Extract session facts and append to knowledge-index.jsonl (dedup by session_id)
+        try:
+            token_est, _ = estimate_tokens(transcript_path, entries)
+            facts = extract_session_facts(
+                session_id=session_id,
+                trigger="threshold",
+                project_dir=project_dir,
+                entries=entries,
+                token_estimate=token_est,
+            )
+            ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+            replace_or_append_session_facts(ki_path, facts)
+        except Exception:
+            pass  # Non-blocking
+
+        # Cleanup archives and knowledge index (rotation)
+        cleanup_session_archives(snapshot_dir)
+        cleanup_knowledge_index(snapshot_dir)
 
         # Reset work log after successful threshold save (with lock)
         work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")
