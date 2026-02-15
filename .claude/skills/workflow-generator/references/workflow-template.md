@@ -71,28 +71,128 @@ workflow.md 파일의 표준 구조.
 ## Claude Code Configuration
 
 ### Sub-agents
-[에이전트 정의 — .claude/agents/*.md 파일로 생성]
+
+```yaml
+# .claude/agents/[agent-name].md frontmatter 형식
+---
+name: [고유 식별자]
+description: "[자동 위임 트리거 설명]"
+model: [opus|sonnet|haiku]        # 품질 기준으로 선택 (절대 기준 1)
+tools: [허용 도구 — 쉼표 구분]
+disallowedTools: [차단 도구]       # 선택적
+permissionMode: [default|plan|dontAsk]
+maxTurns: [최대 턴 수]
+memory: [user|project|local]
+skills: [주입할 스킬 목록]         # 선택적
+mcpServers: [사용 가능 MCP]       # 선택적
+---
+
+[에이전트 시스템 프롬프트]
+```
+
+> **모델 선택 기준 (절대 기준 1)**: opus = 최고 품질 핵심 작업, sonnet = 안정적 반복 작업, haiku = 단순 보조 작업. "비용이 싸서"가 아니라 "품질이 충분한가"로 판단한다.
 
 ### Agent Team (병렬 협업이 필요한 경우)
-[팀 구성 — 독립 세션 간 병렬 작업]
+
+```markdown
+### [N]. (team) [단계명]
+- **Team**: `[team-name]`
+- **Tasks**:
+  - `@[teammate-1]` ([model]): [작업 설명]
+  - `@[teammate-2]` ([model]): [작업 설명]
+- **Join**: [합류 조건 — 예: 모든 팀원 완료 후 다음 단계]
+- **SOT 쓰기**: Team Lead만 `state.yaml` 갱신 (팀원은 산출물 파일만 생성)
+```
+
+> **선택 기준**: Agent Team은 "빠르니까"가 아니라, 독립 전문가 병렬 작업이나 다관점 교차 검증이 **품질을 높이는 경우**에만 사용한다. 상세: `references/claude-code-patterns.md §2`
 
 ### SOT (상태 관리)
 - **SOT 파일**: `.claude/state.yaml`
 - **쓰기 권한**: [Orchestrator 또는 Team Lead — 단일 쓰기 지점]
 - **에이전트 접근**: [읽기 전용 — 산출물 파일만 생성, SOT 직접 수정 금지]
-- **품질 우선 조정**: [SOT 기본 패턴이 품질 병목을 일으키는 경우, 팀원 간 산출물 직접 참조 등 구조 조정 사유를 여기에 기술. 해당 없으면 "기본 패턴 적용" 기재]
+- **품질 우선 조정**: [SOT 기본 패턴이 품질 병목을 일으키는 경우(예: 팀원이 stale data로 작업), 팀원 간 산출물 직접 참조 등 구조 조정 사유를 여기에 기술. 해당 없으면 "기본 패턴 적용" 기재. 상세: `references/claude-code-patterns.md §상태 관리`]
+
+### Task Management
+
+```markdown
+# 워크플로우 내 Task 설계 (Agent Team 사용 시)
+#### Task [N]: [작업명]
+- **subject**: "[짧은 제목]"
+- **description**: "[수행 내용 + 산출물 경로]"
+- **activeForm**: "[진행 중 표시 문구]"
+- **owner**: `@[agent-name]`
+- **blocks**: [이 Task에 의존하는 다른 Task 목록]
+- **blockedBy**: [이 Task가 의존하는 다른 Task 목록]
+```
+
+> **주의**: Task List(`~/.claude/tasks/`)는 작업 할당/추적 도구이지 SOT가 아니다. 워크플로우 상태는 반드시 SOT(`state.yaml`)에서 관리한다.
 
 ### Hooks
-[자동화 트리거 — .claude/settings.json에 정의]
+
+```json
+// .claude/settings.json 형식
+{
+  "hooks": {
+    "[이벤트명]": [
+      {
+        "matcher": "[대상 도구 — 예: Edit|Write]",  // 선택적
+        "hooks": [
+          {
+            "type": "command",                      // command | prompt | agent
+            "command": "[실행할 명령]",
+            "timeout": 30                            // 초 단위
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Exit Code 규칙**: `0` = 통과, `2` = 차단 (stderr → Claude에 피드백), 기타 = 논블로킹 에러
+**상세 패턴**: `references/claude-code-patterns.md §3. Hooks`
 
 ### Slash Commands
-[커맨드 정의 — .claude/commands/*.md 파일로 생성]
+
+```markdown
+# .claude/commands/[command-name].md 형식
+---
+description: "[명령어 설명]"
+---
+
+[명령어 실행 시 Claude에 전달되는 프롬프트]
+$ARGUMENTS  ← 사용자 입력 파라미터
+```
 
 ### Required Skills
-[필요 스킬 목록]
+[필요 스킬 목록 — `.claude/skills/[name]/SKILL.md`]
 
 ### MCP Servers
-[외부 연동 서버 목록]
+[외부 연동 서버 — `.mcp.json` 또는 `.claude/settings.json`에 정의]
+
+### Error Handling
+
+```yaml
+error_handling:
+  on_agent_failure:
+    action: retry_with_feedback
+    max_attempts: 3
+    escalation: human    # 3회 초과 시 사용자에게 에스컬레이션
+
+  on_validation_failure:
+    action: retry_or_rollback
+    retry_with_feedback: true
+    rollback_after: 3    # 3회 실패 후 이전 단계로 롤백
+
+  on_hook_failure:
+    action: log_and_continue   # Hook 실패는 워크플로우를 차단하지 않음
+
+  on_context_overflow:
+    action: save_and_recover   # Context Preservation System 자동 적용
+```
+
+> **상세 패턴**: `references/claude-code-patterns.md §에러 처리`
+
 ```
 
 ## 표기 규칙
