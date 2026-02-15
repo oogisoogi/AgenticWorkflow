@@ -30,9 +30,13 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-USER-MANUAL.md              # 사용자 매뉴얼
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  # 설계 철학 및 아키텍처 전체 조감도
 ├── COPYRIGHT.md              # 저작권
-├── .claude/skills/
-│   ├── workflow-generator/ # 워크플로우 설계·생성 스킬
-│   └── doctoral-writing/   # 박사급 학술 글쓰기 스킬
+├── .claude/
+│   ├── settings.json      # Hook 설정
+│   ├── hooks/scripts/     # Context Preservation System (5개 스크립트)
+│   ├── context-snapshots/ # 런타임 스냅샷 (gitignored)
+│   └── skills/
+│       ├── workflow-generator/ # 워크플로우 설계·생성 스킬
+│       └── doctoral-writing/   # 박사급 학술 글쓰기 스킬
 ├── prompt/                 # 프롬프트 자료
 └── coding-resource/        # 이론적 기반 자료
     └── recursive language models.pdf

@@ -164,6 +164,11 @@ graph TB
             DW["doctoral-writing<br/>SKILL.md + 5 refs"]
         end
 
+        subgraph "Context Preservation"
+            CPS["hooks/scripts/<br/>5개 Python 스크립트"]
+            CSS["context-snapshots/<br/>런타임 스냅샷"]
+        end
+
         subgraph "Prompt Resources"
             CP["crystalize-prompt.md<br/>프롬프트 압축"]
             DP["distill-partner.md<br/>에센스 추출"]
@@ -179,6 +184,8 @@ graph TB
         AGENTS --> DW
         CLAUDE --> WG
         RLM -.->|"이론적 기반"| AGENTS
+        RLM -.->|"RLM 패턴 적용"| CPS
+        CPS -->|"스냅샷 생성"| CSS
     end
 
     subgraph "Phase 1: 워크플로우 설계"
@@ -413,13 +420,14 @@ graph LR
     PRE["PreToolUse<br/>도구 실행 전"]
     POST["PostToolUse<br/>도구 실행 후"]
     STOP["Stop<br/>응답 완료"]
+    SE["SessionEnd<br/>세션 종료/clear"]
     SAS["SubagentStart<br/>서브에이전트 생성"]
     SAST["SubagentStop<br/>서브에이전트 종료"]
     TI["TeammateIdle<br/>팀원 대기 전환"]
     TC["TaskCompleted<br/>태스크 완료"]
     PC["PreCompact<br/>컨텍스트 압축 전"]
 
-    SS --> UPS --> PRE --> POST --> STOP
+    SS --> UPS --> PRE --> POST --> STOP --> SE
     SAS --> SAST
     TI --> TC
     POST --> PC
@@ -430,6 +438,8 @@ graph LR
 ```
 
 주황색 노드는 **차단 가능(blocking)** 이벤트 — exit code 2로 동작을 차단하고 피드백을 전달할 수 있다.
+
+> **Context Preservation System**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook을 사용하여 컨텍스트 보존 시스템을 운용한다. `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 상세는 `.claude/hooks/scripts/` 참조.
 
 **Hook 3가지 타입:**
 

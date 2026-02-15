@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/save_context.py --trigger sessionend"
+          }
+        ]
+      }
+    ]
+  }
+}

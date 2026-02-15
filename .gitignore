@@ -1,3 +1,6 @@
 .DS_Store
 *.pdf
 !coding-resource/*.pdf
+
+# Context Preservation System — session-specific runtime data
+.claude/context-snapshots/

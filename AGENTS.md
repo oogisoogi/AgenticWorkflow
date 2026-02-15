@@ -134,6 +134,14 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
 ├── COPYRIGHT.md          ← 저작권
 ├── .claude/
+│   ├── settings.json          ← Hook 설정 (SessionEnd)
+│   ├── hooks/scripts/         ← Context Preservation System
+│   │   ├── _context_lib.py    (공유 라이브러리)
+│   │   ├── save_context.py    (저장 엔진)
+│   │   ├── restore_context.py (복원 — RLM 포인터)
+│   │   ├── update_work_log.py (작업 로그 누적)
+│   │   └── generate_context_summary.py (증분 스냅샷)
+│   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성
 │       │   ├── SKILL.md          (스킬 정의 + 절대 기준)

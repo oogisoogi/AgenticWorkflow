@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+Context Preservation System — restore_context.py
+
+Triggered by: SessionStart (all sources: clear, compact, resume, startup)
+
+RLM Pattern Implementation:
+  - Outputs a POINTER to the full snapshot file + brief summary
+  - Does NOT inject the full snapshot content into stdout
+  - Claude uses Read tool to load the external file when needed
+  - This treats the snapshot as an "external environment object" (RLM)
+
+Output (stdout, exit 0):
+  [CONTEXT RECOVERY]
+  pointer to .claude/context-snapshots/latest.md
+  + brief summary (≤500 chars)
+
+SOT Compliance:
+  - Read-only: reads latest.md and state.yaml, never modifies
+  - Verifies SOT consistency between snapshot and current state
+"""
+
+import os
+import sys
+import json
+import time
+from datetime import datetime
+
+# Add script directory to path for shared library import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _context_lib import read_stdin_json, get_snapshot_dir
+
+
+# Maximum age (seconds) for snapshot restoration per source type
+RESTORE_THRESHOLDS = {
+    "clear": float("inf"),    # Always restore after /clear
+    "compact": float("inf"),  # Always restore after compression
+    "resume": 3600,           # 1 hour for resume
+    "startup": 1800,          # 30 minutes for fresh startup
+}
+
+
+def main():
+    input_data = read_stdin_json()
+
+    # Determine source type
+    source = input_data.get("source", "startup")
+
+    # Determine project directory
+    project_dir = os.environ.get(
+        "CLAUDE_PROJECT_DIR",
+        input_data.get("cwd", os.getcwd()),
+    )
+
+    snapshot_dir = get_snapshot_dir(project_dir)
+    latest_path = os.path.join(snapshot_dir, "latest.md")
+
+    # Check if snapshot exists
+    if not os.path.exists(latest_path):
+        sys.exit(0)  # No snapshot to restore — silent exit
+
+    # Check age threshold
+    snapshot_age = time.time() - os.path.getmtime(latest_path)
+    max_age = RESTORE_THRESHOLDS.get(source, 1800)
+    if snapshot_age > max_age:
+        sys.exit(0)  # Snapshot too old for this source type
+
+    # Read snapshot for summary extraction
+    try:
+        with open(latest_path, "r", encoding="utf-8") as f:
+            snapshot_content = f.read()
+    except Exception:
+        sys.exit(0)
+
+    if not snapshot_content.strip():
+        sys.exit(0)
+
+    # Extract brief summary from snapshot
+    summary = _extract_brief_summary(snapshot_content)
+
+    # Verify SOT consistency
+    sot_warning = _verify_sot_consistency(snapshot_content, project_dir)
+
+    # Build RLM-style recovery output (pointer + summary)
+    # This gets injected into Claude's context via SessionStart stdout
+    recovery_output = _build_recovery_output(
+        source=source,
+        latest_path=latest_path,
+        summary=summary,
+        sot_warning=sot_warning,
+        snapshot_age=snapshot_age,
+    )
+
+    # Output to stdout — Claude receives this as session context
+    print(recovery_output)
+    sys.exit(0)
+
+
+def _extract_brief_summary(content):
+    """Extract key information from snapshot for brief summary.
+
+    Deterministic extraction from new snapshot structure:
+      - 현재 작업 (Current Task): first content line
+      - 수정된 파일 (Modified Files): count of table rows
+      - 대화 통계: numeric stats lines
+    """
+    summary_parts = []
+
+    lines = content.split("\n")
+    current_section = ""
+    files_count = 0
+
+    for line in lines:
+        # Section header detection (matches both old and new formats)
+        if line.startswith("## 현재 작업"):
+            current_section = "task"
+            continue
+        elif line.startswith("## 수정된 파일"):
+            current_section = "files"
+            continue
+        elif line.startswith("## 대화 통계"):
+            current_section = "stats"
+            continue
+        elif line.startswith("## "):
+            current_section = ""
+            continue
+
+        line = line.strip()
+        if not line or line.startswith(">") or line.startswith("```"):
+            continue
+
+        if current_section == "task":
+            if line.startswith("**마지막 사용자 지시:**"):
+                instruction = line.replace("**마지막 사용자 지시:**", "").strip()
+                summary_parts.append(("최근 지시", instruction[:200]))
+            elif len(summary_parts) < 1:
+                summary_parts.append(("현재 작업", line[:200]))
+        elif current_section == "files" and line.startswith("| `"):
+            # Count table data rows (file entries start with "| `path`")
+            files_count += 1
+        elif current_section == "stats" and line.startswith("- "):
+            summary_parts.append(("통계", line[:100]))
+
+    # Add file count as a single summary entry
+    if files_count > 0:
+        summary_parts.append(("수정 파일", f"{files_count}개 파일 수정됨"))
+
+    return summary_parts
+
+
+def _verify_sot_consistency(snapshot_content, project_dir):
+    """Check if current SOT matches snapshot's recorded SOT."""
+    sot_paths = [
+        os.path.join(project_dir, ".claude", "state.yaml"),
+        os.path.join(project_dir, ".claude", "state.yml"),
+        os.path.join(project_dir, ".claude", "state.json"),
+    ]
+
+    current_sot_exists = any(os.path.exists(p) for p in sot_paths)
+
+    if "SOT 파일 없음" in snapshot_content and not current_sot_exists:
+        return None  # Consistent: both have no SOT
+
+    if current_sot_exists:
+        # Read current SOT modification time
+        for sot_path in sot_paths:
+            if os.path.exists(sot_path):
+                sot_mtime = datetime.fromtimestamp(
+                    os.path.getmtime(sot_path)
+                ).isoformat()
+
+                # Check if snapshot recorded an older mtime
+                if "수정 시각:" in snapshot_content:
+                    for line in snapshot_content.split("\n"):
+                        if "수정 시각:" in line:
+                            recorded_time = line.split("수정 시각:")[1].strip()
+                            if recorded_time != sot_mtime:
+                                return (
+                                    f"SOT가 snapshot 저장 이후 변경되었습니다. "
+                                    f"기록: {recorded_time} → 현재: {sot_mtime}"
+                                )
+                break
+
+    return None
+
+
+def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age):
+    """Build the RLM-style recovery output for SessionStart injection."""
+    age_str = _format_age(snapshot_age)
+
+    # Build header
+    output_lines = [
+        "[CONTEXT RECOVERY]",
+        f"이전 세션이 {'clear' if source == 'clear' else 'compact' if source == 'compact' else source}되었습니다.",
+        f"전체 복원 파일: {latest_path}",
+        "",
+    ]
+
+    # Brief summary
+    task_info = ""
+    latest_instruction = ""
+    files_info = ""
+    stats_info = []
+
+    for label, content in summary:
+        if label == "현재 작업":
+            task_info = content
+        elif label == "최근 지시":
+            latest_instruction = content
+        elif label == "수정 파일":
+            files_info = content
+        elif label == "통계":
+            stats_info.append(content)
+
+    if task_info:
+        output_lines.append(f"■ 현재 작업: {task_info}")
+    if latest_instruction:
+        output_lines.append(f"■ 최근 지시: {latest_instruction}")
+    output_lines.append(f"■ 마지막 저장: {age_str} 전")
+
+    if stats_info:
+        for s in stats_info[:3]:
+            output_lines.append(f"■ {s}")
+    if files_info:
+        output_lines.append(f"■ {files_info}")
+
+    # SOT warning
+    if sot_warning:
+        output_lines.append("")
+        output_lines.append(f"⚠️ {sot_warning}")
+
+    # Instruction for Claude
+    output_lines.extend([
+        "",
+        "⚠️ 작업을 계속하기 전에 반드시 위 파일을 Read tool로 읽어",
+        "   이전 세션의 전체 맥락을 복원하세요.",
+    ])
+
+    return "\n".join(output_lines)
+
+
+def _format_age(seconds):
+    """Format age in seconds to human-readable string."""
+    if seconds < 60:
+        return f"{int(seconds)}초"
+    elif seconds < 3600:
+        return f"{int(seconds / 60)}분"
+    elif seconds < 86400:
+        return f"{int(seconds / 3600)}시간"
+    else:
+        return f"{int(seconds / 86400)}일"
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        # Non-blocking: log error but don't crash the hook
+        print(f"restore_context error: {e}", file=sys.stderr)
+        sys.exit(0)
