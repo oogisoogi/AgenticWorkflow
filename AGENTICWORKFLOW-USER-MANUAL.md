@@ -224,8 +224,7 @@ AI 동작:
 ...
 
 ## Claude Code Configuration
-### Sub-agents / Agent Team / Hooks / Slash Commands / Skills / MCP Servers
-### SOT (상태 관리)
+### Sub-agents / Agent Team / Hooks / Slash Commands / Skills / MCP Servers / Task Management / SOT / Error Handling
 ```
 
 표준 구조의 상세는 `.claude/skills/workflow-generator/references/workflow-template.md`를 참조하세요.
@@ -239,6 +238,7 @@ AI 동작:
 | `(hook)` | 자동 검증/품질 게이트 |
 | `@agent-name` | Sub-agent 호출 |
 | `/command-name` | Slash command 실행 |
+| `[skill-name]` | Skill 참조 |
 
 ### 5.5 (선택) Distill 검증
 
@@ -272,6 +272,7 @@ workflow.md가 생성되면, 그 안에 정의된 구성요소를 실제로 만�
 | 전처리/후처리 스크립트 | Python/Bash | `scripts/` |
 | SOT 파일 | YAML/JSON | `.claude/state.yaml` |
 | MCP Server 설정 | JSON | `.mcp.json` |
+| Task 설계 | Task 정의 (`workflow.md` 내) | 워크플로우 단계 내 |
 
 구현 패턴의 상세(Sub-agents frontmatter, Agent Team 아키텍처, Hook 이벤트, SOT 흐름 등)는
 `.claude/skills/workflow-generator/references/claude-code-patterns.md`를 참조하세요.
@@ -428,6 +429,28 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 
 코드 품질, 보안 검증, 표준 준수가 중요할 때.
 
+### 7.4 조건 분기 (Conditional Flow)
+
+```
+@agent-1 → 조건 판단 → Path A: @agent-2a
+                      → Path B: @agent-2b
+                      → 합류 → @agent-3
+```
+
+이전 단계 결과에 따라 다른 경로로 진행할 때. 데이터 유형, 품질 수준, 사용자 선택에 따른 분기.
+
+### 7.5 Team + Hook 결합 (고급 하이브리드)
+
+```
+Team Lead ─┬→ @researcher  [Hook: 출처 검증]
+           ├→ @writer      [Hook: 품질 검증]
+           └→ @fact-checker [Hook: 결과 병합]
+                    ↓ 모두 완료
+              (human) 검토 → @editor → 최종본
+```
+
+병렬 전문가 작업 + 자동 품질 게이트 + 사람 검토의 3중 품질 보장. 복잡한 워크플로우에서 최고 수준의 품질이 요구될 때.
+
 ---
 
 ## 8. 스킬 상세
@@ -524,6 +547,8 @@ Team Lead ─┤                ├→ (human) 검토 → @agent-merge
 - [ ] SOT 파일 초기화 (`.claude/state.yaml`)
 - [ ] MCP Server 연동 설정 (`.mcp.json`, 필요 시)
 - [ ] Agent Team 설정 (병렬 협업 필요 시)
+- [ ] Task 설계 (Agent Team 사용 시 — workflow.md 내 Task 정의)
+- [ ] Error Handling 설정 (재시도, 롤백, 에스컬레이션 규칙)
 
 ### 검증
 
