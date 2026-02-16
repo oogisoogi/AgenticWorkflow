@@ -936,19 +936,47 @@ graph TB
 | **USER-MANUAL** | 사용자 (사람) | "이 도구를 어떻게 쓰는가?" | 필요 시 |
 | **README.md** | 첫 방문자 | "이 프로젝트가 뭔가?" | 최초 1회 |
 
-**AGENTS.md와 CLAUDE.md의 관계:**
+**Hub-and-Spoke 시스템 프롬프트 체계:**
 
-두 파일의 절대 기준과 설계 원칙은 **동일**하다. 차이는 구현 매핑의 구체성뿐이다:
+이 프로젝트는 **어떤 AI CLI 도구를 사용하든** 동일한 방법론이 자동으로 적용되도록 설계되었다. `AGENTS.md`가 방법론의 SOT(Hub)이고, 각 도구별 파일이 Spoke 역할을 한다:
 
-| 구분 | AGENTS.md | CLAUDE.md |
-|------|-----------|-----------|
-| 절대 기준 | 동일 | 동일 |
-| 설계 원칙 P1-P4 | 동일 | 동일 |
+```
+                AGENTS.md (Hub — 방법론 SOT)
+               /    |    |    \    \     \
+          CLAUDE  GEMINI .cursor .windsurf .amazonq  .github/
+          .md     .md    /rules  /rules    /rules    copilot-
+                         (Spoke — 도구별 확장)        instructions.md
+```
+
+| AI CLI 도구 | Spoke 파일 | 자동 읽기 |
+|------------|-----------|----------|
+| Claude Code | `CLAUDE.md` | Yes |
+| Gemini CLI | `GEMINI.md` (+ `@AGENTS.md` import) | Yes |
+| Codex CLI | `AGENTS.md` 직접 | Yes |
+| Copilot CLI | `.github/copilot-instructions.md` | Yes |
+| Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) |
+| Windsurf | `.windsurf/rules/agenticworkflow.md` | Yes |
+| Amazon Q | `.amazonq/rules/agenticworkflow.md` | Yes |
+| Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
+
+각 Spoke 파일은 두 가지 역할을 한다:
+1. **절대 기준 인라인 + 상세 참조**: 핵심 정의를 인라인으로 포함하고, 상세는 AGENTS.md 참조
+2. **도구별 구현 매핑**: 해당 도구의 고유 기능과 AgenticWorkflow 개념의 대응
+
+**AGENTS.md와 Spoke 파일의 관계:**
+
+모든 Spoke 파일의 절대 기준과 설계 원칙은 AGENTS.md와 **동일**하다. 차이는 구현 매핑의 구체성뿐이다:
+
+| 구분 | AGENTS.md (Hub) | CLAUDE.md (Spoke 예시) |
+|------|----------------|----------------------|
+| 절대 기준 | 원본 정의 | 인라인 복제 + 참조 |
+| 설계 원칙 P1-P4 | 원본 정의 | 인라인 복제 + 참조 |
 | 구현 요소 명칭 | "전문 에이전트", "에이전트 그룹", "자동 검증" | "Sub-agent", "Agent Team", "Hooks" |
 | 설정 예시 | 없음 (도구 중립) | `.claude/agents/*.md`, `.claude/settings.json` |
-| 적용 도구 | 모든 AI 도구 | Claude Code 전용 |
+| 컨텍스트 보존 | 원칙만 정의 | Hook 기반 자동 시스템 (Claude Code 전용) |
 
-> **충돌 시:** AGENTS.md의 절대 기준이 우선한다. 도구 종속적 구현보다 원칙이 상위이다.
+> **충돌 시:** AGENTS.md의 절대 기준이 모든 Spoke보다 우선한다. 도구 종속적 구현보다 원칙이 상위이다.
+> **동기화 의무:** AGENTS.md의 절대 기준이 변경되면 모든 Spoke의 인라인 복제도 업데이트해야 한다.
 
 ### 7.2 스킬 내부 아키텍처: WHY/WHAT/HOW/VERIFY 체계
 

@@ -517,15 +517,26 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 
 ## 11. 다른 AI 도구에서 사용
 
-이 프로젝트는 Claude Code 외의 AI 코딩 도구에서도 동일한 원칙으로 작동하도록 설계되었습니다.
+이 프로젝트는 **Hub-and-Spoke 패턴**으로 어떤 AI CLI 도구를 사용하든 동일한 방법론이 자동 적용됩니다.
 
-| 도구 | 참조 파일 |
-|------|----------|
-| Claude Code | `CLAUDE.md` (도구 고유 기능에 맞춘 구현 매핑) |
-| Cursor, Copilot, Codex, Windsurf 등 | `AGENTS.md` (모델 무관 공통 지시서) |
-| 설계 철학·아키텍처 이해 | `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` (전체 조감도 + WHY) |
+**Hub (방법론 SOT):** `AGENTS.md` — 모든 도구 공통의 절대 기준, 설계 원칙, 워크플로우 구조
 
-두 파일의 절대 기준과 설계 원칙은 동일합니다.
+**Spoke (도구별 확장):**
+
+| AI CLI 도구 | 시스템 프롬프트 파일 | 자동 적용 |
+|------------|-------------------|----------|
+| Claude Code | `CLAUDE.md` | Yes — Hook, Skill, Context Preservation 등 전체 기능 지원 |
+| Gemini CLI | `GEMINI.md` + `.gemini/settings.json` | Yes — `@AGENTS.md` import으로 Hub 직접 로드 |
+| Codex CLI | `AGENTS.md` (직접 읽음) | Yes — 별도 Spoke 불필요 |
+| Copilot CLI | `.github/copilot-instructions.md` | Yes — AGENTS.md도 자동 인식 |
+| Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes — `alwaysApply: true` 설정 |
+| Windsurf | `.windsurf/rules/agenticworkflow.md` | Yes |
+| Amazon Q | `.amazonq/rules/agenticworkflow.md` | Yes |
+| Aider | `.aider.conf.yml` → `AGENTS.md` 자동 로드 | 설정 기반 |
+
+사용법: 해당 AI CLI 도구로 이 프로젝트 디렉터리에 진입하면, 도구가 자동으로 해당 Spoke 파일을 읽고 AgenticWorkflow 방법론을 따릅니다. 별도 설정이 필요 없습니다 (Aider 제외 — `.aider.conf.yml`이 이미 포함되어 있으므로 Aider도 자동 적용).
+
+> 상세 아키텍처: `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §7.1 참조
 
 ---
 

@@ -77,12 +77,28 @@ AgenticWorkflow/
 
 ## AI 도구 호환성
 
-| 파일 | 대상 |
-|------|------|
-| `CLAUDE.md` | Claude Code |
-| `AGENTS.md` | Cursor, Copilot, Codex, Windsurf 등 모든 AI 코딩 도구 |
+이 프로젝트는 **Hub-and-Spoke 패턴**으로 모든 AI CLI 도구에서 동일한 방법론이 자동 적용됩니다.
 
-두 파일의 절대 기준과 설계 원칙은 동일합니다. 차이는 도구별 구현 매핑의 구체성뿐입니다.
+**Hub (방법론 SOT):**
+
+| 파일 | 역할 |
+|------|------|
+| `AGENTS.md` | 모든 AI 도구 공통 — 절대 기준, 설계 원칙, 워크플로우 구조 정의 |
+
+**Spoke (도구별 확장):**
+
+| AI CLI 도구 | 시스템 프롬프트 파일 | 자동 적용 |
+|------------|-------------------|----------|
+| Claude Code | `CLAUDE.md` | Yes |
+| Gemini CLI | `GEMINI.md` + `.gemini/settings.json` | Yes |
+| Codex CLI | `AGENTS.md` (직접 읽음) | Yes |
+| Copilot CLI | `.github/copilot-instructions.md` | Yes |
+| Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes |
+| Windsurf | `.windsurf/rules/agenticworkflow.md` | Yes |
+| Amazon Q | `.amazonq/rules/agenticworkflow.md` | Yes |
+| Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
+
+모든 Spoke 파일의 절대 기준과 설계 원칙은 `AGENTS.md`와 동일합니다. 차이는 도구별 구현 매핑의 구체성뿐입니다.
 
 ## 문서 읽기 순서
 

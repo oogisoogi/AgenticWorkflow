@@ -310,12 +310,49 @@ AgenticWorkflow/
 
 ---
 
-## 9. CLAUDE.md와의 관계
+## 9. 범용 시스템 프롬프트 체계 (Hub-and-Spoke)
 
-| 파일 | 대상 | 역할 |
-|------|------|------|
-| `AGENTS.md` | 모든 AI 에이전트 (모델·도구 무관) | 프로젝트의 목적, 절대 기준, 설계 원칙, 구조를 모델 무관하게 정의 |
-| `CLAUDE.md` | Claude Code 전용 | Claude Code의 고유 기능(Sub-agents, Agent Teams, Hooks, Skills, MCP)에 맞춘 구체적 구현 매핑 |
+이 프로젝트는 **어떤 AI CLI 도구를 사용하든** 동일한 방법론이 자동으로 적용되도록 설계되었다.
 
-> 두 파일의 절대 기준과 설계 원칙은 **동일**하다. 차이는 구현 매핑의 구체성뿐이다.
-> 충돌 시 AGENTS.md의 절대 기준이 우선한다 (도구 종속적 구현보다 원칙이 상위).
+### 아키텍처
+
+```
+                AGENTS.md (Hub — 방법론 SOT)
+               /    |    |    \    \     \
+          CLAUDE  GEMINI .cursor .windsurf .amazonq  .github/
+          .md     .md    /rules  /rules    /rules    copilot-
+                         (Spoke — 도구별 확장)        instructions.md
+```
+
+- **Hub (AGENTS.md)**: 절대 기준, 설계 원칙, 워크플로우 구조의 유일한 정의 지점
+- **Spoke (도구별 파일)**: Hub를 참조하면서 해당 도구의 고유 기능에 맞는 구현 매핑을 제공
+
+### 도구별 파일 매핑
+
+| AI CLI 도구 | 시스템 프롬프트 파일 | 자동 읽기 | AGENTS.md 인식 |
+|------------|-------------------|----------|---------------|
+| **Claude Code** | `CLAUDE.md` | Yes | 별도 파일 |
+| **Gemini CLI** | `GEMINI.md` | Yes | 설정으로 추가 로드 |
+| **Codex CLI** | `AGENTS.md` (직접) | Yes | 네이티브 |
+| **Copilot CLI** | `.github/copilot-instructions.md` | Yes | 자동 인식 |
+| **Cursor** | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) | 인식 |
+| **Windsurf** | `.windsurf/rules/agenticworkflow.md` | Yes | Spoke에서 참조 |
+| **Amazon Q** | `.amazonq/rules/agenticworkflow.md` | Yes | Spoke에서 참조 |
+| **Aider** | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 | 설정으로 로드 |
+
+### Spoke 파일 원칙
+
+1. **절대 기준 인라인 + 상세 참조**: 각 Spoke는 절대 기준의 핵심 정의(1~2문장)를 인라인으로 포함하고, 상세 내용은 `AGENTS.md §2` 참조로 위임한다.
+2. **도구별 구현 매핑**: 해당 도구의 고유 기능(Hook, Agent, Plugin 등)과 AgenticWorkflow 개념의 대응을 명시한다.
+3. **컨텍스트 보존 대안**: Claude Code의 Context Preservation System을 사용할 수 없는 도구에서는 해당 도구에서 가능한 대안을 안내한다.
+
+### 충돌 해소
+
+> **AGENTS.md의 절대 기준이 모든 Spoke보다 우선한다.** 도구 종속적 구현이 원칙과 충돌하면 원칙이 이긴다.
+
+### 절대 기준 변경 시 동기화
+
+AGENTS.md의 절대 기준이 변경되면, 모든 Spoke 파일의 인라인 복제도 동기화해야 한다:
+- `CLAUDE.md`, `GEMINI.md` — 직접 수정
+- `.cursor/rules/`, `.windsurf/rules/`, `.amazonq/rules/` — 인라인 부분 수정
+- `.github/copilot-instructions.md` — 인라인 부분 수정

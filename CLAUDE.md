@@ -77,11 +77,26 @@ Claude Code 기반의 에이전트 워크플로우 자동화 프로젝트.
 ```
 AgenticWorkflow/
 ├── CLAUDE.md                              ← 이 파일 (Claude Code 전용 지시서)
-├── AGENTS.md                              ← 모든 AI 에이전트 공통 지시서
+├── AGENTS.md                              ← 모든 AI 에이전트 공통 지시서 (Hub — 방법론 SOT)
+├── GEMINI.md                              ← Gemini CLI 전용 지시서 (Spoke)
 ├── README.md                              ← 프로젝트 소개
 ├── AGENTICWORKFLOW-USER-MANUAL.md         ← 이 코드베이스 자체의 사용자 매뉴얼
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
 ├── COPYRIGHT.md                           ← 저작권
+├── .github/
+│   └── copilot-instructions.md            ← GitHub Copilot 전용 지시서 (Spoke)
+├── .cursor/
+│   └── rules/
+│       └── agenticworkflow.mdc            ← Cursor 전용 지시서 (Spoke, alwaysApply)
+├── .windsurf/
+│   └── rules/
+│       └── agenticworkflow.md             ← Windsurf 전용 지시서 (Spoke)
+├── .amazonq/
+│   └── rules/
+│       └── agenticworkflow.md             ← Amazon Q Developer 전용 지시서 (Spoke)
+├── .gemini/
+│   └── settings.json                      ← Gemini CLI 설정 (AGENTS.md 추가 로드)
+├── .aider.conf.yml                        ← Aider 설정 (AGENTS.md 자동 로드)
 ├── .claude/
 │   ├── settings.json                      ← Hook 설정 (SessionEnd)
 │   ├── hooks/scripts/                     ← Context Preservation System
