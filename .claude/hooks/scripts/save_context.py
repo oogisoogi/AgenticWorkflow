@@ -3,9 +3,9 @@
 Context Preservation System — save_context.py
 
 Triggered by:
-  - SessionEnd (reason: "clear")  → /clear 직전 최종 저장
+  - SessionEnd (reason: "clear")  → /clear 직전 최종 저장 (E1: Dedup 면제)
   - PreCompact (auto|manual)      → 자동 압축 직전 저장
-  - update_work_log.py            → 75% 임계치 선제 저장
+  - threshold (token 75%+)        → update_work_log.py에서 호출
 
 This is the core save engine. Generates comprehensive MD snapshots
 following the RLM pattern (external memory objects on disk).
@@ -71,7 +71,8 @@ def main():
     os.makedirs(snapshot_dir, exist_ok=True)
 
     # Dedup guard — skip if saved within last 10 seconds
-    if should_skip_save(snapshot_dir):
+    # E1: SessionEnd is exempt (user's explicit /clear action)
+    if should_skip_save(snapshot_dir, trigger=trigger):
         sys.exit(0)
 
     # Parse transcript
@@ -101,9 +102,23 @@ def main():
     filepath = os.path.join(snapshot_dir, filename)
     atomic_write(filepath, md_content)
 
-    # Update latest.md (always points to most recent comprehensive snapshot)
+    # E5: Empty Snapshot Guard — don't overwrite good snapshot with empty one
+    # If new snapshot has 0 tool_use entries and existing has content, protect it
     latest_path = os.path.join(snapshot_dir, "latest.md")
-    atomic_write(latest_path, md_content)
+    new_tool_count = sum(1 for e in entries if e.get("type") == "tool_use")
+    should_update_latest = True
+
+    if os.path.exists(latest_path) and new_tool_count == 0:
+        try:
+            with open(latest_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+            if "### 수정 중이던 파일" in existing_content:
+                should_update_latest = False
+        except Exception:
+            pass
+
+    if should_update_latest:
+        atomic_write(latest_path, md_content)
 
     # Cleanup old snapshots (keep per-trigger limits)
     cleanup_snapshots(snapshot_dir)

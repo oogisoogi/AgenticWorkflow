@@ -68,9 +68,23 @@ def main():
     if snapshot_age > max_age:
         sys.exit(0)  # Snapshot too old for this source type
 
+    # E6: Find best available snapshot (fallback if latest.md is inadequate)
+    best_path, best_size = _find_best_snapshot(snapshot_dir, latest_path)
+    fallback_note = ""
+    if best_path != latest_path:
+        latest_size = 0
+        try:
+            latest_size = os.path.getsize(latest_path)
+        except OSError:
+            pass
+        fallback_note = (
+            f"⚠️ latest.md ({latest_size}B)가 빈약하여 "
+            f"더 풍부한 아카이브({best_size}B)를 참조합니다."
+        )
+
     # Read snapshot for summary extraction
     try:
-        with open(latest_path, "r", encoding="utf-8") as f:
+        with open(best_path, "r", encoding="utf-8") as f:
             snapshot_content = f.read()
     except Exception:
         sys.exit(0)
@@ -85,13 +99,13 @@ def main():
     sot_warning = _verify_sot_consistency(snapshot_content, project_dir)
 
     # Build RLM-style recovery output (pointer + summary)
-    # This gets injected into Claude's context via SessionStart stdout
     recovery_output = _build_recovery_output(
         source=source,
-        latest_path=latest_path,
+        latest_path=best_path,  # E6: point to best available snapshot
         summary=summary,
         sot_warning=sot_warning,
         snapshot_age=snapshot_age,
+        fallback_note=fallback_note,
     )
 
     # Output to stdout — Claude receives this as session context
@@ -120,6 +134,12 @@ def _extract_brief_summary(content):
         if line.startswith("## 현재 작업"):
             current_section = "task"
             continue
+        elif line.startswith("## 결정론적 완료 상태"):
+            current_section = "completion"
+            continue
+        elif line.startswith("## Git 변경 상태"):
+            current_section = "git"
+            continue
         elif line.startswith("## 수정된 파일"):
             current_section = "files"
             continue
@@ -134,7 +154,7 @@ def _extract_brief_summary(content):
             continue
 
         line = line.strip()
-        if not line or line.startswith(">") or line.startswith("```"):
+        if not line or line.startswith(">"):
             continue
 
         if current_section == "task":
@@ -143,7 +163,15 @@ def _extract_brief_summary(content):
                 summary_parts.append(("최근 지시", instruction[:200]))
             elif len(summary_parts) < 1:
                 summary_parts.append(("현재 작업", line[:200]))
-        elif current_section == "files" and line.startswith("| `"):
+        elif current_section == "completion" and line.startswith("- "):
+            # "- Edit: 18회 호출 → 18 성공, 0 실패" 형태
+            if "실패" in line or "성공" in line:
+                summary_parts.append(("완료상태", line[:150]))
+        elif current_section == "git" and line.startswith("```"):
+            pass  # skip code block markers
+        elif current_section == "git" and (line.startswith("M ") or line.startswith(" M") or line.startswith("A ") or line.startswith("??")):
+            summary_parts.append(("git", line[:100]))
+        elif current_section == "files" and (line.startswith("| `") or line.startswith("### `")):
             files_count += 1
         elif current_section == "reads" and line.startswith("| `"):
             read_count += 1
@@ -195,7 +223,7 @@ def _verify_sot_consistency(snapshot_content, project_dir):
     return None
 
 
-def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age):
+def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note=""):
     """Build the RLM-style recovery output for SessionStart injection."""
     age_str = _format_age(snapshot_age)
 
@@ -213,6 +241,8 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
     files_info = ""
     reads_info = ""
     stats_info = []
+    completion_info = []
+    git_info = []
 
     for label, content in summary:
         if label == "현재 작업":
@@ -225,6 +255,10 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             reads_info = content
         elif label == "통계":
             stats_info.append(content)
+        elif label == "완료상태":
+            completion_info.append(content)
+        elif label == "git":
+            git_info.append(content)
 
     if task_info:
         output_lines.append(f"■ 현재 작업: {task_info}")
@@ -239,6 +273,17 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
         output_lines.append(f"■ {files_info}")
     if reads_info:
         output_lines.append(f"■ {reads_info}")
+
+    # Completion state and git status (Change 4)
+    if completion_info:
+        output_lines.append(f"■ 완료상태: {'; '.join(completion_info[:3])}")
+    if git_info:
+        output_lines.append(f"■ Git: {', '.join(git_info[:5])}")
+
+    # E6: Fallback note (if using archive instead of latest.md)
+    if fallback_note:
+        output_lines.append("")
+        output_lines.append(fallback_note)
 
     # SOT warning
     if sot_warning:
@@ -292,6 +337,53 @@ def _get_recent_sessions(ki_path, n=3):
         return entries[-n:] if entries else []
     except Exception:
         return []
+
+
+def _find_best_snapshot(snapshot_dir, latest_path):
+    """E6: Find the best available snapshot when latest.md is inadequate.
+
+    Quality criterion: file size (more structured data = larger file).
+    P1 Compliance: file size is a deterministic metric.
+
+    Falls back to sessions/ archive if latest.md has < 3KB of content
+    (indicating a likely empty or minimal snapshot).
+    """
+    MIN_QUALITY_SIZE = 3000  # bytes
+
+    latest_size = 0
+    try:
+        if os.path.exists(latest_path):
+            latest_size = os.path.getsize(latest_path)
+    except OSError:
+        pass
+
+    if latest_size >= MIN_QUALITY_SIZE:
+        return latest_path, latest_size  # Sufficient quality
+
+    # Scan sessions/ for a better recent archive
+    sessions_dir = os.path.join(snapshot_dir, "sessions")
+    if not os.path.isdir(sessions_dir):
+        return latest_path, latest_size
+
+    best_path = latest_path
+    best_size = latest_size
+
+    try:
+        for fname in os.listdir(sessions_dir):
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(sessions_dir, fname)
+            fsize = os.path.getsize(fpath)
+            fmtime = os.path.getmtime(fpath)
+
+            # Only consider archives from the last hour, larger than current best
+            if (time.time() - fmtime) < 3600 and fsize > best_size:
+                best_path = fpath
+                best_size = fsize
+    except Exception:
+        pass
+
+    return best_path, best_size
 
 
 def _format_age(seconds):

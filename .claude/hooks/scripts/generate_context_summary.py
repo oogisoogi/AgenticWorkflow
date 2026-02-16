@@ -38,6 +38,11 @@ from _context_lib import (
     cleanup_snapshots,
     should_skip_save,
     get_snapshot_dir,
+    estimate_tokens,
+    extract_session_facts,
+    replace_or_append_session_facts,
+    cleanup_session_archives,
+    cleanup_knowledge_index,
 )
 
 
@@ -53,8 +58,8 @@ def main():
     snapshot_dir = get_snapshot_dir(project_dir)
     os.makedirs(snapshot_dir, exist_ok=True)
 
-    # Dedup guard — skip if saved within last 10 seconds
-    if should_skip_save(snapshot_dir):
+    # Dedup guard — Stop hook uses 30s window to reduce noise
+    if should_skip_save(snapshot_dir, trigger="stop"):
         sys.exit(0)
 
     # Check if this is a stop_hook_active scenario (already triggered once)
@@ -71,8 +76,9 @@ def main():
     current_size = os.path.getsize(transcript_path)
     last_size = _read_offset(offset_file)
 
-    # Only save if transcript has grown by at least 1KB since last save
-    if last_size > 0 and (current_size - last_size) < 1024:
+    # Only save if transcript has grown by at least 5KB since last save
+    # (5KB threshold ensures meaningful changes only — reduces noise)
+    if last_size > 0 and (current_size - last_size) < 5120:
         sys.exit(0)
 
     # Full transcript parse (comprehensive — 절대 기준 1)
@@ -104,12 +110,52 @@ def main():
     filepath = os.path.join(snapshot_dir, filename)
     atomic_write(filepath, md_content)
 
-    # Update latest.md
+    # E5: Empty Snapshot Guard — don't overwrite good snapshot with empty one
     latest_path = os.path.join(snapshot_dir, "latest.md")
-    atomic_write(latest_path, md_content)
+    new_tool_count = sum(1 for e in entries if e.get("type") == "tool_use")
+    should_update_latest = True
+
+    if os.path.exists(latest_path) and new_tool_count == 0:
+        try:
+            with open(latest_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+            if "### 수정 중이던 파일" in existing_content:
+                should_update_latest = False
+        except Exception:
+            pass
+
+    if should_update_latest:
+        atomic_write(latest_path, md_content)
 
     # Update offset tracker
     _write_offset(offset_file, current_size)
+
+    # --- Knowledge Archive (Stop hook integration) ---
+    sessions_dir = os.path.join(snapshot_dir, "sessions")
+    os.makedirs(sessions_dir, exist_ok=True)
+    archive_name = f"{datetime.now().strftime('%Y-%m-%dT%H%M')}_{session_id[:8]}.md"
+    archive_path = os.path.join(sessions_dir, archive_name)
+    try:
+        atomic_write(archive_path, md_content)
+    except Exception:
+        pass
+
+    try:
+        estimated_tokens, _ = estimate_tokens(transcript_path, entries)
+        facts = extract_session_facts(
+            session_id=session_id,
+            trigger="stop",
+            project_dir=project_dir,
+            entries=entries,
+            token_estimate=estimated_tokens,
+        )
+        ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+        replace_or_append_session_facts(ki_path, facts)
+    except Exception:
+        pass
+
+    cleanup_session_archives(snapshot_dir)
+    cleanup_knowledge_index(snapshot_dir)
 
     # Cleanup old snapshots
     cleanup_snapshots(snapshot_dir)
