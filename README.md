@@ -51,7 +51,7 @@ AgenticWorkflow/
 
 ## Context Preservation System
 
-컨텍스트 토큰 초과, `/clear`, 컨텍스트 압축 시 작업 내역이 상실되는 것을 방지하는 자동 저장·복원 시스템입니다. 5개의 Hook 스크립트가 작업 내역을 MD 파일로 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 이전 맥락을 복원합니다.
+컨텍스트 토큰 초과, `/clear`, 컨텍스트 압축 시 작업 내역이 상실되는 것을 방지하는 자동 저장·복원 시스템입니다. 5개의 Hook 스크립트가 작업 내역을 MD 파일로 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태)으로 이전 맥락을 복원합니다.
 
 | 스크립트 | 트리거 | 역할 |
 |---------|--------|------|
@@ -59,8 +59,8 @@ AgenticWorkflow/
 | `save_context.py` | SessionEnd, PreCompact | 전체 스냅샷 저장 |
 | `restore_context.py` | SessionStart | 포인터+요약으로 복원 |
 | `update_work_log.py` | PostToolUse | 작업 로그 누적, 75% threshold 시 자동 저장 |
-| `generate_context_summary.py` | Stop | 매 응답 후 증분 스냅샷 |
-| `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정 |
+| `generate_context_summary.py` | Stop | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, E5 Guard) |
+| `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling |
 
 ## 절대 기준
 

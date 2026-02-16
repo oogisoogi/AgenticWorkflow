@@ -366,6 +366,8 @@ workflow.md에 `(hook)` 구간이 있다면:
 | `0` | 통과 |
 | `2` | 차단 — 에이전트에 피드백 전달, 재작업 |
 
+> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태)으로 이전 맥락을 복원합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에도 기록합니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
+
 ### 6.5 Slash Commands 만들기
 
 workflow.md에 사용자 개입 지점이 있다면:

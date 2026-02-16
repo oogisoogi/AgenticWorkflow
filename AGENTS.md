@@ -196,11 +196,11 @@ AgenticWorkflow/
 │   ├── settings.json          ← Hook 설정 (SessionEnd)
 │   ├── hooks/scripts/         ← Context Preservation System
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리)
+│   │   ├── _context_lib.py    (공유 라이브러리 + Smart Throttling)
 │   │   ├── save_context.py    (저장 엔진)
-│   │   ├── restore_context.py (복원 — RLM 포인터)
+│   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적)
-│   │   └── generate_context_summary.py (증분 스냅샷)
+│   │   └── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성
@@ -224,8 +224,8 @@ AgenticWorkflow/
 - RLM 패턴 적용: 작업 내역을 **외부 메모리 객체**(MD 파일)로 영속화하고, 새 세션에서 포인터 기반으로 복원
 - P1 원칙 준수: 트랜스크립트 파싱·통계 산출은 Python 코드가 결정론적으로 수행. AI는 의미 해석에만 집중
 - 절대 기준 2 준수: SOT 파일(`state.yaml`)은 **읽기 전용**으로만 접근. 스냅샷은 별도 디렉터리(`context-snapshots/`)에 저장
-- **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
-- **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터. 복원 품질의 바닥선 보장
+- **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
+- **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터, 완료 상태(도구 성공/실패), Git 변경 상태. 복원 품질의 바닥선 보장
 
 **데이터 흐름:**
 
@@ -233,11 +233,16 @@ AgenticWorkflow/
 작업 진행 중 ─→ [PostToolUse] update_work_log.py ─→ work_log.jsonl 누적
                                                      │ (토큰 75% 초과 시)
                                                      ↓
+응답 완료 ────→ [Stop] generate_context_summary.py ─→ latest.md 저장 (30초 throttling)
+                                                     │        + knowledge-index.jsonl 축적
+                                                     │        + sessions/ 아카이빙
+                                                     │        + E5 Empty Snapshot Guard
+                                                     ↓
 세션 종료/압축 ─→ [SessionEnd/PreCompact] save_context.py ─→ latest.md 저장
                                                      │        + knowledge-index.jsonl 축적
                                                      │        + sessions/ 아카이빙
                                                      ↓
-새 세션 시작 ──→ [SessionStart] restore_context.py ───────→ 포인터+요약+과거세션 출력
+새 세션 시작 ──→ [SessionStart] restore_context.py ───────→ 포인터+요약+완료상태+Git상태 출력
                                                      AI가 Read tool로 전체 복원
 ```
 
