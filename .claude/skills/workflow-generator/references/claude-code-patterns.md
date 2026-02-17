@@ -417,16 +417,72 @@ Slash Command가 사용자 개입점을 "정의"하는 것이라면, AskUserQues
 
 ### 5. Skills 연동
 
-재사용 가능한 지식/로직 패키지.
+재사용 가능한 지식/로직 패키지. 두 가지 실행 컨텍스트를 제공한다.
+
+#### Inline Skill (기본)
+
+Skill 내용이 메인 대화에 직접 주입된다. 대화 이력에 접근 가능.
 
 ```markdown
-# workflow.md 내 skill 참조
+# workflow.md 내 inline skill 참조
 
 ### 5. 글 작성
 - **Agent**: `@writer`
 - **Skills**: `[writing-style]`, `[seo-optimization]`
 - **Task**: 개요를 기반으로 최종 글 작성
 ```
+
+- **적합**: 가이드라인, 대화형 워크플로우, 도메인 전문성 주입
+- **SOT**: 메인 대화 컨텍스트에서 직접 접근
+
+#### Forked Skill (`context: fork`)
+
+Skill 내용이 **별도 sub-agent의 task prompt**가 된다. 격리된 컨텍스트에서 실행.
+
+```yaml
+# SKILL.md frontmatter
+---
+name: code-analyzer
+description: Analyzes codebase structure and produces reports.
+context: fork
+agent: general-purpose    # Explore | Plan | general-purpose | <custom-agent>
+---
+```
+
+- **적합**: 독립 분석, 대량 처리, 코드베이스 탐색, 파일 변환
+- **대화 이력**: 없음 (격리)
+- **SOT 접근**: 간접 — `!`command`` 전처리로 SOT 상태 주입
+
+**Agent 타입 선택:**
+
+| Agent 타입 | 모델 | 도구 | 용도 |
+|-----------|------|------|------|
+| `Explore` | Haiku | 읽기 전용 | 파일 탐색, 코드 검색 |
+| `Plan` | 상속 | 읽기 전용 | 아키텍처 연구, 구현 계획 |
+| `general-purpose` | 상속 | 전체 | 다단계 작업, 파일 생성 |
+| 커스텀 에이전트 | 설정 따름 | 설정 따름 | `.claude/agents/`에 정의된 특화 역할 |
+
+#### Fork + SOT 통합 패턴
+
+Forked skill은 SOT를 직접 수정할 수 없다. 데이터 정합성을 위해:
+
+1. **전처리로 SOT 주입**: Skill 내용에서 `!`cat state.yaml`` 구문으로 SOT 스냅샷 주입
+2. **파일로 출력**: Fork가 산출물을 파일로 저장 → Orchestrator가 SOT `outputs`에 경로 기록
+3. **SOT 쓰기 금지**: Fork에서 SOT 직접 수정은 절대 금지 (절대 기준 2)
+
+#### Skill Hot-Reload
+
+`~/.claude/skills/` 또는 `.claude/skills/`에서 스킬 파일 수정 시 **세션 재시작 없이 즉시 반영**. Sub-agent(`.claude/agents/`)는 `/agents` 명령 또는 세션 재시작 필요.
+
+**Inline vs Fork 선택 기준:**
+
+| 기준 | Inline | Fork |
+|------|--------|------|
+| 사용자 대화 필요 (Q&A, 확인) | ✅ | ❌ |
+| 대화 컨텍스트에서 작업 (진행 중인 글, 토론) | ✅ | ❌ |
+| 독립적 분석/변환 작업 | ❌ | ✅ |
+| 실행 상세가 메인 대화를 어지럽힘 | ❌ | ✅ |
+| SOT 상태 접근 | 직접 | 간접 (`!`cmd`` 전처리) |
 
 ### 6. MCP Server 연동
 
@@ -977,14 +1033,14 @@ AI에게 전달하기 전에 code-level에서 데이터를 정제하여 분석 �
 
 ## 구성요소 비교 요약
 
-| 특성 | Sub-agent | Agent Team | Hook | Slash Command | AskUserQuestion | Task System | Skill | MCP Server |
-|------|-----------|------------|------|---------------|-----------------|-------------|-------|------------|
-| **역할** | 전문가 위임 | 병렬 협업 | 자동 검증 | 사용자 개입점 | 동적 질문 | 작업 추적 | 지식 주입 | 외부 연동 |
-| **세션** | 단일 (위임) | 다중 (독립) | N/A | N/A | N/A | N/A | N/A | N/A |
-| **컨텍스트** | 부모와 분리 | 완전 독립 | 없음 | 없음 | 현재 세션 | 팀 공유 | 세션 주입 | 세션 주입 |
-| **SOT 관계** | Orchestrator가 갱신 | Team Lead만 갱신 | 읽기 전용 | 사용자 입력 반영 | 사용자 입력 반영 | SOT와 분리 | 무관 | 무관 |
-| **품질 기여** | 전문 집중 | 다관점 병렬 | 결정론적 검증 | 사람의 판단 | 구조화된 수집 | 의존성 관리 | 검증된 패턴 | 외부 데이터 |
-| **정의 위치** | .claude/agents/*.md | Task tool | settings.json | .claude/commands/*.md | 워크플로우 내 | Task tool | .claude/skills/ | .mcp.json |
+| 특성 | Sub-agent | Agent Team | Hook | Slash Command | AskUserQuestion | Task System | Skill (inline) | Skill (forked) | MCP Server |
+|------|-----------|------------|------|---------------|-----------------|-------------|----------------|----------------|------------|
+| **역할** | 전문가 위임 | 병렬 협업 | 자동 검증 | 사용자 개입점 | 동적 질문 | 작업 추적 | 지식 주입 | 독립 분석/변환 | 외부 연동 |
+| **세션** | 단일 (위임) | 다중 (독립) | N/A | N/A | N/A | N/A | N/A | 단일 (격리) | N/A |
+| **컨텍스트** | 부모와 분리 | 완전 독립 | 없음 | 없음 | 현재 세션 | 팀 공유 | 세션 주입 | 부모와 분리 | 세션 주입 |
+| **SOT 관계** | Orchestrator가 갱신 | Team Lead만 갱신 | 읽기 전용 | 사용자 입력 반영 | 사용자 입력 반영 | SOT와 분리 | 무관 | 간접 (전처리 주입) | 무관 |
+| **품질 기여** | 전문 집중 | 다관점 병렬 | 결정론적 검증 | 사람의 판단 | 구조화된 수집 | 의존성 관리 | 검증된 패턴 | 격리된 분석 | 외부 데이터 |
+| **정의 위치** | .claude/agents/*.md | Task tool | settings.json | .claude/commands/*.md | 워크플로우 내 | Task tool | .claude/skills/ | .claude/skills/ | .mcp.json |
 
 ---
 
