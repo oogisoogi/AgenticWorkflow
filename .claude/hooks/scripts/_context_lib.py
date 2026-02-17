@@ -1864,8 +1864,11 @@ def _compress_snapshot(full_md, sections):
         other_text = "\n".join(other_lines)
         return immortal_text + "\n" + other_text[:budget] + \
             "\n\n(... 크기 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
-    # Even IMMORTAL exceeds limit — absolute last resort char truncate
-    return result[:MAX_SNAPSHOT_CHARS] + "\n\n(... 크기 초과로 잘림)"
+    # Even IMMORTAL exceeds limit — truncate IMMORTAL itself (preserving start)
+    # Reflection fix: Use immortal_text, not Phase 6 result, to avoid
+    # cutting mixed content that defeats IMMORTAL-first purpose
+    return immortal_text[:MAX_SNAPSHOT_CHARS] + \
+        "\n\n(... IMMORTAL 자체가 한계 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
 
 
 def _dedup_sections(sections):
@@ -2057,12 +2060,12 @@ def _classify_error_patterns(entries):
         ("dependency", re.compile(r"ModuleNotFoundError|ImportError|Cannot find module|require\(\) failed", re.I)),
         # B-4: Added re.DOTALL — "old_string ... not found" may span multiple lines
         ("edit_mismatch", re.compile(r"old_string.*not found|not unique|no match|string not found in file", re.I | re.DOTALL)),
-        # E-1: New patterns
-        ("type_error", re.compile(r"TypeError|type error|is not a function|undefined is not", re.I)),
-        ("value_error", re.compile(r"ValueError|invalid (?:value|argument|literal)|out of range", re.I)),
+        # E-1: New patterns (Reflection: tightened to reduce false positives)
+        ("type_error", re.compile(r"TypeError|type error|undefined is not a function|\w+ is not a function(?! of\b)", re.I)),
+        ("value_error", re.compile(r"ValueError|invalid (?:value|argument|literal)|value.{0,30}out of range", re.I)),
         ("connection", re.compile(r"ConnectionError|ECONNREFUSED|ECONNRESET|network error|fetch failed", re.I)),
-        ("memory", re.compile(r"MemoryError|out of memory|heap|ENOMEM|allocation failed", re.I)),
-        ("git_error", re.compile(r"fatal:.*git|merge conflict|CONFLICT|not a git repository", re.I)),
+        ("memory", re.compile(r"MemoryError|out of memory|heap (?:space|memory|allocation|overflow)|ENOMEM|allocation failed", re.I)),
+        ("git_error", re.compile(r"fatal:.*git|merge conflict|CONFLICT|not a git repository", re.I | re.DOTALL)),
         ("command_not_found", re.compile(r"command not found|not recognized|is not recognized", re.I)),
     ]
 
