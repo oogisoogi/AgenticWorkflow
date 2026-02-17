@@ -91,6 +91,15 @@ autopilot-logs/step-{N}-decision.md
 - Hook이 생성한 로그에는 `Source: Hook safety net` 표기
 - Claude가 이미 생성한 로그는 Hook이 덮어쓰지 않음 (`os.path.exists` 확인)
 
+## Translation 단계 처리
+
+`Translation: @translator`인 단계가 자동 승인될 때:
+
+- **Decision**: `@translator` 서브에이전트를 호출하여 영어 산출물을 한국어로 번역
+- **Rationale**: 절대 기준 1 — 영어 산출물의 품질을 유지하면서 한국어 접근성 확보
+- **추가 검증**: 번역 파일(`*.ko.md`) 존재 + 비어있지 않음 + `translations/glossary.yaml` 갱신 확인
+- **SOT 기록**: `outputs.step-N-ko`에 번역 경로 기록
+
 ## 절대 기준 준수
 
 | 절대 기준 | 적용 |

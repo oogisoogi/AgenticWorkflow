@@ -71,10 +71,10 @@ E5_RICH_CONTENT_MARKER = "### 수정 중이던 파일"
 EDIT_PREVIEW_CHARS = 1000
 # Error result: 에러 메시지 전체 보존 (stack trace + context)
 ERROR_RESULT_CHARS = 3000
-# Normal tool result
-NORMAL_RESULT_CHARS = 800
-# Write preview (first 3 lines)
-WRITE_PREVIEW_CHARS = 150
+# Normal tool result — Bash 출력, 테스트 결과 등 실행 맥락 보존
+NORMAL_RESULT_CHARS = 1500
+# Write preview — 생성된 파일의 의도 파악 가능한 길이 (첫 8줄)
+WRITE_PREVIEW_CHARS = 500
 # Generic tool input preview
 GENERIC_INPUT_CHARS = 200
 # Bash command preview
@@ -885,9 +885,11 @@ def _extract_decisions(assistant_texts):
     Detects:
     1. Explicit markers: <!-- DECISION: ... -->
     2. Structured patterns: **Decision:** / **결정:** / **선택:**
+    3. Implicit intent patterns: "~하겠습니다", "선택 이유:", "approach:"
+    4. Rationale patterns: "이유:", "근거:", "Rationale:", "because"
 
     P1 Compliance: Regex-based deterministic extraction.
-    Returns: list of decision strings (max 10).
+    Returns: list of decision strings (max 15).
     """
     decisions = []
     # Pattern 1: HTML comment markers
@@ -897,13 +899,27 @@ def _extract_decisions(assistant_texts):
         r'\*\*(?:Decision|결정|선택|채택|판단)\s*(?::|：)\*\*\s*(.+?)(?:\n|$)',
         re.IGNORECASE
     )
+    # Pattern 3: Implicit intent (Korean) — "~하겠습니다" preceded by context
+    intent_pattern = re.compile(
+        r'(?:^|\n)\s*[-*]?\s*(.{10,120}(?:하겠습니다|로 결정|을 선택|를 채택|접근 방식|approach))',
+        re.MULTILINE
+    )
+    # Pattern 4: Rationale markers
+    rationale_pattern = re.compile(
+        r'(?:선택\s*이유|근거|Rationale|Reason(?:ing)?)\s*(?::|：)\s*(.+?)(?:\n|$)',
+        re.IGNORECASE
+    )
 
     for entry in assistant_texts:
         content = entry.get("content", "")
         for match in marker_pattern.finditer(content):
-            decisions.append(match.group(1).strip()[:300])
+            decisions.append(("[explicit] " + match.group(1).strip())[:300])
         for match in bold_pattern.finditer(content):
-            decisions.append(match.group(1).strip()[:300])
+            decisions.append(("[decision] " + match.group(1).strip())[:300])
+        for match in intent_pattern.finditer(content):
+            decisions.append(("[intent] " + match.group(1).strip())[:300])
+        for match in rationale_pattern.finditer(content):
+            decisions.append(("[rationale] " + match.group(1).strip())[:300])
 
     # Dedup while preserving order
     seen = set()
@@ -913,7 +929,11 @@ def _extract_decisions(assistant_texts):
             seen.add(d)
             unique.append(d)
 
-    return unique[:10]
+    # Quality-tag priority sort: high-signal decisions survive the 15-slot cutoff
+    # even when noisy [intent] matches (e.g., "파일을 읽겠습니다") appear earlier.
+    _DECISION_PRIORITY = {"[explicit]": 0, "[decision]": 1, "[rationale]": 2, "[intent]": 3}
+    unique.sort(key=lambda d: _DECISION_PRIORITY.get(d.split("]")[0] + "]" if "]" in d else "", 4))
+    return unique[:15]
 
 
 # =============================================================================
@@ -1182,6 +1202,31 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
             sections.append(f"- 종료: {cs['last_timestamp']}")
         sections.append("")
 
+    # A6: 최근 도구 호출 시간순 기록 — 에러-복구 패턴 보존
+    recent_tools = [
+        e for e in entries
+        if e.get("type") == "tool_use" and e.get("tool_name")
+    ][-10:]  # 마지막 10개
+    if recent_tools:
+        # Pre-build error lookup: O(n) once instead of O(10n) nested scan
+        result_errors = {}
+        for e2 in entries:
+            if e2.get("type") == "tool_result":
+                tid = e2.get("tool_use_id", "")
+                if tid and e2.get("is_error"):
+                    result_errors[tid] = True
+        sections.append("### 최근 도구 활동 (시간순)")
+        for rt in recent_tools:
+            tool = rt.get("tool_name", "?")
+            fp = rt.get("file_path", "")
+            ts = rt.get("timestamp", "")[-8:]  # HH:MM:SS
+            short_fp = os.path.basename(fp) if fp else ""
+            tu_id = rt.get("tool_use_id", "")
+            result_tag = " ← ERROR" if result_errors.get(tu_id) else ""
+            suffix = f" → `{short_fp}`" if short_fp else ""
+            sections.append(f"- [{ts}] {tool}{suffix}{result_tag}")
+        sections.append("")
+
     # Section 5: Git Changes (E2 — ground truth, post-commit aware)
     if any(git_state.values()):
         sections.append("## Git 변경 상태 (Git Changes)")
@@ -1274,7 +1319,16 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
         selected_ids = set(id(t) for t in last_3 + top_priority)
         selected_responses = [t for t in meaningful_texts if id(t) in selected_ids]
         for i, txt in enumerate(selected_responses, 1):
-            sections.append(f"{i}. {_truncate(txt['content'], 2500)}")
+            content = txt["content"]
+            if len(content) > 2500:
+                # A5: Structure-preserving compression — keep header + conclusion
+                # Split: first 1200 chars (intro/structure) + last 1000 chars (conclusion)
+                head = content[:1200]
+                tail = content[-1000:]
+                omitted = len(content) - 2200
+                sections.append(f"{i}. {head}\n  [...{omitted}자 생략...]\n  {tail}")
+            else:
+                sections.append(f"{i}. {content}")
     else:
         sections.append("(Claude 응답 없음)")
     sections.append("")
@@ -1870,14 +1924,14 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     user_messages = [e for e in entries if e["type"] == "user_message"]
     tool_uses = [e for e in entries if e["type"] == "tool_use"]
 
-    # First user message (C-2: expanded from 100→250 chars for richer cross-session context)
+    # First user message (C-2: expanded to 300 chars for richer cross-session context)
     user_task = ""
     if user_messages:
         # Skip system-injected messages
         for msg in user_messages:
             content = msg.get("content", "")
             if not (content.startswith("<") and ">" in content[:50]):
-                user_task = content[:250]
+                user_task = content[:300]
                 break
 
     # Last user instruction (deterministic) — 품질 최적화
@@ -1887,8 +1941,8 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         for msg in reversed(user_messages):
             content = msg.get("content", "")
             if not (content.startswith("<") and ">" in content[:50]):
-                if content[:250] != user_task:  # 첫 메시지와 동일하면 생략
-                    last_instruction = content[:250]  # C-2: expanded from 100→250
+                if content[:300] != user_task:  # 첫 메시지와 동일하면 생략
+                    last_instruction = content[:300]
                 break
 
     # Modified files — unique paths from Write/Edit
@@ -1896,6 +1950,19 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         tu.get("file_path", "") for tu in tool_uses
         if tu.get("tool_name") in ("Write", "Edit") and tu.get("file_path")
     ))
+
+    # B2: Per-file modification metadata — tool type + edit count for change magnitude
+    file_detail = {}
+    for tu in tool_uses:
+        tool_name = tu.get("tool_name", "")
+        fp = tu.get("file_path", "")
+        if tool_name in ("Write", "Edit") and fp:
+            if fp not in file_detail:
+                file_detail[fp] = {"tool": tool_name, "edits": 0}
+            file_detail[fp]["edits"] += 1
+            # Write overwrites; if both Write and Edit occurred, record Write
+            if tool_name == "Write":
+                file_detail[fp]["tool"] = "Write"
 
     # Read files — unique paths from Read
     read_files = sorted(set(
@@ -1933,6 +2000,7 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         "project": project_dir,
         "user_task": user_task,
         "modified_files": modified_files,
+        "modified_files_detail": file_detail,  # B2: per-file tool + edit count
         "read_files": read_files,
         "tools_used": tools_used,
         "trigger": trigger,
@@ -1971,58 +2039,74 @@ def replace_or_append_session_facts(ki_path, facts):
     If an entry with the same session_id already exists, replaces it
     (later saves have more complete data — e.g., sessionend after threshold).
 
-    A-1: Uses atomic temp-file + rename pattern within exclusive flock.
+    A-1: Reads under shared lock, writes via atomic temp→rename under exclusive lock.
+         Even if the process crashes mid-write, the original file is never corrupted.
     A-2: Empty/missing session_id skips dedup (appends as new unique entry).
+    A-3: Empty session_id triggers UUID fallback to prevent unbounded dedup bypass.
 
     P1 Compliance: All operations are deterministic (JSON read/filter/write).
     SOT Compliance: Only called from save_context.py and _trigger_proactive_save.
     """
     session_id = facts.get("session_id", "")
+
+    # A-3: Empty session_id fallback — generate UUID to enable dedup on retry
+    if not session_id or session_id == "unknown":
+        import uuid
+        session_id = f"auto-{uuid.uuid4().hex[:12]}"
+        facts["session_id"] = session_id
+
     parent_dir = os.path.dirname(ki_path)
     os.makedirs(parent_dir, exist_ok=True)
 
-    # F-4: Atomic create-or-open — eliminates TOCTOU race
-    # open("a") creates if missing, then immediately close and reopen as "r+"
+    # Use a dedicated lock file to separate read/write locking from the data file.
+    # This avoids the truncate-then-write vulnerability entirely.
+    lock_path = ki_path + ".lock"
+
     try:
-        f = open(ki_path, "r+", encoding="utf-8")
-    except FileNotFoundError:
-        open(ki_path, "w", encoding="utf-8").close()
-        f = open(ki_path, "r+", encoding="utf-8")
-
-    # A-1: "r+" for correct seek/read/truncate semantics
-    with f:
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
         try:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            lines = f.readlines()
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
 
-            # Filter out existing entry with same session_id
-            # A-2: Only dedup when session_id is non-empty and non-"unknown"
+            # Read existing entries (file may not exist yet)
+            lines = []
+            if os.path.exists(ki_path):
+                try:
+                    with open(ki_path, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                except Exception:
+                    pass
+
+            # Filter out existing entry with same session_id (dedup)
             kept = []
-            can_dedup = bool(session_id) and session_id != "unknown"
             for line in lines:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if can_dedup:
-                    try:
-                        entry = json.loads(stripped)
-                        if entry.get("session_id") == session_id:
-                            continue  # Remove old entry — will be replaced
-                    except json.JSONDecodeError:
-                        pass
+                try:
+                    entry = json.loads(stripped)
+                    if entry.get("session_id") == session_id:
+                        continue  # Remove old entry — will be replaced
+                except json.JSONDecodeError:
+                    kept.append(stripped + "\n")
+                    continue
                 kept.append(stripped + "\n")
 
             # Append new entry
             kept.append(json.dumps(facts, ensure_ascii=False) + "\n")
 
-            # Rewrite file atomically within lock
-            f.seek(0)
-            f.truncate(0)
-            f.writelines(kept)
-            f.flush()
-            os.fsync(f.fileno())  # A-1: ensure durability
+            # A-1: Atomic write — temp file + rename. If crash happens,
+            # either old file or new file exists, never a half-written state.
+            atomic_write(ki_path, "".join(kept))
         finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+    except Exception:
+        # Non-blocking fallback: append-only (no dedup, but no data loss)
+        try:
+            with open(ki_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(facts, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
 
 
 def cleanup_knowledge_index(snapshot_dir):

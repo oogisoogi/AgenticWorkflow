@@ -211,6 +211,7 @@ AI 동작:
 - Agent: @[agent-name]
 - Task: [수행 작업]
 - Output: [산출물]
+- Translation: @translator → [산출물].ko.md | none
 - Post-processing: [산출물 정제 — P1]
 
 ## Planning
@@ -237,6 +238,7 @@ AI 동작:
 | `(team)` | Agent Team 병렬 실행 구간 |
 | `(hook)` | 자동 검증/품질 게이트 |
 | `@agent-name` | Sub-agent 호출 |
+| `@translator` | 번역 서브에이전트 — `Translation` 필드에서 호출 |
 | `/command-name` | Slash command 실행 |
 | `[skill-name]` | Skill 참조 |
 
@@ -366,7 +368,7 @@ workflow.md에 `(hook)` 구간이 있다면:
 | `0` | 통과 |
 | `2` | 차단 — 에이전트에 피드백 전달, 재작업 |
 
-> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태)으로 이전 맥락을 복원합니다. PostToolUse는 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate)를 추적합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 포함하여 기록합니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
+> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태)으로 이전 맥락을 복원합니다. PostToolUse는 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate)를 추적합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 포함하여 기록합니다. 스냅샷의 설계 결정은 품질 태그 우선순위(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 정렬되어 노이즈가 제거되고, 모든 파일 쓰기(스냅샷, 아카이브, 로그 절삭)에 atomic write(temp → rename) 패턴이 적용됩니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
 
 ### 6.5 Slash Commands 만들기
 
@@ -596,7 +598,67 @@ Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임�
 
 ---
 
-## 13. 전체 요약: 워크플로우 설계 → 구현 체크리스트
+## 13. 이중언어 워크플로우 (English-First + Korean Translation)
+
+워크플로우 실행 시 모든 에이전트는 **영어로 작업**하고, 텍스트 산출물에 대해 `@translator` 서브에이전트가 한국어 번역을 생성합니다.
+
+### 왜 English-First인가
+
+| 이유 | 설명 |
+|------|------|
+| AI 성능 최적화 | 대부분의 LLM은 영어에서 가장 높은 분석·추론 품질을 보임 |
+| 번역 품질 확보 | 전문 번역 에이전트가 용어 일관성 + 자기 검토를 수행 |
+| 이중 산출물 | 영어 원본(기록·재사용) + 한국어 번역(소통·보고)을 모두 확보 |
+
+### 언어 경계
+
+| 구간 | 언어 |
+|------|------|
+| `workflow.md` (설계 문서) | 한국어 — 사용자가 읽는 설계도 |
+| 에이전트 실행 + 산출물 | 영어 — AI 성능 최적화 |
+| 번역 산출물 (`*.ko.md`) | 한국어 — `@translator`가 생성 |
+
+### Translation 필드
+
+워크플로우의 각 단계에 `Translation` 필드가 포함됩니다:
+
+```markdown
+- **Translation**: `@translator` → research-notes.ko.md    # 텍스트 산출물 → 번역
+- **Translation**: none                                     # 코드/데이터 → 번역 불필요
+```
+
+**번역 대상 판별:**
+
+| 산출물 유형 | Translation 설정 |
+|------------|-----------------|
+| 텍스트 문서 (`.md`, `.txt`) | `@translator` |
+| 코드/스크립트 (`.py`, `.js`) | `none` |
+| 데이터 파일 (`.json`, `.csv`) | `none` |
+| 설정 파일 (`.yaml`, `.json`) | `none` |
+
+### 용어 일관성 — Glossary
+
+`@translator`는 `translations/glossary.yaml`을 RLM 외부 영속 상태로 사용합니다:
+
+- 매 번역 시 기존 용어를 로드하여 일관성 유지
+- 새 용어 발견 시 glossary에 추가
+- 워크플로우 전체에 걸쳐 동일 용어가 동일 번역으로 유지됨
+
+### SOT 기록
+
+번역 결과는 SOT에 `step-N-ko` 키로 기록됩니다:
+
+```yaml
+outputs:
+  step-1: "research-notes.md"       # 영어 원본
+  step-1-ko: "research-notes.ko.md" # 한국어 번역
+```
+
+> 기존 Hook 코드(`restore_context.py`)의 `.isdigit()` 가드가 `step-N-ko` 키를 자동으로 건너뛰므로, Hook 코드 변경 없이 호환됩니다.
+
+---
+
+## 14. 전체 요약: 워크플로우 설계 → 구현 체크리스트
 
 ### Phase 1: 설계
 
@@ -618,10 +680,13 @@ Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임�
 - [ ] Agent Team 설정 (병렬 협업 필요 시)
 - [ ] Task 설계 (Agent Team 사용 시 — workflow.md 내 Task 정의)
 - [ ] Error Handling 설정 (재시도, 롤백, 에스컬레이션 규칙)
+- [ ] Translation 필드 설정 (각 단계별 `@translator` 또는 `none`)
+- [ ] `translations/glossary.yaml` 초기화 (번역 대상 단계가 있는 경우)
 
 ### 검증
 
 - [ ] 워크플로우 전체 실행 테스트
 - [ ] 각 단계의 산출물 품질 확인 (절대 기준 1)
 - [ ] SOT 파일 일관성 확인 (절대 기준 2)
+- [ ] 번역 파일(`*.ko.md`) 존재 + 용어 일관성 확인
 - [ ] Hook 게이트 정상 동작 확인

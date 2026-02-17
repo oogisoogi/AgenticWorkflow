@@ -25,6 +25,7 @@ workflow.md 파일의 표준 구조.
 - **Agent**: `@[agent-name]`
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
+- **Translation**: `@translator` → [산출물].ko.md | none
 - **Post-processing**: [산출물 정제 — 생략 가능]
 
 ### 2. [단계명]
@@ -32,6 +33,7 @@ workflow.md 파일의 표준 구조.
 - **Agent**: `@[agent-name]`
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
+- **Translation**: `@translator` → [산출물].ko.md | none
 
 ### 3. (human) [검토 단계명]
 - **Action**: [사람이 수행할 작업]
@@ -46,12 +48,14 @@ workflow.md 파일의 표준 구조.
 - **Agent**: `@[agent-name]`
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
+- **Translation**: `@translator` → [산출물].ko.md | none
 - **Post-processing**: [산출물 정제]
 
 ### 5. [단계명]
 - **Agent**: `@[agent-name]`
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
+- **Translation**: `@translator` → [산출물].ko.md | none
 
 ### 6. (human) [검토 단계명]
 - **Action**: [사람이 수행할 작업]
@@ -66,6 +70,7 @@ workflow.md 파일의 표준 구조.
 - **Agent**: `@[agent-name]`
 - **Task**: [수행 작업]
 - **Output**: [최종 산출물]
+- **Translation**: `@translator` → [산출물].ko.md | none
 
 ---
 
@@ -324,8 +329,10 @@ autopilot_logging:
 | `(team)` | Agent Team 병렬 실행 구간 |
 | `(hook)` | 자동 검증/품질 게이트 |
 | `@agent-name` | Sub-agent 호출 |
+| `@translator` | 번역 서브에이전트 — `Translation` 필드에서 호출 |
 | `/command-name` | Slash command 실행 |
 | `[skill-name]` | Skill 참조 |
+| `Translation: ... \| none` | 단계별 번역 적용 여부 (텍스트 산출물만 대상) |
 
 ## 예시: 블로그 컨텐츠 생성 워크플로우
 
@@ -349,11 +356,13 @@ autopilot_logging:
 - **Agent**: `@content-collector`
 - **Task**: 정해진 채널에서 최신 컨텐츠 수집
 - **Output**: `raw-contents.md`
+- **Translation**: none
 
 ### 2. 인사이트 추출
 - **Agent**: `@insight-extractor`
 - **Task**: 수집된 컨텐츠에서 핵심 인사이트 도출
 - **Output**: `insights-list.md`
+- **Translation**: `@translator` → `insights-list.ko.md`
 
 ### 3. (human) 인사이트 검토 및 선정
 - **Action**: 글로 작성할 인사이트 선택
@@ -367,11 +376,13 @@ autopilot_logging:
 - **Agent**: `@deep-researcher`
 - **Task**: 선정 주제에 대한 전문 자료/트렌드 조사
 - **Output**: `research-notes.md`
+- **Translation**: `@translator` → `research-notes.ko.md`
 
 ### 5. 개요 작성
 - **Agent**: `@outline-writer`
 - **Task**: 조사 내용 기반 글 개요 작성
 - **Output**: `article-outlines.md`
+- **Translation**: `@translator` → `article-outlines.ko.md`
 
 ### 6. (human) 개요 검토 및 피드백
 - **Action**: 개요 검토 후 수정 방향 제시

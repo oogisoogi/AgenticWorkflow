@@ -131,6 +131,53 @@ Orchestrator가 입력을 N개 청크로 분할하고, 각 청크를 병렬 에�
 
 ---
 
+## Translation 고려사항 (English-First 실행)
+
+AGENTS.md §5.2에 따라, 워크플로우 실행은 영어로 수행하고 텍스트 산출물은 `@translator` 서브에이전트가 한국어로 번역한다. 각 패턴별 Translation 처리 방식이 다르다.
+
+### 패턴별 Translation 매핑
+
+| 패턴 | Translation 시점 | Glossary 관리 | 비고 |
+|------|-----------------|--------------|------|
+| **Pattern A** | 단계 완료 후 `@translator` 1회 호출 | 단일 파일 — 충돌 없음 | 가장 단순 |
+| **Pattern B** | 필터링된 산출물에 대해 `@translator` 호출 | 단일 파일 — 충돌 없음 | Pre-processing 산출물은 번역 불필요 |
+| **Pattern C** | **Join 후** 병합된 최종 산출물에 `@translator` 호출 | `translations/glossary.yaml` 공유 필수 | 아래 상세 참조 |
+
+### Pattern C: 청크 간 용어 일관성
+
+병렬 에이전트가 독립 청크를 처리할 때, 각 에이전트가 같은 도메인 용어를 다르게 번역하면 최종 결과물의 일관성이 깨진다.
+
+**해결 전략: Join-then-Translate**
+
+```markdown
+### N. (team) 대규모 문서 분석
+- **Team**: `analysis-pipeline`
+- **Tasks**: (각 analyst가 영어로 분석 수행)
+- **Join**: Team Lead가 영어 결과를 병합 → `analysis/report.md`
+- **Translation**: `@translator`
+  - Input: `analysis/report.md` (병합된 영어 최종본)
+  - Glossary: `translations/glossary.yaml` (도메인 용어 일관성)
+  - Output: `analysis/report.ko.md`
+```
+
+**핵심 규칙:**
+1. 개별 청크를 따로 번역하지 않는다 — 병합 후 1회 번역이 용어 일관성을 보장
+2. `translations/glossary.yaml`에 도메인 핵심 용어를 사전 정의하여 `@translator`에 전달
+3. 중간 산출물(temp/ 디렉터리)은 번역 대상에서 제외 — 최종 산출물만 번역
+
+**예외: 청크별 번역이 필요한 경우**
+
+드물게 각 청크의 중간 산출물 자체가 사용자에게 전달되는 경우(예: 챕터별 독립 배포), 각 에이전트에게 공유 glossary를 전달하여 일관성을 유지한다:
+
+```markdown
+- **Tasks**:
+  - `@analyst-1`: chunk-001~003 분석 + `@translator` (glossary 참조)
+  - `@analyst-2`: chunk-004~006 분석 + `@translator` (glossary 참조)
+- **Glossary**: `translations/glossary.yaml` (모든 에이전트가 동일 glossary 읽기 전용 참조)
+```
+
+---
+
 ## RLM 이론적 근거
 
 이 3가지 패턴은 Recursive Language Models (MIT CSAIL, 2025) 논문의 핵심 패턴에 대응한다:

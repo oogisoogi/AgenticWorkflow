@@ -178,6 +178,26 @@ def _extract_brief_summary(content):
             read_count += 1
         elif current_section == "stats" and line.startswith("- "):
             summary_parts.append(("통계", line[:100]))
+        # C1: Detect recent errors from completion state
+        elif current_section == "completion" and "ERROR" in line:
+            summary_parts.append(("에러", line[:200]))
+        # C1: Detect recent tool errors from 최근 도구 활동 section
+        elif "← ERROR" in line:
+            summary_parts.append(("에러", line.strip()[:200]))
+
+    # C1: Extract Autopilot section presence
+    if "AUTOPILOT MODE ACTIVE" in content or "autopilot" in content.lower():
+        for line in lines:
+            if "현재 단계:" in line:
+                summary_parts.append(("autopilot", line.strip()[:100]))
+                break
+
+    # C1: Extract active team info
+    if "Agent Team" in content or "active_team" in content:
+        for line in lines:
+            if "tasks_pending" in line.lower() or "tasks_completed" in line.lower():
+                summary_parts.append(("team", line.strip()[:100]))
+                break
 
     # Add file counts as summary entries
     if files_count > 0:
@@ -239,6 +259,9 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
     stats_info = []
     completion_info = []
     git_info = []
+    error_info = []
+    autopilot_info = ""
+    team_info = ""
 
     for label, content in summary:
         if label == "현재 작업":
@@ -255,6 +278,12 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             completion_info.append(content)
         elif label == "git":
             git_info.append(content)
+        elif label == "에러":
+            error_info.append(content)
+        elif label == "autopilot":
+            autopilot_info = content
+        elif label == "team":
+            team_info = content
 
     if task_info:
         output_lines.append(f"■ 현재 작업: {task_info}")
@@ -275,6 +304,13 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
         output_lines.append(f"■ 완료상태: {'; '.join(completion_info[:3])}")
     if git_info:
         output_lines.append(f"■ Git: {', '.join(git_info[:5])}")
+    # C1: Surface errors, autopilot, team state for immediate awareness
+    if error_info:
+        output_lines.append(f"■ ⚠ 최근 에러: {'; '.join(error_info[:3])}")
+    if autopilot_info:
+        output_lines.append(f"■ Autopilot: {autopilot_info}")
+    if team_info:
+        output_lines.append(f"■ Team: {team_info}")
 
     # E6: Fallback note (if using archive instead of latest.md)
     if fallback_note:

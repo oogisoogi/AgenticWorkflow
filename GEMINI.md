@@ -57,7 +57,7 @@ Gemini CLI에는 Claude Code의 자동 Hook 기반 컨텍스트 보존 시스템
 - **세션 로그**: Gemini CLI의 `/memory` 기능으로 핵심 사항 기억
 - **SOT 기반 복원**: `state.yaml`에 워크플로우 진행 상태를 기록하여 새 세션에서 복원
 
-> Claude Code의 Context Preservation System은 Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 자동 기록한다. Gemini에서는 이 정보를 수동으로 기록하거나, 세션 종료 시 상태를 `state.yaml`에 요약하는 방식으로 대응한다.
+> Claude Code의 Context Preservation System은 Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 자동 기록하고, 스냅샷의 설계 결정은 품질 태그 우선순위(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 정렬하여 노이즈를 제거한다. 모든 파일 쓰기에 atomic write(temp → rename) 패턴을 적용한다. Gemini에서는 이 정보를 수동으로 기록하거나, 세션 종료 시 상태를 `state.yaml`에 요약하는 방식으로 대응한다.
 
 ## 설계 원칙
 
@@ -68,7 +68,9 @@ Gemini CLI에는 Claude Code의 자동 Hook 기반 컨텍스트 보존 시스템
 
 ## 언어 및 스타일
 
-- **콘텐츠**: 한국어
-- **기술 용어**: 영어 유지 (SOT, Agent, Orchestrator 등)
+- **프레임워크 문서·사용자 대화**: 한국어
+- **워크플로우 실행**: 영어 (AI 성능 극대화 — 절대 기준 1 근거). 상세: AGENTS.md §5.2
+- **최종 산출물**: 영어 원본 + 한국어 번역 쌍 (`@translator` 서브에이전트)
+- **기술 용어**: 영어 유지 (SOT, Agent, Orchestrator, Hooks 등)
 - **시각화**: Mermaid 다이어그램 선호
 - **깊이**: 간략 요약보다 포괄적·데이터 기반 서술 선호

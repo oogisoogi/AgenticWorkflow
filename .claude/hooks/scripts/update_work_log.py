@@ -19,7 +19,6 @@ Architecture:
 import os
 import sys
 import json
-import fcntl
 from datetime import datetime
 
 # Add script directory to path for shared library import
@@ -249,20 +248,15 @@ def _trigger_proactive_save(project_dir, snapshot_dir, input_data=None):
         cleanup_session_archives(snapshot_dir)
         cleanup_knowledge_index(snapshot_dir)
 
-        # C-6: Archive work log (keep last 10 entries) instead of full truncation
+        # C-6: Archive work log (keep last 10 entries) — atomic_write for crash safety
         work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")
         if os.path.exists(work_log_path):
             try:
-                with open(work_log_path, "r+", encoding="utf-8") as wf:
-                    fcntl.flock(wf.fileno(), fcntl.LOCK_EX)
+                with open(work_log_path, "r", encoding="utf-8") as wf:
                     lines = wf.readlines()
-                    # Keep last 10 entries for continuity context
-                    kept = lines[-10:] if len(lines) > 10 else []
-                    wf.seek(0)
-                    wf.truncate(0)
-                    wf.writelines(kept)
-                    wf.flush()
-                    fcntl.flock(wf.fileno(), fcntl.LOCK_UN)
+                if len(lines) > 10:
+                    kept_data = "".join(lines[-10:])
+                    atomic_write(work_log_path, kept_data)
             except (OSError, IOError):
                 pass
 

@@ -93,12 +93,14 @@ AgenticWorkflow/
 ├── .aider.conf.yml                        ← Aider 설정 (AGENTS.md 자동 로드)
 ├── .claude/
 │   ├── settings.json                      ← Hook 설정 (Setup + SessionEnd)
+│   ├── agents/                             ← Sub-agent 정의
+│   │   └── translator.md                  (영→한 번역 전문 에이전트 — glossary 기반 용어 일관성)
 │   ├── commands/                           ← Slash Commands
 │   │   ├── install.md                     (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
-│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지)
+│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬)
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
@@ -149,6 +151,7 @@ AgenticWorkflow/
 - Hook 스크립트는 SOT(`state.yaml`)를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수). SOT 파일 경로는 `sot_paths()` 헬퍼로 중앙 관리되며, `SOT_FILENAMES` 상수(`state.yaml`, `state.yml`, `state.json`)에서 파생된다.
 - **절삭 상수 중앙화**: `_context_lib.py`에 10개 절삭 상수(`EDIT_PREVIEW_CHARS=1000`, `ERROR_RESULT_CHARS=3000`, `MIN_OUTPUT_SIZE=100` 등)를 중앙 정의. Edit preview는 5줄×1000자로 편집 의도·맥락을 보존하고, 에러 메시지는 3000자로 stack trace 전체를 보존한다.
 - **다단계 전환 감지**: `detect_phase_transitions()` 함수가 sliding window(20개 도구, 50% 오버랩)로 세션 내 단계 전환(research → planning → implementation 등)을 결정론적으로 감지한다. Knowledge Archive의 `phase_flow` 필드에 기록된다.
+- **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션(IMMORTAL 우선순위)은 품질 태그 기반으로 정렬된다 — `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 15개 슬롯을 채워, 일상적 의도 선언(`하겠습니다` 패턴)이 실제 설계 결정을 밀어내지 않는다.
 - **Autopilot 런타임 강화**: Autopilot 활성 시 SessionStart가 실행 규칙을 컨텍스트에 주입하고, 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하며, Stop hook이 Decision Log 누락을 감지·보완한다. PostToolUse는 work_log에 autopilot_step 필드를 추가하여 단계 진행을 추적한다.
 
 ### Hook 설정 위치
@@ -248,6 +251,13 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] `TeamDelete` 직후 → SOT `active_team` → `completed_teams` 이동
 - [ ] Teammate 산출물에 판단 근거(Decision Rationale) + 교차 참조 단서(Cross-Reference Cues) 포함 확인
 
+#### 단계 완료 후 (번역 — `Translation: @translator`인 단계만)
+- [ ] `@translator` 서브에이전트 호출 (`translations/glossary.yaml` 참조 포함)
+- [ ] 번역 파일(`*.ko.md`) 디스크에 존재 확인
+- [ ] 번역 파일 비어있지 않음 확인
+- [ ] SOT `outputs.step-N-ko`에 번역 경로 기록
+- [ ] `translations/glossary.yaml` 갱신 확인
+
 #### NEVER DO
 - `current_step`을 2 이상 한 번에 증가 금지
 - 산출물 없이 다음 단계 진행 금지
@@ -258,10 +268,34 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 
 ## 언어 및 스타일 규칙
 
-- **콘텐츠**: 한국어
+- **프레임워크 문서·사용자 대화**: 한국어
+- **워크플로우 실행**: 영어 (AI 성능 극대화 — 절대 기준 1 근거)
+- **최종 산출물**: 영어 원본 + 한국어 번역 쌍 (각 단계별 `@translator` 서브에이전트가 생성)
 - **기술 용어**: 영어 유지 (e.g., SOT, Agent Team, Hooks)
 - **시각화**: Mermaid 다이어그램 선호
 - **깊이**: 간략 요약보다 포괄적·데이터 기반 서술 선호
+
+### English-First 실행 원칙
+
+워크플로우 **실행** 시 모든 에이전트(Sub-agent, Teammate)는 **영어로 작업**하고 **영어로 산출물을 생성**한다.
+
+| 단계 | 언어 | 근거 |
+|------|------|------|
+| 워크플로우 설계 (workflow-generator) | 한국어 | 사용자와의 대화 |
+| 워크플로우 실행 (에이전트 작업) | **영어** | AI 성능 극대화 |
+| 산출물 번역 | 영어→한국어 | `@translator` 서브에이전트 |
+| SOT 기록 | 언어 무관 (경로·숫자) | 구조적 데이터 |
+
+### 번역 프로토콜 (워크플로우 실행 시)
+
+1. 각 단계의 영어 산출물이 SOT `outputs.step-N`에 기록된 후
+2. 워크플로우에 `Translation: @translator`로 표기된 단계에 한해
+3. `@translator` 서브에이전트 호출 (`.claude/agents/translator.md`)
+4. 번역 완료 후 SOT `outputs.step-N-ko`에 한국어 경로 기록
+5. 용어 사전(`translations/glossary.yaml`)이 자동 유지됨 (RLM 외부 지속 상태)
+
+> **번역 대상**: 텍스트 콘텐츠 산출물만 (`.md`, `.txt` 등). 코드(`.py`, `.js`), 데이터(`.json`, `.csv`), 설정(`.yaml` config) 파일은 번역하지 않는다.
+> **SOT 호환성**: `step-N-ko` 키는 Anti-Skip Guard의 `.isdigit()` 가드에 의해 자동으로 건너뛰어진다 (Hook 코드 변경 없음).
 
 ## 스킬 개발 규칙
 

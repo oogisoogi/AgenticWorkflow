@@ -167,6 +167,7 @@
 | Skills | [필요 스킬 목록] | [어떤 도메인 지식이 필요한가] |
 | MCP Servers | [외부 연동 서비스] | [어떤 외부 데이터/기능이 필요한가] |
 | Pre/Post-processing | [전처리/후처리 스크립트] | [P1 원칙: 코드가 정제, AI가 판단] |
+| Translation | [텍스트 산출물: `@translator` / 코드·데이터: `none`] | [English-First 실행 — AGENTS.md §5.2] |
 
 > **참조**: 각 구성요소의 상세 구현 패턴은 `references/claude-code-patterns.md`를 참조한다.
 

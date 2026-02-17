@@ -194,12 +194,14 @@ AgenticWorkflow/
 ├── COPYRIGHT.md          ← 저작권
 ├── .claude/
 │   ├── settings.json          ← Hook 설정 (Setup + SessionEnd)
+│   ├── agents/                ← Sub-agent 정의
+│   │   └── translator.md     (영→한 번역 전문 에이전트 — glossary 기반 용어 일관성)
 │   ├── commands/              ← Slash Commands
 │   │   ├── install.md         (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 + 절삭 상수 중앙화 + sot_paths() 경로 통합 + 다단계 전환 감지 + Smart Throttling + Autopilot 상태 읽기·검증)
+│   │   ├── _context_lib.py    (공유 라이브러리 + 절삭 상수 중앙화 + sot_paths() 경로 통합 + 다단계 전환 감지 + Smart Throttling + Autopilot 상태 읽기·검증 + 결정 품질 태그 정렬)
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
@@ -232,6 +234,8 @@ AgenticWorkflow/
 - **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태), phase(세션 단계), phase_flow(다단계 전환 흐름), primary_language(주요 파일 확장자) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
 - **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터, 완료 상태(도구 성공/실패), Git 변경 상태. 복원 품질의 바닥선 보장
 - **Autopilot 런타임 강화**: Autopilot 활성 시 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하고, 세션 복원 시 실행 규칙을 컨텍스트에 주입. Stop hook이 Decision Log 누락을 감지·보완
+- **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션은 `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 정렬하여, 15개 슬롯에 고신호 결정이 우선 배치됨
+- **Crash-safe 쓰기**: 모든 파일 쓰기(스냅샷, 아카이브, 로그 정리)에 atomic write(temp → rename) 패턴 적용. 프로세스 크래시 시 부분 쓰기 방지
 
 **데이터 흐름:**
 
@@ -372,6 +376,115 @@ workflow:
 
 **활성화:** 기본값은 비활성(interactive). 워크플로우 Overview에 `Autopilot: enabled` 명시 또는 실행 시 사용자 지시로 활성화. 실행 중 토글 가능.
 
+### 5.2 English-First 실행 및 번역 프로토콜
+
+워크플로우 **실행** 시 모든 에이전트는 **영어로 작업**하고 **영어로 산출물**을 생성한다. AI는 영어에서 가장 높은 성능을 발휘하므로, 영어 우선 실행은 **절대 기준 1(품질)**의 직접적 구현이다.
+
+#### 언어 경계
+
+| 활동 | 언어 | 근거 |
+|------|------|------|
+| 워크플로우 설계 (workflow-generator 스킬) | 한국어 | 사용자와의 대화 |
+| 에이전트 정의 (`.claude/agents/*.md`) | 영어 | 에이전트 프롬프트 품질 극대화 |
+| 워크플로우 실행 (에이전트 작업) | **영어** | AI 성능 극대화 |
+| 산출물 번역 | 영어→한국어 | `@translator` 전문 서브에이전트 |
+| SOT 기록 | 언어 무관 | 경로·숫자 등 구조적 데이터 |
+
+> **설계 문서(`workflow.md`)는 한국어 유지**. 사용자가 읽고 검토하는 설계도이므로 사용자 언어를 사용한다. 언어 전환은 **설계→실행** 경계에서 발생한다.
+
+#### 번역 대상 판별
+
+모든 단계가 번역을 필요로 하지 않는다:
+
+| 산출물 유형 | 번역 여부 | 예시 |
+|-----------|---------|------|
+| 텍스트 콘텐츠 (분석, 보고서, 요약) | **번역** | `.md`, `.txt` |
+| 코드 파일 | 번역하지 않음 | `.py`, `.js`, `.ts` |
+| 데이터 파일 | 번역하지 않음 | `.json`, `.csv` |
+| 설정 파일 | 번역하지 않음 | `.yaml` config, `.env` |
+
+워크플로우 설계 시 각 단계에 `Translation: @translator` 또는 `Translation: none`을 명시하여 번역 적용 여부를 결정한다.
+
+#### 번역 실행 프로토콜
+
+**서브에이전트 선택 근거**: 번역은 용어 일관성과 맥락 누적이 품질의 핵심이므로, **전문 에이전트(Sub-agent)**가 에이전트 그룹보다 품질 우위 (§5 품질 매트릭스의 "맥락 깊이" + "산출물 일관성" 요인).
+
+**실행 순서**:
+
+```
+Step N 영어 산출물 완성
+  → SOT outputs.step-N 기록 + Anti-Skip Guard 검증
+  → @translator 서브에이전트 호출 (Translation: @translator인 단계만)
+    ① translations/glossary.yaml 읽기 (용어 사전 — RLM 외부 지속 상태)
+    ② 영어 원본 전체 읽기
+    ③ 확립된 용어 사용하여 완전 번역 (축약 금지 — 절대 기준 1)
+    ④ 자기 검토: 원문 대조, 용어 일관성 확인
+    ⑤ glossary.yaml 갱신 (새 용어 추가)
+    ⑥ *.ko.md 파일 생성
+  → SOT outputs.step-N-ko 기록
+  → 번역 파일 존재 + 비어있지 않음 확인
+  → Step N+1로 진행
+```
+
+#### 용어 사전 (Terminology Glossary)
+
+`translations/glossary.yaml`은 번역 에이전트의 **지속적 외부 메모리**이다 (RLM 패턴).
+
+```yaml
+# translations/glossary.yaml
+terms:
+  "Single Source of Truth": "단일 소스 오브 트루스(Single Source of Truth)"
+  "Anti-Skip Guard": "Anti-Skip Guard"  # 영어 유지
+  "workflow step": "워크플로우 단계"
+```
+
+**아키텍처 정합성**:
+- glossary는 **SOT가 아님** — 번역 에이전트의 로컬 작업 파일
+- Orchestrator가 관리하지 않음 — 번역 에이전트가 자체 관리
+- 동시 쓰기 위험 없음 — 번역은 순차 실행 (각 단계 완료 후 1회)
+- 계층적 메모리: Local Memory 계층 (per-agent 작업 맥락)
+
+#### SOT 기록 규칙
+
+```yaml
+outputs:
+  step-1: "research/raw-contents.md"          # 영어 원본
+  step-1-ko: "research/raw-contents.ko.md"    # 한국어 번역
+  step-2: "data/processed.json"               # 번역 불필요 → -ko 없음
+  step-3: "analysis/report.md"
+  step-3-ko: "analysis/report.ko.md"
+```
+
+- `step-N-ko` 키는 접미사 규칙: Anti-Skip Guard의 `.isdigit()` 가드에 의해 자동으로 건너뛰어짐
+- Anti-Skip Guard는 `step-N`(영어 원본)만 검증 → 번역 검증은 Orchestrator 체크리스트에서 수행
+- 번역이 없는 단계는 `-ko` 키가 생성되지 않음
+
+#### `(team)` 단계 번역
+
+에이전트 그룹 단계에서의 번역 대상은 **SOT `outputs.step-N`에 기록된 공식 산출물만**:
+
+1. Team Lead가 모든 Teammate 산출물 병합
+2. SOT `outputs.step-N` 기록 + Anti-Skip Guard 검증
+3. Team Lead가 `@translator` 호출 (병합된 공식 산출물에 대해)
+4. SOT `outputs.step-N-ko` 기록
+
+> Teammate의 개별 산출물은 중간 작업물(SOT 미기록)이므로 번역하지 않는다.
+
+#### 독립 번역 검증 (선택적 — 최종 납품물용)
+
+기본값은 번역 에이전트의 **자기 검토**로 충분하다. 최종 납품물 등 품질이 특히 중요한 단계에서는 독립 검증 서브에이전트를 추가할 수 있다:
+
+```
+@translator → output.ko.md
+  → @translation-verifier (별도 서브에이전트)
+    ① 영어 원본과 한국어 번역 동시 읽기
+    ② 정확성, 완전성, 용어 일관성, 자연스러움 검증
+    ③ Pass/Fail 판정 + 피드백
+  → Fail 시: @translator에게 피드백과 함께 재번역 요청
+```
+
+이 패턴은 워크플로우 설계 시 선택적으로 적용한다.
+
 ---
 
 ## 6. 스킬 체계
@@ -407,11 +520,13 @@ workflow:
 
 ## 8. 언어 및 스타일
 
-- **콘텐츠 언어**: 한국어
+- **프레임워크 문서·사용자 대화**: 한국어
+- **워크플로우 실행**: 영어 (AI 성능 극대화 — 절대 기준 1 근거). 상세: §5.2
+- **최종 산출물**: 영어 원본 + 한국어 번역 쌍
 - **기술 용어**: 영어 유지 (SOT, Agent, Orchestrator, Hooks 등)
 - **시각화**: Mermaid 다이어그램 선호
 - **서술 깊이**: 간략 요약보다 포괄적·데이터 기반 서술 선호
-- **코드 주석**: 한국어
+- **코드 주석**: 한국어 (프레임워크 코드) / 영어 (워크플로우 실행 코드)
 
 ---
 

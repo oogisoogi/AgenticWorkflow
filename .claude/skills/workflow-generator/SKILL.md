@@ -211,6 +211,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 - 담당 에이전트 (@agent)
 - 데이터 전처리 (Pre-processing) — 정확도 향상을 위한 노이즈 제거 (P1)
 - 산출물 (Output)
+- 번역 (Translation) — `@translator` 또는 `none` (텍스트 산출물만 대상)
 - 후처리 (Post-processing) — 다음 단계 품질 보장을 위한 정제 (P1)
 
 ## Claude Code 구성요소 매핑
@@ -259,9 +260,10 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 3. 설계 원칙 P1~P4 적용하며 3단계 구조로 작업 정의
 4. 각 단계에 데이터 전처리/후처리 명시 (P1)
 5. 휴먼-인-더-루프 지점 표시
-6. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
-7. workflow.md 파일 생성
-8. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
+6. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
+7. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
+8. workflow.md 파일 생성
+9. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
    - "이 단계가 최종 품질에 기여하는가?" — 품질에 무관한 단계만 제거
    - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
    - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가

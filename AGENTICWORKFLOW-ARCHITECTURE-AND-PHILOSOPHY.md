@@ -200,7 +200,7 @@ graph TB
         end
 
         subgraph "Context Preservation"
-            CPS["hooks/scripts/<br/>8개 Python 스크립트<br/>(절삭 상수 중앙화 + 다단계 전환 감지)"]
+            CPS["hooks/scripts/<br/>8개 Python 스크립트<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬)"]
             CSS["context-snapshots/<br/>런타임 스냅샷"]
         end
 
@@ -622,7 +622,7 @@ RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말�
 |---------|-------------------------|----------|
 | 외부 환경 객체 | `.claude/context-snapshots/latest.md` | 스냅샷을 외부 파일로 영속화 |
 | 포인터 기반 접근 | `restore_context.py`가 포인터+요약+완료상태+Git상태 출력 | Claude가 Read tool로 전체 로드 (직접 주입 아님) |
-| Code-based Filtering | `_context_lib.py`가 트랜스크립트를 결정론적으로 파싱. 10개 절삭 상수(EDIT_PREVIEW_CHARS=1000, ERROR_RESULT_CHARS=3000 등) 중앙화 | P1 원칙: 코드가 정제, AI가 해석 |
+| Code-based Filtering | `_context_lib.py`가 트랜스크립트를 결정론적으로 파싱. 10개 절삭 상수(EDIT_PREVIEW_CHARS=1000, ERROR_RESULT_CHARS=3000 등) 중앙화. 설계 결정 추출 시 품질 태그 우선 정렬(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 노이즈 제거 | P1 원칙: 코드가 정제, AI가 해석 |
 | Variable Persistence | `work_log.jsonl`로 중간 상태 영속 저장 (9개 도구 추적) | 도구 사용마다 누적, 스냅샷 생성 시 활용 |
 | 프로그래밍적 탐색 | `knowledge-index.jsonl` — Grep으로 검색 가능. phase, phase_flow, primary_language 메타데이터 포함 | 과거 세션을 코드로 탐색 (RLM sub-call 대응) |
 | 다단계 전환 감지 | `detect_phase_transitions()` — sliding window(20개 도구, 50% 오버랩)로 세션 내 단계 변화 추적 | 세션 구조를 결정론적으로 분류 (research/planning/implementation/orchestration) |
@@ -649,7 +649,7 @@ graph TB
         UWL["update_work_log.py<br/>작업 로그 누적 + threshold 저장"]
         GCS["generate_context_summary.py<br/>증분 스냅샷 + Decision Log 안전망"]
         REST["restore_context.py<br/>포인터+요약 복원"]
-        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지<br/>+ Autopilot 상태·검증"]
+        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증"]
     end
 
     subgraph "데이터"
@@ -702,7 +702,7 @@ graph TB
 | `state.yaml` (SOT) | **읽기 전용** — 스냅샷에 SOT 상태를 기록하지만 수정하지 않음 | 절대 기준 2: SOT 쓰기는 Orchestrator만 |
 | `transcript.jsonl` | **읽기 전용** — 대화 내역 파싱 | Claude Code 시스템 파일, 수정 불가 |
 | `context-snapshots/` | **쓰기** — atomic write (temp → rename) | Hook 전용 산출물 디렉터리, SOT와 분리 |
-| `work_log.jsonl` | **쓰기** — fcntl.flock 파일 잠금 | Hook 전용 로그, SOT와 분리 |
+| `work_log.jsonl` | **쓰기** — append: fcntl.flock 파일 잠금, 절삭(proactive save): atomic write (temp → rename) | Hook 전용 로그, SOT와 분리 |
 | `knowledge-index.jsonl` | **쓰기** — replace_or_append (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, phase, phase_flow, primary_language 포함 |
 | `sessions/` | **쓰기** — atomic write (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로) | 세션 아카이브, SOT와 분리 |
 | `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
@@ -717,18 +717,19 @@ graph TB
 | 시스템 메시지 필터링 | **Python** (`_context_lib.py`) | `<system-reminder>` 등 자동 분류 |
 | 스냅샷 구조화 (섹션 배치, 압축) | **Python** (`_context_lib.py`) | verbatim 인용 + 구조화 메타데이터 |
 | Resume Protocol 생성 (수정/참조 파일 목록) | **Python** (`_context_lib.py`) | 결정론적 — tool_use 메타데이터에서 추출 |
-| 완료 상태 추출 (도구 성공/실패) | **Python** (`_context_lib.py`) | 결정론적 — tool_use_id ↔ tool_result 매칭 |
+| 완료 상태 추출 (도구 성공/실패) | **Python** (`_context_lib.py`) | 결정론적 — tool_use_id ↔ tool_result O(1) 딕셔너리 매칭 |
 | 다단계 전환 감지 | **Python** (`_context_lib.py`) | 결정론적 — sliding window(20 도구, 50% 오버랩)로 phase 변화 추적 |
+| 설계 결정 추출 + 품질 태그 정렬 | **Python** (`_context_lib.py`) | 결정론적 — 4개 패턴(`[explicit]`/`[decision]`/`[rationale]`/`[intent]`) 추출 후 품질 우선 정렬 |
 | Git 상태 캡처 | **Python** (`_context_lib.py`) | 결정론적 — subprocess.run으로 git 명령 실행 |
 | 세션 간 인덱스 프로그래밍적 탐색 | **AI** (Claude) | Grep tool로 knowledge-index.jsonl 검색 |
 | 복원된 스냅샷 해석, 작업 맥락 파악 | **AI** (Claude) | Read tool로 스냅샷 로드 후 의미 해석 |
 
 **안전성 보장:**
 
-- **Atomic write**: 모든 파일 쓰기는 temp file → `os.rename` 패턴으로 중간 상태 노출 방지
+- **Atomic write**: 모든 파일 쓰기(스냅샷, 아카이브, work_log 절삭)는 temp file → `os.rename` 패턴으로 중간 상태 노출 및 프로세스 크래시 시 부분 쓰기 방지
 - **Smart Throttling**: Stop hook은 30초 dedup window + 5KB growth threshold로 노이즈 감소. SessionEnd/PreCompact는 5초 window. SessionEnd는 dedup 면제
 - **E5 Empty Snapshot Guard**: tool_use가 0인 빈 스냅샷이 기존 풍부한 latest.md를 덮어쓰는 것을 방지 (Stop hook + save_context.py 모두 적용)
-- **File locking**: `work_log.jsonl` 및 `knowledge-index.jsonl` 접근 시 `fcntl.flock` 파일 잠금 + `os.fsync()` 내구성 보장으로 동시성 보호
+- **File locking**: `work_log.jsonl`(append) 및 `knowledge-index.jsonl` 접근 시 `fcntl.flock` 파일 잠금 + `os.fsync()` 내구성 보장으로 동시성 보호. `work_log.jsonl` 절삭(proactive save)은 atomic write 패턴 적용
 - **TOCTOU race 방지**: `knowledge-index.jsonl`의 생성·갱신에서 `os.path.exists()` 검사 대신 `try/except FileNotFoundError` 패턴을 사용하여 경쟁 조건을 원천 차단
 - **Session dedup 보호**: session_id가 빈 문자열이거나 `"unknown"`인 경우 중복 제거를 건너뛰어 데이터 유실 방지
 - **SOT 경로 통합**: `sot_paths()` 헬퍼와 `SOT_FILENAMES` 상수로 SOT 파일 경로를 단일 정의 지점에서 관리 (3중 하드코딩 제거)
@@ -813,6 +814,29 @@ Good: "https://example.com/chart-2024.png 다운로드 → assets/chart.png에 �
 - 모호한 부분이 없으면 **질문 없이 진행**
 
 이 원칙은 사용자 피로도를 최소화하면서 필요한 정보를 정확히 수집하기 위한 것이다.
+
+### 5.5 English-First 실행 및 번역 프로토콜
+
+워크플로우 **실행** 시 모든 에이전트는 **영어로 작업**하고 **영어로 산출물**을 생성한다. AI는 영어에서 가장 높은 성능을 발휘하므로, 영어 우선 실행은 **절대 기준 1(품질)**의 직접적 구현이다.
+
+**언어 경계:**
+
+| 활동 | 언어 | 근거 |
+|------|------|------|
+| 워크플로우 설계 (`workflow-generator` 스킬) | 한국어 | 사용자와의 대화 |
+| 에이전트 정의 (`.claude/agents/*.md`) | 영어 | 에이전트 프롬프트 품질 극대화 |
+| 워크플로우 실행 (에이전트 작업) | **영어** | AI 성능 극대화 |
+| 최종 산출물 | 영어 원본 + 한국어 번역 | 품질과 접근성 동시 확보 |
+
+**번역 프로토콜:**
+
+- `@translator` 서브에이전트가 각 단계의 영어 산출물을 한국어로 번역
+- `translations/glossary.yaml`이 RLM 외부 영속 상태로서 용어 일관성을 유지
+- SOT에 `step-N-ko` 키로 번역 경로 기록 (`.isdigit()` 가드가 자동 스킵)
+
+이 설계는 RLM 논문의 Variable Persistence 패턴과 대응한다: 용어집이 외부 환경 객체로서 서브에이전트 호출 간 상태를 유지한다.
+
+> **상세**: AGENTS.md §5.2 참조
 
 ---
 

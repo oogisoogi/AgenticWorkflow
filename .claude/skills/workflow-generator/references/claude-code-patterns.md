@@ -1447,3 +1447,117 @@ AI에게 전달하기 전에 code-level에서 데이터를 정제하여 분석 �
 | SOT 스키마 변경 | 전체 3단계 + 사용자 승인 | 모든 에이전트의 SOT 읽기 코드, Hook 검증 로직, 롤백 영향 |
 
 > **참조**: 절대 기준 3 상세 프로토콜은 `AGENTS.md §2 절대 기준 3`에 정의되어 있다.
+
+---
+
+## 이중언어 실행 패턴 (English-First + Korean Translation)
+
+워크플로우 실행 시 모든 에이전트가 영어로 작업하고, 각 단계 완료 후 `@translator` 서브에이전트가 한국어 번역을 생성하는 패턴.
+
+> **근거**: AI는 영어에서 가장 높은 성능을 발휘한다. 영어 우선 실행은 절대 기준 1(품질)의 직접적 구현이다.
+> **참조**: `AGENTS.md §5.2 English-First 실행 및 번역 프로토콜`
+
+### 번역 서브에이전트 정의
+
+```markdown
+# .claude/agents/translator.md
+---
+name: translator
+description: English-to-Korean translation specialist with glossary-based terminology consistency
+model: opus
+tools: Read, Write, Glob, Grep
+maxTurns: 20
+---
+```
+
+**모델 선택 근거**: 번역은 원문의 심층 이해 + 문화적 적응 + 용어 일관성을 요구하는 고난도 작업. §모델 수준 선택에서 "핵심 작업 — 최종 품질에 직접 영향"에 해당하므로 최고 수준(opus) 선택.
+
+**서브에이전트 선택 근거**: §품질 판단 매트릭스의 5개 요인 중 "맥락 깊이"(용어 누적), "산출물 일관성"(통일된 문체), "정보 전달 손실"(원문 뉘앙스 보존) 3개가 전문 에이전트 우위 → 에이전트 그룹이 아닌 서브에이전트.
+
+### 용어 사전 관리 패턴 (Glossary — RLM 외부 지속 상태)
+
+```yaml
+# translations/glossary.yaml — 번역 에이전트의 지속적 외부 메모리
+terms:
+  "Single Source of Truth": "단일 소스 오브 트루스(Single Source of Truth)"
+  "Anti-Skip Guard": "Anti-Skip Guard"  # 영어 유지
+  "Recursive Language Model": "재귀적 언어 모델(Recursive Language Model)"
+  "sub-agent": "서브에이전트"
+```
+
+**아키텍처 정합성**:
+- glossary는 번역 에이전트의 **로컬 작업 파일** (SOT 아님)
+- 계층적 메모리의 Local Memory 계층: `per-agent 작업 맥락`
+- Orchestrator가 관리하지 않음 — 번역 에이전트가 자체 Read/Write
+- 동시 쓰기 위험 없음 — 번역은 순차 실행
+
+### SOT 기록 패턴
+
+```yaml
+# state.yaml — outputs에 영어 원본 + 한국어 번역 기록
+workflow:
+  outputs:
+    step-1: "research/raw-contents.md"          # 영어 원본
+    step-1-ko: "research/raw-contents.ko.md"    # 한국어 번역
+    step-2: "data/processed.json"               # 번역 불필요 → -ko 없음
+    step-3: "analysis/report.md"
+    step-3-ko: "analysis/report.ko.md"
+```
+
+**Anti-Skip Guard 호환성**: `step-N-ko` 키는 `restore_context.py`의 정렬 람다에서 `.isdigit()` 가드로 자동 건너뛰어짐. `validate_step_output()`은 `f"step-{step_number}"`로 영어 원본만 검증. Hook 코드 변경 없음.
+
+### 워크플로우 단계 실행 흐름
+
+```
+┌─ Step N 실행 (영어) ──────────────────────────────┐
+│  @specialist-agent (English prompt)               │
+│  → output: research/raw-contents.md               │
+│  → SOT: outputs.step-N = "research/raw-..."       │
+│  → Anti-Skip Guard: 파일 존재 + ≥100 bytes ✓     │
+├─ 번역 (Translation: @translator인 단계만) ─────────┤
+│  @translator (opus)                               │
+│  ① Read translations/glossary.yaml                │
+│  ② Read research/raw-contents.md (English)        │
+│  ③ Translate — 확립된 용어 사용, 축약 금지         │
+│  ④ Self-review — 원문 대조, 완전성 확인            │
+│  ⑤ Write translations/glossary.yaml (용어 갱신)    │
+│  ⑥ Write research/raw-contents.ko.md (Korean)     │
+│  → SOT: outputs.step-N-ko = "research/...ko.md"  │
+│  → 번역 검증: 파일 존재 + 비어있지 않음 ✓         │
+├─ Step N+1로 진행 ──────────────────────────────────┤
+│  SOT: current_step += 1                           │
+└───────────────────────────────────────────────────┘
+```
+
+### `(team)` 단계 번역
+
+```
+Team Lead ──────────────────────────────────────────
+  ├→ @teammate-a → output-a.md (영어, 작업 파일)
+  ├→ @teammate-b → output-b.md (영어, 작업 파일)
+  └→ Team Lead:
+       1. 병합 → merged-output.md (공식 산출물)
+       2. SOT outputs.step-N = "merged-output.md"
+       3. Anti-Skip Guard ✓
+       4. @translator → merged-output.ko.md
+       5. SOT outputs.step-N-ko = "merged-output.ko.md"
+       6. current_step += 1
+```
+
+> Teammate 개별 산출물은 SOT 미기록 중간 작업물이므로 번역하지 않는다.
+
+### 독립 번역 검증 패턴 (선택적)
+
+최종 납품물 등 품질이 특히 중요한 단계에서 선택적으로 적용:
+
+```
+@translator → output.ko.md
+  → @translation-verifier (별도 서브에이전트, model: opus)
+    ① Read 영어 원본 + 한국어 번역 동시
+    ② 정확성, 완전성, 용어 일관성, 자연스러움 검증
+    ③ Pass/Fail + 피드백
+  → Fail: @translator에게 피드백 + 재번역 요청
+  → Pass: SOT 기록 후 진행
+```
+
+이 패턴은 워크플로우 설계 시 해당 단계에 `Verification: @translation-verifier`를 명시하여 적용한다.
