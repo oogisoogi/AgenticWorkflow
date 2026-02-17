@@ -57,7 +57,7 @@ Cursor에는 자동 Hook 기반 컨텍스트 보존이 없다. 대안:
 - **SOT 기반 복원**: `state.yaml`에 워크플로우 진행 상태를 기록하여 새 세션에서 복원
 - **수동 스냅샷**: 중요 시점에 작업 내역을 MD 파일로 저장
 
-> Claude Code의 Context Preservation System은 5개 Hook으로 자동 저장·복원하며, Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 자동 기록한다. Cursor에서는 이 정보를 `state.yaml`에 수동 기록하거나, Notepad에 세션 메타데이터를 포함하는 방식으로 대응한다.
+> Claude Code의 Context Preservation System은 5개 Hook으로 자동 저장·복원하며, Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어), error_patterns(Error Taxonomy 12패턴 분류), tool_sequence(RLE 압축), final_status(세션 종료 상태) 메타데이터를 자동 기록한다. 스냅샷 압축 시 IMMORTAL 섹션을 우선 보존한다. Cursor에서는 이 정보를 `state.yaml`에 수동 기록하거나, Notepad에 세션 메타데이터를 포함하는 방식으로 대응한다.
 
 ## 설계 원칙
 

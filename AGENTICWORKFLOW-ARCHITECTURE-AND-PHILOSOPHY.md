@@ -625,8 +625,10 @@ RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말�
 | 포인터 기반 접근 | `restore_context.py`가 포인터+요약+완료상태+Git상태 출력 | Claude가 Read tool로 전체 로드 (직접 주입 아님) |
 | Code-based Filtering | `_context_lib.py`가 트랜스크립트를 결정론적으로 파싱. 10개 절삭 상수(EDIT_PREVIEW_CHARS=1000, ERROR_RESULT_CHARS=3000 등) 중앙화. 설계 결정 추출 시 품질 태그 우선 정렬(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 노이즈 제거 | P1 원칙: 코드가 정제, AI가 해석 |
 | Variable Persistence | `work_log.jsonl`로 중간 상태 영속 저장 (9개 도구 추적) | 도구 사용마다 누적, 스냅샷 생성 시 활용 |
-| 프로그래밍적 탐색 | `knowledge-index.jsonl` — Grep으로 검색 가능. phase, phase_flow, primary_language 메타데이터 포함 | 과거 세션을 코드로 탐색 (RLM sub-call 대응) |
+| 프로그래밍적 탐색 | `knowledge-index.jsonl` — Grep으로 검색 가능. phase, phase_flow, primary_language, error_patterns, tool_sequence, final_status 메타데이터 포함 | 과거 세션을 코드로 탐색 (RLM sub-call 대응) |
+| 에러 분류 | Error Taxonomy 12패턴 — 도구 에러를 결정론적으로 분류. false positive 방지(negative lookahead, 한정어 매칭) | P1 원칙: 에러 분류도 코드가 수행 |
 | 다단계 전환 감지 | `detect_phase_transitions()` — sliding window(20개 도구, 50% 오버랩)로 세션 내 단계 변화 추적 | 세션 구조를 결정론적으로 분류 (research/planning/implementation/orchestration) |
+| IMMORTAL-aware 압축 | 스냅샷 크기 초과 시 IMMORTAL 섹션 우선 보존, 비-IMMORTAL 콘텐츠 먼저 절삭 | 세션 경계에서 핵심 맥락 유실 방지 |
 | Resume Protocol | 스냅샷 내 결정론적 복원 지시 섹션 | 복원 품질의 바닥선(floor) 보장 |
 
 **스크립트 아키텍처와 데이터 흐름:**
@@ -650,7 +652,7 @@ graph TB
         UWL["update_work_log.py<br/>작업 로그 누적 + threshold 저장"]
         GCS["generate_context_summary.py<br/>증분 스냅샷 + Decision Log 안전망"]
         REST["restore_context.py<br/>포인터+요약 복원"]
-        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증"]
+        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증<br/>+ Error Taxonomy 12패턴 + IMMORTAL-aware 압축"]
     end
 
     subgraph "데이터"
@@ -704,7 +706,7 @@ graph TB
 | `transcript.jsonl` | **읽기 전용** — 대화 내역 파싱 | Claude Code 시스템 파일, 수정 불가 |
 | `context-snapshots/` | **쓰기** — atomic write (temp → rename) | Hook 전용 산출물 디렉터리, SOT와 분리 |
 | `work_log.jsonl` | **쓰기** — append: fcntl.flock 파일 잠금, 절삭(proactive save): atomic write (temp → rename) | Hook 전용 로그, SOT와 분리 |
-| `knowledge-index.jsonl` | **쓰기** — replace_or_append (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, phase, phase_flow, primary_language 포함 |
+| `knowledge-index.jsonl` | **쓰기** — replace_or_append (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, phase, phase_flow, primary_language, error_patterns(Error Taxonomy 12패턴), tool_sequence(RLE 압축), final_status(success/incomplete/error/unknown) 포함 |
 | `sessions/` | **쓰기** — atomic write (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로) | 세션 아카이브, SOT와 분리 |
 | `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
 | `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
@@ -721,6 +723,9 @@ graph TB
 | 완료 상태 추출 (도구 성공/실패) | **Python** (`_context_lib.py`) | 결정론적 — tool_use_id ↔ tool_result O(1) 딕셔너리 매칭 |
 | 다단계 전환 감지 | **Python** (`_context_lib.py`) | 결정론적 — sliding window(20 도구, 50% 오버랩)로 phase 변화 추적 |
 | 설계 결정 추출 + 품질 태그 정렬 | **Python** (`_context_lib.py`) | 결정론적 — 4개 패턴(`[explicit]`/`[decision]`/`[rationale]`/`[intent]`) 추출 후 품질 우선 정렬 |
+| 에러 패턴 분류 (Error Taxonomy) | **Python** (`_context_lib.py`) | 결정론적 — 12개 regex 패턴으로 에러 유형 분류. false positive 방지(negative lookahead, 한정어 매칭) |
+| 도구 시퀀스 압축 (RLE) | **Python** (`_context_lib.py`) | 결정론적 — Run-Length Encoding으로 도구 호출 시퀀스 압축 (예: `Read(3)→Edit→Bash`) |
+| 시스템 명령 필터링 | **Python** (`_context_lib.py`) | 결정론적 — `/clear`, `/help` 등 시스템 명령을 "현재 작업" 추출에서 제외 |
 | Git 상태 캡처 | **Python** (`_context_lib.py`) | 결정론적 — subprocess.run으로 git 명령 실행 |
 | 세션 간 인덱스 프로그래밍적 탐색 | **AI** (Claude) | Grep tool로 knowledge-index.jsonl 검색 |
 | 복원된 스냅샷 해석, 작업 맥락 파악 | **AI** (Claude) | Read tool로 스냅샷 로드 후 의미 해석 |
@@ -730,6 +735,7 @@ graph TB
 - **Atomic write**: 모든 파일 쓰기(스냅샷, 아카이브, work_log 절삭)는 temp file → `os.rename` 패턴으로 중간 상태 노출 및 프로세스 크래시 시 부분 쓰기 방지
 - **Smart Throttling**: Stop hook은 30초 dedup window + 5KB growth threshold로 노이즈 감소. SessionEnd/PreCompact는 5초 window. SessionEnd는 dedup 면제
 - **E5 Empty Snapshot Guard**: tool_use가 0인 빈 스냅샷이 기존 풍부한 latest.md를 덮어쓰는 것을 방지 (Stop hook + save_context.py 모두 적용)
+- **IMMORTAL-aware 압축**: Phase 7 hard truncate에서 IMMORTAL 섹션을 우선 보존. 비-IMMORTAL 콘텐츠를 먼저 절삭하고, 극단적 경우에도 IMMORTAL 텍스트의 시작 부분을 보존하여 핵심 맥락 유실 방지
 - **File locking**: `work_log.jsonl`(append) 및 `knowledge-index.jsonl` 접근 시 `fcntl.flock` 파일 잠금 + `os.fsync()` 내구성 보장으로 동시성 보호. `work_log.jsonl` 절삭(proactive save)은 atomic write 패턴 적용
 - **TOCTOU race 방지**: `knowledge-index.jsonl`의 생성·갱신에서 `os.path.exists()` 검사 대신 `try/except FileNotFoundError` 패턴을 사용하여 경쟁 조건을 원천 차단
 - **Session dedup 보호**: session_id가 빈 문자열이거나 `"unknown"`인 경우 중복 제거를 건너뛰어 데이터 유실 방지
