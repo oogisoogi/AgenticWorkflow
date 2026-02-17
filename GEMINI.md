@@ -48,6 +48,7 @@
 | 외부 연동 (MCP) | Gemini extensions 또는 외부 API 스크립트 |
 | SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용 |
 | Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. Anti-Skip Guard(산출물 검증), Decision Log(`autopilot-logs/`) 포함. `AGENTS.md §5.1` 참조 |
+| Verification Protocol | 각 단계 산출물의 기능적 목표 100% 달성 검증. Anti-Skip Guard(물리적) 위에 의미론적 Verification Gate 계층. 검증 기준은 Task 앞에 선언, 실패 시 최대 2회 재시도. `AGENTS.md §5.3` 참조 |
 
 ## 컨텍스트 보존
 
