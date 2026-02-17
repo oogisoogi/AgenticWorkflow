@@ -14,6 +14,7 @@ workflow.md 파일의 표준 구조.
 - **Input**: [입력 데이터/트리거]
 - **Output**: [최종 산출물]
 - **Frequency**: [실행 주기 - daily/weekly/on-demand 등]
+- **Autopilot**: [disabled|enabled] — 사람 개입 지점 자동 승인 모드 (기본값: disabled)
 
 ---
 
@@ -193,6 +194,40 @@ error_handling:
 
 > **상세 패턴**: `references/claude-code-patterns.md §에러 처리`
 
+### Autopilot Logs (Autopilot 모드 사용 시)
+
+```yaml
+autopilot_logging:
+  log_directory: "autopilot-logs/"
+  log_format: "step-{N}-decision.md"
+  required_fields:
+    - step_number
+    - checkpoint_type        # slash_command | ask_user_question
+    - decision
+    - rationale              # 절대 기준 1 기반
+    - timestamp
+  template: "references/autopilot-decision-template.md"
+```
+
+**Decision Log 예시** (`autopilot-logs/step-3-decision.md`):
+
+```markdown
+# Decision Log — Step 3
+
+- **Step**: 3
+- **Checkpoint Type**: (human) — 인사이트 검토 및 선정
+- **Decision**: 상위 5개 인사이트 전체 선정 (포괄성 극대화)
+- **Rationale**: 절대 기준 1 — 품질 극대화를 위해 인사이트를 제외하지 않고
+  모두 포함하여 Planning Phase에서 우선순위를 정하는 방식 선택.
+  특정 인사이트를 미리 제외하면 정보 손실 위험.
+- **Timestamp**: 2026-02-16 14:30:00
+- **Alternatives Considered**:
+  - 상위 3개만 선정 → 정보 손실 위험으로 기각
+  - 카테고리별 1개씩 선정 → 카테고리 분류가 불완전하여 기각
+```
+
+> **런타임 보조**: Stop hook(`generate_context_summary.py`)이 Decision Log 누락을 감지하여 안전망으로 자동 생성한다. Claude가 직접 생성한 로그가 항상 우선.
+
 ```
 
 ## 표기 규칙
@@ -218,6 +253,7 @@ error_handling:
 - **Input**: 컨텐츠 채널 (RSS, Newsletter, SNS)
 - **Output**: 퍼블리싱 준비된 블로그 글
 - **Frequency**: Weekly
+- **Autopilot**: disabled
 
 ---
 

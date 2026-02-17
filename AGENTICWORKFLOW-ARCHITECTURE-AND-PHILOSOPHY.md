@@ -897,6 +897,23 @@ graph TB
 - 복잡한 워크플로우에서 최고 수준의 품질이 요구될 때
 - 각 전문가의 산출물에 독립적인 품질 기준이 있을 때
 
+### Autopilot Mode (자동 승인 실행 모드)
+
+위의 5가지 패턴 어디에든 적용 가능한 **실행 모드**이다. Autopilot 활성 시 `(human)` 단계가 자동 승인된다.
+
+```mermaid
+graph LR
+    S["단계 N 실행"] --> C{"(human) 단계?"}
+    C -->|No| NEXT["단계 N+1"]
+    C -->|Yes| AP{"Autopilot 활성?"}
+    AP -->|Yes| AUTO["자동 승인 + 결정 로그"] --> NEXT
+    AP -->|No| WAIT["사용자 입력 대기"] --> NEXT
+```
+
+**핵심 제약:** `(hook)` 품질 게이트는 Autopilot에서도 그대로 차단. 모든 단계 완전 실행. 모든 산출물 완전 품질.
+
+상세: `AGENTS.md §5.1`
+
 ---
 
 ## 7. 문서 아키텍처 (Documentation Architecture)
@@ -1215,4 +1232,5 @@ error_handling:
 | **Distill 검증** | distill-partner.md를 사용한 workflow.md의 선택적 품질 강화 인터뷰 |
 | **WHY/WHAT/HOW/VERIFY** | 스킬 파일 역할 분담 체계. SKILL.md=WHY, references=WHAT/HOW/VERIFY |
 | **AskUserQuestion** | 워크플로우 실행 중 동적으로 사용자에게 구조화된 질문을 하는 도구. P4 규칙 적용 |
+| **Autopilot Mode** | 워크플로우 실행 시 사람 개입 지점을 자동 승인하는 실행 모드. 모든 단계는 완전히 실행하며 Hook 품질 게이트는 영향받지 않음 |
 | **Task System** | Agent Team에서 작업 할당·추적·의존성 관리를 위한 내장 도구 (TaskCreate/TaskUpdate/TaskList). SOT를 대체하지 않음 |

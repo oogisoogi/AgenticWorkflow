@@ -247,6 +247,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 - Claude Code 구현 패턴 (Sub-agents, Teams, Hooks): `references/claude-code-patterns.md`
 - 문서 분석 가이드 (Case 2): `references/document-analysis-guide.md`
 - 컨텍스트 주입 패턴 (Sub-agent/Team 입력 전달): `references/context-injection-patterns.md`
+- Autopilot Decision Log 템플릿: `references/autopilot-decision-template.md`
 
 ## 최종 생성 절차
 
@@ -262,3 +263,12 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
    - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
    - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가
    - 참조: `prompt/distill-partner.md`
+
+## Autopilot Mode 지원
+
+생성하는 workflow.md에 Autopilot Mode 필드를 포함한다.
+
+- Overview 섹션에 `- **Autopilot**: [disabled|enabled]` 추가 (기본값: disabled)
+- 사용자가 "자동으로 실행", "무중단 실행" 등을 요청하면 `enabled`로 설정
+- `(human)` 단계 설계 자체는 변경하지 않음 — Autopilot은 실행 모드이지 설계 변경이 아님
+- 선택 사항: 각 `(human)` 단계에 `Autopilot Default` 필드로 자동 승인 시 기본 동작 명시

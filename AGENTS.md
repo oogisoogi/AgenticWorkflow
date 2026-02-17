@@ -267,6 +267,43 @@ AgenticWorkflow/
 > 병렬 처리가 빠르다는 이유로 에이전트 그룹을 선택하지 않는다.
 > 토큰을 적게 쓴다는 이유로 단일 에이전트를 선택하지 않는다.
 
+### 5.1 Autopilot Mode
+
+워크플로우 실행 시 **사람 개입 지점(human-in-the-loop)**을 자동 승인하여 무중단 실행하는 모드.
+
+**핵심 원칙:**
+- Autopilot은 사람 개입 지점의 **자동 승인**만 수행한다
+- 모든 워크플로우 단계는 **완전히 실행**한다 — 단계 생략 금지
+- 모든 산출물은 **완전한 품질**로 생성한다 — 축약 금지
+- 자동 검증(Hook exit code 2)은 Autopilot에서도 **그대로 차단**한다
+
+**대상 구분:**
+
+| 메커니즘 | Autopilot 동작 | 근거 |
+|---------|---------------|------|
+| 사람 개입 지점 `(human)` | 자동 승인 — 품질 극대화 기본값 선택 | 사람의 판단을 AI가 대행 |
+| 동적 질문 수집 | 자동 응답 — 품질 극대화 옵션 선택 | 사람의 선택을 AI가 대행 |
+| 자동 검증 `(hook)` exit code 2 | **변경 없음 — 그대로 차단** | 결정론적 검증이므로 사람 판단 대행 대상 아님 |
+
+**Anti-Pattern:**
+1. Autopilot ≠ 단계 생략: 모든 단계를 순차적으로 완전히 실행한다
+2. Autopilot ≠ 축약 출력: 모든 에이전트는 사람이 검토하는 것과 동일한 품질·분량의 산출물을 생성한다
+
+**SOT 기록:**
+```yaml
+workflow:
+  autopilot:
+    enabled: true
+    activated_at: "ISO-8601"
+    auto_approved_steps: [3, 6]
+```
+
+- `autopilot.enabled`: Boolean — Autopilot 활성화 여부
+- `autopilot.auto_approved_steps`: 자동 승인된 단계 번호 목록
+- 자동 승인 결정은 별도 로그 파일(`autopilot-logs/step-N-decision.md`)에 기록 (투명성 보장)
+
+**활성화:** 기본값은 비활성(interactive). 워크플로우 Overview에 `Autopilot: enabled` 명시 또는 실행 시 사용자 지시로 활성화. 실행 중 토글 가능.
+
 ---
 
 ## 6. 스킬 체계

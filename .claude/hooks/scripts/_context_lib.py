@@ -328,6 +328,165 @@ def capture_sot(project_dir):
 
 
 # =============================================================================
+# Autopilot State (Read-Only — SOT Compliance)
+# =============================================================================
+
+def read_autopilot_state(project_dir):
+    """Read autopilot state from SOT (state.yaml). Read-only.
+
+    Returns dict with autopilot fields if enabled, None otherwise.
+
+    IMPORTANT: Does NOT use capture_sot() — reads state.yaml directly
+    without truncation. capture_sot() truncates to 3000 chars (for snapshot
+    display), which can cut the autopilot section in large SOT files.
+
+    Schema compatibility: Supports both AGENTS.md schema (workflow.autopilot)
+    and flat schema (top-level autopilot). AGENTS.md §5.1 is authoritative.
+
+    P1 Compliance: All fields are deterministic extractions from YAML/regex.
+    SOT Compliance: Read-only file access.
+    """
+    # Direct file read — same path search as capture_sot() but no truncation
+    sot_paths = [
+        os.path.join(project_dir, ".claude", "state.yaml"),
+        os.path.join(project_dir, ".claude", "state.yml"),
+    ]
+
+    content = ""
+    for sot_path in sot_paths:
+        if os.path.exists(sot_path):
+            try:
+                with open(sot_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                break
+            except Exception:
+                continue
+
+    if not content:
+        return None
+
+    # Try PyYAML first (precise structured parsing)
+    try:
+        import yaml
+        data = yaml.safe_load(content)
+        if isinstance(data, dict):
+            # Schema compatibility: check both locations
+            # AGENTS.md §5.1 schema: workflow.autopilot.enabled
+            # Flat schema: autopilot.enabled (top-level)
+            wf = data.get("workflow", {})
+            if not isinstance(wf, dict):
+                wf = {}
+            ap = wf.get("autopilot") or data.get("autopilot")
+            if not isinstance(ap, dict) or not ap.get("enabled"):
+                return None
+            return {
+                "enabled": True,
+                "activated_at": ap.get("activated_at", ""),
+                "auto_approved_steps": ap.get("auto_approved_steps", []),
+                "current_step": wf.get("current_step", 0),
+                "workflow_name": wf.get("name", ""),
+                "workflow_status": wf.get("status", ""),
+                "outputs": wf.get("outputs", {}),
+            }
+    except Exception:
+        pass
+
+    # Regex fallback (when PyYAML is not available)
+    # Matches both "autopilot:\n  enabled: true" at any nesting level
+    import re
+    enabled_match = re.search(
+        r'autopilot\s*:\s*\n\s+enabled\s*:\s*(true|yes)',
+        content, re.IGNORECASE
+    )
+    if not enabled_match:
+        return None
+
+    state = {
+        "enabled": True,
+        "activated_at": "",
+        "auto_approved_steps": [],
+        "current_step": 0,
+        "workflow_name": "",
+        "workflow_status": "",
+        "outputs": {},
+    }
+
+    for field, pattern in [
+        ("activated_at", r'activated_at\s*:\s*["\']?(.+?)["\']?\s*$'),
+        ("current_step", r'current_step\s*:\s*(\d+)'),
+        ("workflow_name", r'name\s*:\s*["\']?(.+?)["\']?\s*$'),
+        ("workflow_status", r'status\s*:\s*["\']?(.+?)["\']?\s*$'),
+    ]:
+        m = re.search(pattern, content, re.MULTILINE)
+        if m:
+            val = m.group(1).strip()
+            state[field] = int(val) if field == "current_step" else val
+
+    # Extract auto_approved_steps list
+    steps_match = re.search(r'auto_approved_steps\s*:\s*\[([^\]]*)\]', content)
+    if steps_match:
+        steps_str = steps_match.group(1)
+        state["auto_approved_steps"] = [
+            int(s.strip()) for s in steps_str.split(",")
+            if s.strip().isdigit()
+        ]
+
+    # Extract outputs map
+    outputs_section = re.search(
+        r'outputs\s*:\s*\n((?:\s+step-\d+\s*:.+\n?)*)', content
+    )
+    if outputs_section:
+        for m in re.finditer(
+            r'(step-\d+)\s*:\s*["\']?(.+?)["\']?\s*$',
+            outputs_section.group(1), re.MULTILINE
+        ):
+            state["outputs"][m.group(1)] = m.group(2).strip()
+
+    return state
+
+
+def validate_step_output(project_dir, step_number, outputs_map):
+    """Anti-Skip Guard: validate that a step's output exists and has meaningful content.
+
+    Deterministic validation (P1 compliant):
+      - File existence check (os.path.exists)
+      - Minimum size check (os.path.getsize >= MIN_OUTPUT_SIZE)
+
+    Returns: (is_valid, reason_string)
+    """
+    # 100 bytes — conservative minimum for meaningful content
+    # Prevents trivially satisfied validation (e.g., 1-byte file)
+    MIN_OUTPUT_SIZE = 100
+
+    key = f"step-{step_number}"
+
+    if key not in outputs_map:
+        return (False, f"Step {step_number}: output path not recorded in SOT outputs")
+
+    output_path = outputs_map[key]
+
+    # Resolve relative paths against project_dir
+    if not os.path.isabs(output_path):
+        output_path = os.path.join(project_dir, output_path)
+
+    if not os.path.exists(output_path):
+        return (False, f"Step {step_number}: output file not found: {output_path}")
+
+    try:
+        size = os.path.getsize(output_path)
+    except OSError:
+        return (False, f"Step {step_number}: cannot read output file: {output_path}")
+
+    if size == 0:
+        return (False, f"Step {step_number}: output file is empty: {output_path}")
+
+    if size < MIN_OUTPUT_SIZE:
+        return (False, f"Step {step_number}: output too small ({size} bytes, min {MIN_OUTPUT_SIZE}): {output_path}")
+
+    return (True, f"Step {step_number}: OK — {output_path} ({size:,} bytes)")
+
+
+# =============================================================================
 # Git State Capture (E2 — Ground Truth)
 # =============================================================================
 
@@ -558,6 +717,41 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     else:
         sections.append("SOT 파일 없음 (state.yaml/state.json 미발견)")
     sections.append("")
+
+    # Section 2.5: Autopilot State (IMMORTAL — conditional, only when active)
+    try:
+        ap_state = read_autopilot_state(project_dir)
+        if ap_state:
+            sections.append("## Autopilot 상태 (Autopilot State)")
+            sections.append("<!-- IMMORTAL: 세션 복원 시 반드시 보존 -->")
+            sections.append("")
+            sections.append(f"- **활성화**: Yes")
+            if ap_state.get("activated_at"):
+                sections.append(f"- **활성화 시각**: {ap_state['activated_at']}")
+            sections.append(f"- **워크플로우**: {ap_state.get('workflow_name', 'N/A')}")
+            sections.append(f"- **현재 단계**: Step {ap_state.get('current_step', '?')}")
+            sections.append(f"- **상태**: {ap_state.get('workflow_status', 'N/A')}")
+            approved = ap_state.get("auto_approved_steps", [])
+            if approved:
+                sections.append(f"- **자동 승인된 단계**: {approved}")
+            sections.append("")
+
+            # Per-step output validation (Anti-Skip Guard)
+            outputs = ap_state.get("outputs", {})
+            if outputs:
+                sections.append("### 단계별 산출물 검증 (Anti-Skip Guard)")
+                for step_num in sorted(
+                    int(k.replace("step-", "")) for k in outputs.keys()
+                    if k.startswith("step-")
+                ):
+                    is_valid, reason = validate_step_output(
+                        project_dir, step_num, outputs
+                    )
+                    mark = "[OK]" if is_valid else "[FAIL]"
+                    sections.append(f"  {mark} {reason}")
+                sections.append("")
+    except Exception:
+        pass  # Non-blocking — autopilot section is supplementary
 
     # Section 3: Resume Protocol (deterministic — P1 compliant)
     sections.append("## 복원 지시 (Resume Protocol)")

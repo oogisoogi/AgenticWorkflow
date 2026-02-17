@@ -546,6 +546,102 @@ Slash Command가 사용자 개입점을 "정의"하는 것이라면, AskUserQues
 - **Fail**: exit 2 → 에이전트에 피드백 전달, 재작업
 ```
 
+## Autopilot Execution Pattern
+
+Autopilot 모드에서 Orchestrator의 `(human)` 단계 처리 패턴.
+
+### Auto-Approve with Full Execution
+
+```markdown
+### 3. (human) 인사이트 검토 및 선정
+- **Autopilot 동작**:
+  1. 이전 단계의 산출물을 **완전히** 생성 (축약 금지)
+  2. 산출물을 검토하여 품질 극대화 기본값 결정 (절대 기준 1)
+  3. 결정을 `autopilot-logs/step-3-decision.md`에 기록
+  4. SOT 갱신: `auto_approved_steps`에 3 추가
+  5. 다음 단계로 진행
+- **Interactive 동작 (기본값)**:
+  - 위와 동일하되, 3단계에서 사용자 입력 대기
+```
+
+### Anti-Skip Invariant
+
+```
+FOR step IN workflow.steps:
+  EXECUTE(step)                    # 모든 단계 실행 — 생략 금지
+  ASSERT output_exists(step)       # 산출물 존재 확인
+  ASSERT output_not_empty(step)    # 빈 산출물 금지
+  IF step.is_human AND autopilot.enabled:
+    auto_approve(step)             # 자동 승인
+    log_decision(step)             # 결정 로그
+  UPDATE_SOT(step)                 # SOT 갱신
+```
+
+### Anti-Skip Execution Protocol (구체적 실행 의사코드)
+
+```python
+def execute_workflow_step(step, sot):
+    """Orchestrator가 각 워크플로우 단계를 실행하는 프로토콜.
+
+    절대 기준 1: 모든 산출물은 완전한 품질로 생성.
+    절대 기준 2: SOT만이 상태의 단일 진실 원천.
+    """
+    # 1. Pre-validation (이전 단계 산출물 검증)
+    if step.number > 1:
+        prev_key = f"step-{step.number - 1}"
+        prev_path = sot.outputs.get(prev_key)
+        assert prev_path, f"Step {step.number - 1} output not in SOT"
+        assert file_exists(prev_path), f"Step {step.number - 1} output missing"
+        assert file_size(prev_path) > 0, f"Step {step.number - 1} output empty"
+
+    # 2. Execute step FULLY (Anti-Abbreviation Rule)
+    output = step.execute()  # 완전 실행, 축약 금지
+
+    # 3. Save output to disk
+    write_file(step.output_path, output)
+
+    # 4. Handle (human) checkpoint
+    if step.is_human and sot.autopilot.enabled:
+        decision = auto_approve_with_quality_default(step, output)
+        write_decision_log(step.number, decision)
+        # Decision Log: autopilot-logs/step-N-decision.md
+        sot.autopilot.auto_approved_steps.append(step.number)
+
+    # 5. Handle (hook) — NEVER override exit code 2
+    if step.is_hook and result.exit_code == 2:
+        handle_hook_failure(step, result.stderr)
+        return  # BLOCKED — do NOT advance
+
+    # 6. Update SOT (순차적으로만 +1 증가)
+    sot.outputs[f"step-{step.number}"] = step.output_path
+    sot.current_step += 1  # NEVER increment by more than 1
+```
+
+### Anti-Abbreviation Rule
+
+Autopilot 모드에서도 에이전트는 사람이 검토하는 것처럼 완전한 산출물을 생성한다.
+"자동이니까 간략하게"는 **절대 기준 1 위반**이다.
+
+### Hook 동작 (변경 없음)
+
+```
+(human) → Autopilot 자동 승인 대상
+(hook)  → Autopilot 영향 없음 — 그대로 차단/통과
+```
+
+### 런타임 강화 메커니즘
+
+Autopilot의 설계 의도를 런타임에서 강화하는 하이브리드(Hook + 프롬프트) 구조:
+
+| 계층 | 메커니즘 | 역할 |
+|------|---------|------|
+| **Hook** | `restore_context.py` | SessionStart 시 AUTOPILOT EXECUTION RULES 주입 |
+| **Hook** | `generate_context_summary.py` | Stop 시 Decision Log 누락 자동 보완 |
+| **Hook** | `_context_lib.py` | 스냅샷에 Autopilot 상태 섹션 보존 (IMMORTAL) |
+| **Hook** | `update_work_log.py` | work_log에 autopilot 단계 추적 필드 |
+| **프롬프트** | `CLAUDE.md` | Autopilot Execution Checklist (MANDATORY) |
+| **프롬프트** | 이 파일 | Anti-Skip Execution Protocol 의사코드 |
+
 ---
 
 ## 상태 관리 (SOT 설계)
@@ -561,14 +657,21 @@ Slash Command가 사용자 개입점을 "정의"하는 것이라면, AskUserQues
 workflow:
   name: "blog-pipeline"
   current_step: 3
-  status: "paused"
+  status: "paused"               # running | paused | completed | escalated
   outputs:
     step-1: "raw-contents.md"
     step-2: "insights-list.md"
   pending_input:
     type: "selection"
     options: [...]
+  # Autopilot 필드 — workflow 하위 (AGENTS.md §5.1 정본 스키마)
+  autopilot:
+    enabled: true
+    activated_at: "2026-02-16T10:30:00"
+    auto_approved_steps: [3, 6]  # 자동 승인된 (human) 단계 목록
 ```
+
+> **스키마 정본**: AGENTS.md §5.1에 정의된 `workflow.autopilot` 구조가 정본이다. `_context_lib.read_autopilot_state()`는 양쪽 스키마(`workflow.autopilot` 및 top-level `autopilot`)를 모두 지원하되, AGENTS.md 위치를 우선 탐색한다. PyYAML이 없는 환경에서는 regex fallback으로 동작한다.
 
 ### 쓰기 권한 규칙
 

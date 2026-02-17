@@ -170,6 +170,60 @@ AgenticWorkflow/
 3. **P3 — 이미지/리소스 정확성**: 정확한 다운로드 경로 명시. placeholder 누락 불가.
 4. **P4 — 질문 설계 규칙**: 최대 4개 질문, 각 3개 선택지. 모호함 없으면 질문 없이 진행. Claude Code에서는 `AskUserQuestion` 도구로 구현. Slash Command가 사전 정의된 선택형 개입이라면, AskUserQuestion은 동적 질문이 필요한 상황에 사용.
 
+## Autopilot Mode (Claude Code 구현)
+
+워크플로우 실행 시 `(human)` 단계와 AskUserQuestion을 자동 승인하는 모드. 상세: `AGENTS.md §5.1`
+
+### 활성화 패턴
+
+| 사용자 명령 | 동작 |
+|-----------|------|
+| "autopilot 모드로 실행", "자동 모드로 워크플로우 실행", "전자동으로 실행" | SOT에 `autopilot.enabled: true` 설정 후 워크플로우 시작 |
+| "autopilot 해제", "수동 모드로 전환" | SOT에 `autopilot.enabled: false` — 다음 `(human)` 단계부터 적용 |
+
+### Checkpoint별 동작
+
+| Checkpoint | Autopilot 동작 |
+|-----------|---------------|
+| `(human)` + Slash Command | 완전한 산출물 생성 → 품질 극대화 기본값으로 자동 승인 → 결정 로그 기록 |
+| AskUserQuestion | 선택지 중 품질 극대화 옵션 자동 선택 → 결정 로그 기록 |
+| `(hook)` exit code 2 | **변경 없음** — 그대로 차단, 피드백 전달, 재작업 |
+
+### Anti-Skip Guard
+
+Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 산출물 파일 존재 + 비어있지 않음 확인 후 SOT에 경로 기록.
+
+### 결정 로그
+
+자동 승인된 결정은 `autopilot-logs/step-N-decision.md`에 기록: 단계, 옵션, 선택 근거(절대 기준 1 기반).
+Decision Log 표준 템플릿: `references/autopilot-decision-template.md`
+
+### Autopilot Execution Checklist (MANDATORY)
+
+Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래 체크리스트를 **반드시** 수행한다.
+
+#### 각 단계 시작 전
+- [ ] SOT `current_step` 확인
+- [ ] 이전 단계 산출물 파일 존재 + 비어있지 않음 확인
+- [ ] 이전 단계 산출물 경로가 SOT `outputs`에 기록 확인
+
+#### 단계 실행 중
+- [ ] 단계의 모든 작업을 **완전히** 실행 (축약 금지 — 절대 기준 1)
+- [ ] 산출물을 **완전한 품질**로 생성
+
+#### 단계 완료 후
+- [ ] 산출물 파일을 디스크에 저장
+- [ ] SOT `outputs`에 산출물 경로 기록
+- [ ] SOT `current_step` +1 증가
+- [ ] `(human)` 단계: `autopilot-logs/step-N-decision.md` 생성
+- [ ] `(human)` 단계: SOT `auto_approved_steps`에 추가
+
+#### NEVER DO
+- `current_step`을 2 이상 한 번에 증가 금지
+- 산출물 없이 다음 단계 진행 금지
+- "자동이니까 간략하게" 금지 — 절대 기준 1 위반
+- `(hook)` exit code 2 차단 무시 금지
+
 ## 언어 및 스타일 규칙
 
 - **콘텐츠**: 한국어

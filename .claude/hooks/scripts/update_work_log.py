@@ -40,6 +40,7 @@ from _context_lib import (
     replace_or_append_session_facts,
     cleanup_knowledge_index,
     cleanup_session_archives,
+    read_autopilot_state,
     THRESHOLD_75_TOKENS,
 )
 
@@ -64,7 +65,7 @@ def main():
     transcript_path = input_data.get("transcript_path", "")
 
     # Build work log entry
-    log_entry = _build_log_entry(tool_name, tool_input, tool_response, session_id)
+    log_entry = _build_log_entry(tool_name, tool_input, tool_response, session_id, project_dir)
 
     # Append to work log with file locking
     work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")
@@ -79,7 +80,7 @@ def main():
         _trigger_proactive_save(project_dir, snapshot_dir, input_data)
 
 
-def _build_log_entry(tool_name, tool_input, tool_response, session_id):
+def _build_log_entry(tool_name, tool_input, tool_response, session_id, project_dir=None):
     """Build a structured work log entry."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -119,6 +120,20 @@ def _build_log_entry(tool_name, tool_input, tool_response, session_id):
 
     else:
         entry["summary"] = f"{tool_name}: {json.dumps(tool_input, ensure_ascii=False)[:150]}"
+
+    # Autopilot tracking fields (conditional — only when active)
+    # Fast path: skip full parsing if state.yaml doesn't exist
+    if project_dir and (
+        os.path.exists(os.path.join(project_dir, ".claude", "state.yaml"))
+        or os.path.exists(os.path.join(project_dir, ".claude", "state.yml"))
+    ):
+        try:
+            ap_state = read_autopilot_state(project_dir)
+            if ap_state:
+                entry["autopilot_active"] = True
+                entry["autopilot_step"] = ap_state.get("current_step", 0)
+        except Exception:
+            pass  # Non-blocking
 
     return entry
 

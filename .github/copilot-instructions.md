@@ -27,6 +27,7 @@ Copilot CLI는 `AGENTS.md`를 자동으로 인식하므로, 해당 파일의 모
 | 전문 에이전트 | Copilot의 단일 세션 내 역할 지정 |
 | 자동 검증 | GitHub Actions 또는 외부 스크립트로 구현 |
 | SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용 |
+| Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. `AGENTS.md §5.1` 참조 |
 
 ## 컨텍스트 보존
 

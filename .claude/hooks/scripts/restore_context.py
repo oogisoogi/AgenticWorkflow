@@ -31,7 +31,7 @@ from datetime import datetime
 
 # Add script directory to path for shared library import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _context_lib import read_stdin_json, get_snapshot_dir
+from _context_lib import read_stdin_json, get_snapshot_dir, read_autopilot_state, validate_step_output
 
 
 # Maximum age (seconds) for snapshot restoration per source type
@@ -106,6 +106,7 @@ def main():
         sot_warning=sot_warning,
         snapshot_age=snapshot_age,
         fallback_note=fallback_note,
+        project_dir=project_dir,
     )
 
     # Output to stdout — Claude receives this as session context
@@ -223,7 +224,7 @@ def _verify_sot_consistency(snapshot_content, project_dir):
     return None
 
 
-def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note=""):
+def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note="", project_dir=None):
     """Build the RLM-style recovery output for SessionStart injection."""
     age_str = _format_age(snapshot_age)
 
@@ -291,9 +292,11 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
         output_lines.append(f"⚠️ {sot_warning}")
 
     # Knowledge Archive pointers (Area 1: Cross-Session)
-    snapshot_dir = os.path.dirname(latest_path)
-    ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
-    sessions_dir = os.path.join(snapshot_dir, "sessions")
+    # Use get_snapshot_dir(project_dir) — NOT os.path.dirname(latest_path)
+    # (E6 fallback may point latest_path to sessions/ subdirectory, breaking path derivation)
+    ka_snapshot_dir = get_snapshot_dir(project_dir) if project_dir else os.path.dirname(latest_path)
+    ki_path = os.path.join(ka_snapshot_dir, "knowledge-index.jsonl")
+    sessions_dir = os.path.join(ka_snapshot_dir, "sessions")
 
     has_archive = os.path.exists(ki_path) or os.path.isdir(sessions_dir)
     if has_archive:
@@ -307,6 +310,47 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
                 output_lines.append(f"  - [{ts}] {task}")
         if os.path.isdir(sessions_dir):
             output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
+
+    # Autopilot Mode context injection (conditional)
+    # Uses project_dir passed from main() — NOT derived from snapshot path
+    # (path derivation fails when best_path points to sessions/ subdirectory)
+    if project_dir:
+        try:
+            ap_state = read_autopilot_state(project_dir)
+            if ap_state:
+                output_lines.append("")
+                output_lines.append("━━━ AUTOPILOT MODE ACTIVE ━━━")
+                wf_name = ap_state.get("workflow_name", "N/A")
+                cur_step = ap_state.get("current_step", "?")
+                approved = ap_state.get("auto_approved_steps", [])
+                output_lines.append(f"워크플로우: {wf_name}")
+                output_lines.append(f"현재 단계: Step {cur_step}")
+                if approved:
+                    output_lines.append(f"자동 승인된 단계: {approved}")
+                output_lines.append("")
+                output_lines.append("■ AUTOPILOT EXECUTION RULES (MANDATORY):")
+                output_lines.append("  1. EVERY step must be FULLY executed — NO step skipping")
+                output_lines.append("  2. EVERY output must be COMPLETE — NO abbreviation")
+                output_lines.append("  3. (human) steps: auto-approve with QUALITY-MAXIMIZING default")
+                output_lines.append("  4. (hook) exit code 2: STILL BLOCKS — autopilot does NOT override")
+                output_lines.append("  5. BEFORE advancing: verify output EXISTS + NON-EMPTY → record in SOT")
+                output_lines.append("  6. (human) step 완료 시: autopilot-logs/step-N-decision.md 생성")
+
+                # Previous step output validation
+                outputs = ap_state.get("outputs", {})
+                if outputs:
+                    output_lines.append("")
+                    output_lines.append("■ PREVIOUS STEP OUTPUT VALIDATION:")
+                    for step_key in sorted(outputs.keys(), key=lambda k: int(k.replace("step-", "")) if k.startswith("step-") and k.replace("step-", "").isdigit() else 0):
+                        step_num = int(step_key.replace("step-", "")) if step_key.startswith("step-") and step_key.replace("step-", "").isdigit() else 0
+                        if step_num > 0:
+                            is_valid, reason = validate_step_output(
+                                project_dir, step_num, outputs
+                            )
+                            mark = "[OK]" if is_valid else "[FAIL]"
+                            output_lines.append(f"  {mark} {reason}")
+        except Exception:
+            pass  # Non-blocking — autopilot injection is supplementary
 
     # Instruction for Claude
     output_lines.extend([

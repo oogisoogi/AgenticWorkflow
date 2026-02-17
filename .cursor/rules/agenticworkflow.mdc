@@ -45,6 +45,7 @@ alwaysApply: true
 | 자동 검증 | `.cursor/rules/` 내 검증 규칙 파일 또는 외부 스크립트 |
 | 재사용 모듈 | `.cursor/rules/` 내 도메인별 규칙 파일 |
 | SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용 |
+| Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. `AGENTS.md §5.1` 참조 |
 
 ## 컨텍스트 보존
 
