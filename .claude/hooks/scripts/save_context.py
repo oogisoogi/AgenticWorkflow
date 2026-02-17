@@ -47,6 +47,7 @@ from _context_lib import (
     extract_session_facts,
     cleanup_knowledge_index,
     cleanup_session_archives,
+    E5_RICH_CONTENT_MARKER,
 )
 
 
@@ -112,7 +113,7 @@ def main():
         try:
             with open(latest_path, "r", encoding="utf-8") as f:
                 existing_content = f.read()
-            if "### 수정 중이던 파일" in existing_content:
+            if E5_RICH_CONTENT_MARKER in existing_content:
                 should_update_latest = False
         except Exception:
             pass
@@ -153,19 +154,24 @@ def main():
     cleanup_session_archives(snapshot_dir)
     cleanup_knowledge_index(snapshot_dir)
 
-    # Reset work log after successful full save (with lock to prevent race condition)
+    # C-6: Archive work log (keep last 10 entries) instead of full truncation
     work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")
     if os.path.exists(work_log_path):
         try:
             with open(work_log_path, "r+", encoding="utf-8") as f:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                lines = f.readlines()
+                kept = lines[-10:] if len(lines) > 10 else []
+                f.seek(0)
                 f.truncate(0)
+                f.writelines(kept)
+                f.flush()
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except (OSError, IOError):
             pass
 
-    # Output confirmation (captured by hook system)
-    print(f"Context saved: {filepath}")
+    # A-2: Output to stderr (not stdout) to avoid leaking into Claude's context
+    print(f"Context saved: {filepath}", file=sys.stderr)
 
 
 if __name__ == "__main__":

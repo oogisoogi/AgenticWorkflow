@@ -98,14 +98,19 @@ AgenticWorkflow/
 │   └── settings.json                      ← Gemini CLI 설정 (AGENTS.md 추가 로드)
 ├── .aider.conf.yml                        ← Aider 설정 (AGENTS.md 자동 로드)
 ├── .claude/
-│   ├── settings.json                      ← Hook 설정 (SessionEnd)
-│   ├── hooks/scripts/                     ← Context Preservation System
+│   ├── settings.json                      ← Hook 설정 (Setup + SessionEnd)
+│   ├── commands/                           ← Slash Commands
+│   │   ├── install.md                     (Setup Init 검증 결과 분석 — /install)
+│   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
+│   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
 │   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증)
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적)
-│   │   └── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
+│   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
+│   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증, --init 트리거)
+│   │   └── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   ├── context-snapshots/                 ← 런타임 스냅샷 (gitignored)
 │   │   ├── latest.md                      (최신 스냅샷)
 │   │   ├── knowledge-index.jsonl          (세션 간 축적 인덱스 — RLM 프로그래밍적 탐색 대상)
@@ -133,6 +138,8 @@ AgenticWorkflow/
 
 | Hook 이벤트 | 스크립트 | 동작 |
 |------------|---------|------|
+| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문, 디렉터리, PyYAML) |
+| **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 | **SessionEnd** (`/clear`) | `save_context.py` | 전체 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
@@ -155,7 +162,12 @@ AgenticWorkflow/
   - PostToolUse → `context_guard.py --mode=post-tool` → `update_work_log.py`
   - PreCompact → `context_guard.py --mode=pre-compact` → `save_context.py --trigger precompact`
   - SessionStart → `context_guard.py --mode=restore` → `restore_context.py`
-- **Project** (`.claude/settings.json`): SessionEnd → `save_context.py --trigger sessionend`
+- **Project** (`.claude/settings.json`): SessionEnd + Setup 이벤트
+  - SessionEnd → `save_context.py --trigger sessionend`
+  - Setup (init) → `setup_init.py` — 인프라 건강 검증 (`claude --init`)
+  - Setup (maintenance) → `setup_maintenance.py` — 주기적 건강 검진 (`claude --maintenance`)
+
+> **Setup Hook의 context_guard.py 우회 근거**: Setup은 세션 시작 **전**에 실행되는 프로젝트 고유 인프라 검증이므로, Global 디스패처와 독립적으로 Project 설정에서 직접 실행한다. SOT에 접근하지 않는다.
 
 ## 스킬 사용 판별
 

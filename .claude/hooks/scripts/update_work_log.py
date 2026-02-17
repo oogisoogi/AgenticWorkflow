@@ -2,7 +2,7 @@
 """
 Context Preservation System — update_work_log.py
 
-Triggered by: PostToolUse (Edit|Write|Bash|Task)
+Triggered by: PostToolUse (Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate)
 
 Responsibilities:
   1. Accumulate work log entries (file-locked append to work_log.jsonl)
@@ -41,7 +41,9 @@ from _context_lib import (
     cleanup_knowledge_index,
     cleanup_session_archives,
     read_autopilot_state,
+    sot_paths,
     THRESHOLD_75_TOKENS,
+    E5_RICH_CONTENT_MARKER,
 )
 
 
@@ -118,15 +120,36 @@ def _build_log_entry(tool_name, tool_input, tool_response, session_id, project_d
         agent_type = tool_input.get("subagent_type", "")
         entry["summary"] = f"Task ({agent_type}): {desc}"
 
+    elif tool_name == "NotebookEdit":
+        path = tool_input.get("notebook_path", "")
+        mode = tool_input.get("edit_mode", "replace")
+        entry["file_path"] = path
+        entry["summary"] = f"NotebookEdit ({mode}) → {path}"
+
+    elif tool_name == "TeamCreate":
+        team = tool_input.get("team_name", "")
+        entry["summary"] = f"TeamCreate: {team}"
+
+    elif tool_name == "SendMessage":
+        msg_type = tool_input.get("type", "message")
+        recipient = tool_input.get("recipient", "broadcast")
+        entry["summary"] = f"SendMessage ({msg_type}) → {recipient}"
+
+    elif tool_name == "TaskCreate":
+        subject = tool_input.get("subject", "")
+        entry["summary"] = f"TaskCreate: {subject[:100]}"
+
+    elif tool_name == "TaskUpdate":
+        task_id = tool_input.get("taskId", "")
+        status = tool_input.get("status", "")
+        entry["summary"] = f"TaskUpdate #{task_id}: {status}"
+
     else:
         entry["summary"] = f"{tool_name}: {json.dumps(tool_input, ensure_ascii=False)[:150]}"
 
     # Autopilot tracking fields (conditional — only when active)
-    # Fast path: skip full parsing if state.yaml doesn't exist
-    if project_dir and (
-        os.path.exists(os.path.join(project_dir, ".claude", "state.yaml"))
-        or os.path.exists(os.path.join(project_dir, ".claude", "state.yml"))
-    ):
+    # A-3: Fast path using sot_paths() — skip if no SOT file exists
+    if project_dir and any(os.path.exists(p) for p in sot_paths(project_dir)):
         try:
             ap_state = read_autopilot_state(project_dir)
             if ap_state:
@@ -176,9 +199,22 @@ def _trigger_proactive_save(project_dir, snapshot_dir, input_data=None):
         filepath = os.path.join(snapshot_dir, f"{timestamp}_threshold.md")
         atomic_write(filepath, md_content)
 
-        # Update latest.md
+        # A-1: E5 Empty Snapshot Guard — don't overwrite rich snapshot with empty one
         latest_path = os.path.join(snapshot_dir, "latest.md")
-        atomic_write(latest_path, md_content)
+        new_tool_count = sum(1 for e in entries if e.get("type") == "tool_use")
+        should_update_latest = True
+
+        if os.path.exists(latest_path) and new_tool_count == 0:
+            try:
+                with open(latest_path, "r", encoding="utf-8") as f:
+                    existing_content = f.read()
+                if E5_RICH_CONTENT_MARKER in existing_content:
+                    should_update_latest = False
+            except Exception:
+                pass
+
+        if should_update_latest:
+            atomic_write(latest_path, md_content)
 
         # Cleanup
         cleanup_snapshots(snapshot_dir)
@@ -213,13 +249,19 @@ def _trigger_proactive_save(project_dir, snapshot_dir, input_data=None):
         cleanup_session_archives(snapshot_dir)
         cleanup_knowledge_index(snapshot_dir)
 
-        # Reset work log after successful threshold save (with lock)
+        # C-6: Archive work log (keep last 10 entries) instead of full truncation
         work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")
         if os.path.exists(work_log_path):
             try:
                 with open(work_log_path, "r+", encoding="utf-8") as wf:
                     fcntl.flock(wf.fileno(), fcntl.LOCK_EX)
+                    lines = wf.readlines()
+                    # Keep last 10 entries for continuity context
+                    kept = lines[-10:] if len(lines) > 10 else []
+                    wf.seek(0)
                     wf.truncate(0)
+                    wf.writelines(kept)
+                    wf.flush()
                     fcntl.flock(wf.fileno(), fcntl.LOCK_UN)
             except (OSError, IOError):
                 pass

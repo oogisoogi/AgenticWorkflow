@@ -45,6 +45,7 @@ from _context_lib import (
     cleanup_session_archives,
     cleanup_knowledge_index,
     read_autopilot_state,
+    E5_RICH_CONTENT_MARKER,
 )
 
 
@@ -63,10 +64,6 @@ def main():
     # Dedup guard — Stop hook uses 30s window to reduce noise
     if should_skip_save(snapshot_dir, trigger="stop"):
         sys.exit(0)
-
-    # Check if this is a stop_hook_active scenario (already triggered once)
-    if input_data.get("stop_hook_active", False):
-        sys.exit(0)  # Don't re-save on hook-triggered continuation
 
     # Parse transcript
     transcript_path = input_data.get("transcript_path", "")
@@ -121,7 +118,7 @@ def main():
         try:
             with open(latest_path, "r", encoding="utf-8") as f:
                 existing_content = f.read()
-            if "### 수정 중이던 파일" in existing_content:
+            if E5_RICH_CONTENT_MARKER in existing_content:
                 should_update_latest = False
         except Exception:
             pass

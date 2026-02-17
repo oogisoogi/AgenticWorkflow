@@ -245,6 +245,9 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 
 - workflow.md 템플릿: `references/workflow-template.md`
 - Claude Code 구현 패턴 (Sub-agents, Teams, Hooks): `references/claude-code-patterns.md`
+  - Anti-Skip Guard Protocol: §Anti-Skip Execution Protocol (산출물 검증 — 100 bytes 최소 크기)
+  - Autopilot Execution Checklist: §Autopilot + Agent Team 통합 체크리스트
+  - SOT 상태 관리: §SOT State Management Protocol
 - 문서 분석 가이드 (Case 2): `references/document-analysis-guide.md`
 - 컨텍스트 주입 패턴 (Sub-agent/Team 입력 전달): `references/context-injection-patterns.md`
 - Autopilot Decision Log 템플릿: `references/autopilot-decision-template.md`

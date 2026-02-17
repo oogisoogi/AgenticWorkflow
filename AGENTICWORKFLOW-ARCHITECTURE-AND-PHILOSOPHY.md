@@ -194,12 +194,12 @@ graph TB
         AGENTS["AGENTS.md<br/>범용 에이전트 지시서"]
 
         subgraph "Skills"
-            WG["workflow-generator<br/>SKILL.md + 3 refs"]
+            WG["workflow-generator<br/>SKILL.md + 5 refs"]
             DW["doctoral-writing<br/>SKILL.md + 5 refs"]
         end
 
         subgraph "Context Preservation"
-            CPS["hooks/scripts/<br/>5개 Python 스크립트"]
+            CPS["hooks/scripts/<br/>8개 Python 스크립트"]
             CSS["context-snapshots/<br/>런타임 스냅샷"]
         end
 
@@ -704,6 +704,8 @@ graph TB
 | `knowledge-index.jsonl` | **쓰기** — replace_or_append (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup. completion_summary, git_summary 포함 |
 | `sessions/` | **쓰기** — atomic write (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로) | 세션 아카이브, SOT와 분리 |
 | `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
+| `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
+| `.claude/hooks/setup.maintenance.log` | **쓰기** — `setup_maintenance.py` (Setup maintenance Hook) | 건강 검진 결과 로그, `/maintenance` 슬래시 커맨드가 분석 |
 
 **P1 원칙 적용 (정확도를 위한 데이터 정제):**
 
@@ -732,7 +734,7 @@ graph TB
 | 위치 | Hook 이벤트 | 근거 |
 |------|------------|------|
 | `~/.claude/settings.json` (Global) | PreCompact, SessionStart, PostToolUse, Stop | 모든 프로젝트에서 컨텍스트 보존 필요 |
-| `.claude/settings.json` (Project) | SessionEnd | `/clear` 감지는 프로젝트별 설정으로 커밋 공유 |
+| `.claude/settings.json` (Project) | Setup (init), Setup (maintenance), SessionEnd | Setup: 프로젝트별 인프라 검증 (`--init`/`--maintenance`), SessionEnd: `/clear` 감지 — 모두 프로젝트별 설정으로 커밋 공유 |
 
 ---
 

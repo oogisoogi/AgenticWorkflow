@@ -5,3 +5,6 @@ __pycache__/
 
 # Context Preservation System — session-specific runtime data
 .claude/context-snapshots/
+
+# Setup Hook logs — runtime diagnostics (regenerated on each run)
+.claude/hooks/*.log

@@ -1,5 +1,27 @@
 {
   "hooks": {
+    "Setup": [
+      {
+        "matcher": "init",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/setup_init.py",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "maintenance",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/setup_maintenance.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "matcher": "clear",

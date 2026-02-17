@@ -31,7 +31,7 @@ from datetime import datetime
 
 # Add script directory to path for shared library import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _context_lib import read_stdin_json, get_snapshot_dir, read_autopilot_state, validate_step_output
+from _context_lib import read_stdin_json, get_snapshot_dir, read_autopilot_state, validate_step_output, sot_paths
 
 
 # Maximum age (seconds) for snapshot restoration per source type
@@ -190,20 +190,15 @@ def _extract_brief_summary(content):
 
 def _verify_sot_consistency(snapshot_content, project_dir):
     """Check if current SOT matches snapshot's recorded SOT."""
-    sot_paths = [
-        os.path.join(project_dir, ".claude", "state.yaml"),
-        os.path.join(project_dir, ".claude", "state.yml"),
-        os.path.join(project_dir, ".claude", "state.json"),
-    ]
-
-    current_sot_exists = any(os.path.exists(p) for p in sot_paths)
+    paths = sot_paths(project_dir)
+    current_sot_exists = any(os.path.exists(p) for p in paths)
 
     if "SOT 파일 없음" in snapshot_content and not current_sot_exists:
         return None  # Consistent: both have no SOT
 
     if current_sot_exists:
         # Read current SOT modification time
-        for sot_path in sot_paths:
+        for sot_path in paths:
             if os.path.exists(sot_path):
                 sot_mtime = datetime.fromtimestamp(
                     os.path.getmtime(sot_path)

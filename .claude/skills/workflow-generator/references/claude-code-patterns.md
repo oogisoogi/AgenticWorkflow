@@ -255,6 +255,110 @@ Sub-agent와 달리 각 팀원이 완전히 독립된 컨텍스트를 가짐.
 워크플로우 라이프사이클의 특정 시점에 자동으로 실행되는 결정론적 자동화.
 코드 포맷팅, 품질 검증, 보안 게이트 등에 활용.
 
+#### 3-1. Setup Hooks (인프라 검증)
+
+세션 시작 **전에** 실행되는 결정론적 인프라 검증 Hook.
+`--init` 또는 `--maintenance` CLI 플래그로 트리거되며, 세션 컨텍스트에 접근하지 않는다.
+
+> **Quality Impact Path (절대 기준 1)**:
+> Infrastructure validation → Silent Failure prevention →
+> Context Preservation integrity → Session recovery accuracy →
+> Infrastructure floor for workflow output quality
+
+**3-Level Progressive Execution (계층적 실행 모델):**
+
+| 레벨 | CLI 명령 | 실행 내용 | 용도 |
+|------|---------|----------|------|
+| **Level 1** — Deterministic Only | `claude --init` | Setup Hook 스크립트만 실행 (Python) | CI/CD, 자동 검증 |
+| **Level 2** — Deterministic + Agentic | `claude --init "/install"` | Setup Hook → 에이전트가 로그 분석·수정 | 문제 해결 |
+| **Level 3** — Interactive | `claude` (일반 세션) | Setup + 전체 세션 | 일상 작업 |
+
+**Setup Hook 설정 형식:**
+
+```json
+// .claude/settings.json (Project — 프로젝트별 인프라 검증)
+{
+  "hooks": {
+    "Setup": [
+      {
+        "matcher": "init",
+        "hooks": [{
+          "type": "command",
+          "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/setup_init.py",
+          "timeout": 30
+        }]
+      },
+      {
+        "matcher": "maintenance",
+        "hooks": [{
+          "type": "command",
+          "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/setup_maintenance.py",
+          "timeout": 30
+        }]
+      }
+    ]
+  }
+}
+```
+
+**hookSpecificOutput 프로토콜:**
+
+Setup Hook의 stdout JSON 출력 형식. Claude Code가 파싱하여 세션 시작 시 컨텍스트에 주입한다:
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "Setup",
+    "additionalContext": "Infrastructure validation: 10/12 passed (1 critical, 1 warning)"
+  }
+}
+```
+
+**Exit Code 규칙 (일반 Hook과 동일):**
+
+| 코드 | 동작 | Setup Hook에서의 의미 |
+|------|------|---------------------|
+| `0` | 성공 | 인프라 정상 — 세션 시작 허용 |
+| `2` | 차단 | Critical 문제 감지 — 세션 시작 전 수정 필요 |
+| 기타 | 논블로킹 에러 | Hook 자체 오류 (세션은 시작) |
+
+**워크플로우에서의 적용 기준:**
+
+| 포함 조건 | 설명 |
+|----------|------|
+| Hook 스크립트가 3개 이상 | 스크립트 구문 오류가 Silent Failure를 유발 가능 |
+| 외부 의존성 필요 (PyYAML 등) | 런타임에 의존성 누락 시 기능 저하 |
+| 런타임 디렉터리 필요 | Context Preservation 등 런타임 인프라 사전 생성 |
+| CI/CD 파이프라인 통합 | `--init-only`로 headless 검증 가능 |
+
+| 제외 조건 | 설명 |
+|----------|------|
+| Hook 없는 단순 워크플로우 | 검증 대상이 없음 |
+| 외부 의존성 없음 | 환경 검증 불필요 |
+
+**SOT 비접근 원칙:**
+
+Setup Hook은 SOT(`state.yaml`)에 **접근하지 않는다**.
+Setup은 인프라 계층이고, SOT는 워크플로우 상태 계층이다.
+인프라 검증은 워크플로우 실행보다 하위 계층에서 작동한다.
+
+**context_guard.py 우회 근거:**
+
+Setup Hook은 Project 설정(`.claude/settings.json`)에서 직접 실행된다.
+Global 디스패처(`context_guard.py`)를 거치지 않는 이유:
+1. Setup은 프로젝트 고유 인프라 검증 — Global 관심사가 아님
+2. 세션 시작 **전**에 실행 — 세션 내 이벤트 라우팅과 무관
+3. `--init`/`--maintenance` 트리거는 Global Hook의 SessionStart/Stop과 독립
+
+**Slash Command 연동 (Level 2):**
+
+Setup Hook의 로그 파일을 분석하는 Slash Command:
+
+| Slash Command | 트리거 | 분석 대상 |
+|--------------|--------|----------|
+| `/install` | `claude --init "/install"` | `setup.init.log` — 문제 진단·수정 |
+| `/maintenance` | `claude --maintenance "/maintenance"` | `setup.maintenance.log` — 건강 검진·정리 |
+
 **설정 위치:**
 
 | 위치 | 범위 | 공유 가능 |
@@ -268,10 +372,12 @@ Sub-agent와 달리 각 팀원이 완전히 독립된 컨텍스트를 가짐.
 
 | 이벤트 | 발생 시점 | 차단 가능 | 워크플로우 용도 |
 |--------|---------|----------|-------------|
+| `Setup` | **세션 시작 전** (`--init`/`--maintenance`) | 예 (exit 2) | 인프라 검증, 건강 검진 (§3-1 상세) |
 | `SessionStart` | 세션 시작/재개 | 아니오 | 컨텍스트 복원, 환경변수 설정 |
 | `PreToolUse` | 도구 실행 전 | 예 | 위험 명령 차단, 입력 수정 |
 | `PostToolUse` | 도구 실행 후 | 아니오 | 자동 포맷팅, 로그 기록 |
 | `Stop` | Claude 응답 완료 | 예 | 컨텍스트 저장, 요약 생성 |
+| `SessionEnd` | 세션 종료 (`/clear`) | 아니오 | 전체 스냅샷 저장, Knowledge Archive |
 | `UserPromptSubmit` | 사용자 입력 후 | 예 | 입력 검증, 전처리 |
 | `SubagentStart` | 서브에이전트 생성 | 아니오 | 환경 준비 |
 | `SubagentStop` | 서브에이전트 종료 | 예 | 결과 검증 |
@@ -726,7 +832,7 @@ def execute_workflow_step(step, sot):
         prev_path = sot.outputs.get(prev_key)
         assert prev_path, f"Step {step.number - 1} output not in SOT"
         assert file_exists(prev_path), f"Step {step.number - 1} output missing"
-        assert file_size(prev_path) > 0, f"Step {step.number - 1} output empty"
+        assert file_size(prev_path) >= 100, f"Step {step.number - 1} output too small (< 100 bytes)"
 
     # 2. Execute step FULLY (Anti-Abbreviation Rule)
     output = step.execute()  # 완전 실행, 축약 금지
@@ -842,6 +948,39 @@ workflow:
     enabled: true
     activated_at: "2026-02-16T10:30:00"
     auto_approved_steps: [3, 6]  # 자동 승인된 (human) 단계 목록
+```
+
+### SOT State Management Protocol (C-1)
+
+워크플로우 실행 시 SOT를 안전하게 관리하기 위한 운영 프로토콜.
+
+#### SOT 접근 규칙
+
+| 역할 | 읽기 | 쓰기 | 비고 |
+|------|------|------|------|
+| Orchestrator / Team Lead | O | O | 유일한 쓰기 주체 |
+| Sub-agent | O | X | 산출물 파일만 생성 |
+| Teammate | O | X | 결과를 Team Lead에 보고 |
+| Hook 스크립트 | O | X | `context-snapshots/`에만 쓰기 |
+
+#### SOT 생명주기
+
+```
+1. 워크플로우 시작 → SOT 생성 (state.yaml)
+2. 각 단계 완료 → outputs에 경로 기록, current_step +1
+3. (team) 단계 → active_team 생성 → 팀원 작업 → completed_summaries 갱신
+4. (human) + autopilot → auto_approved_steps에 추가
+5. 워크플로우 완료 → status: "completed"
+```
+
+#### Anti-Skip Guard 검증 (MIN_OUTPUT_SIZE: 100 bytes)
+
+```python
+# 단계 전진 전 반드시 수행
+assert os.path.exists(output_path), "산출물 파일 없음"
+assert os.path.getsize(output_path) >= 100, "산출물 크기 부족 (최소 100 bytes)"
+sot.outputs[f"step-{N}"] = output_path
+sot.current_step += 1  # 반드시 +1만
 ```
 
 ### SOT 갱신 프로토콜 (Team 사용 시)
@@ -1272,14 +1411,14 @@ AI에게 전달하기 전에 code-level에서 데이터를 정제하여 분석 �
 
 ## 구성요소 비교 요약
 
-| 특성 | Sub-agent | Agent Team | Hook | Slash Command | AskUserQuestion | Task System | Skill (inline) | Skill (forked) | MCP Server |
-|------|-----------|------------|------|---------------|-----------------|-------------|----------------|----------------|------------|
-| **역할** | 전문가 위임 | 병렬 협업 | 자동 검증 | 사용자 개입점 | 동적 질문 | 작업 추적 | 지식 주입 | 독립 분석/변환 | 외부 연동 |
-| **세션** | 단일 (위임) | 다중 (독립) | N/A | N/A | N/A | N/A | N/A | 단일 (격리) | N/A |
-| **컨텍스트** | 부모와 분리 | 완전 독립 | 없음 | 없음 | 현재 세션 | 팀 공유 | 세션 주입 | 부모와 분리 | 세션 주입 |
-| **SOT 관계** | Orchestrator가 갱신 | Team Lead만 갱신 | 읽기 전용 | 사용자 입력 반영 | 사용자 입력 반영 | SOT와 분리 | 무관 | 간접 (전처리 주입) | 무관 |
-| **품질 기여** | 전문 집중 | 다관점 병렬 | 결정론적 검증 | 사람의 판단 | 구조화된 수집 | 의존성 관리 | 검증된 패턴 | 격리된 분석 | 외부 데이터 |
-| **정의 위치** | .claude/agents/*.md | Task tool | settings.json | .claude/commands/*.md | 워크플로우 내 | Task tool | .claude/skills/ | .claude/skills/ | .mcp.json |
+| 특성 | Sub-agent | Agent Team | Hook | Setup Hook | Slash Command | AskUserQuestion | Task System | Skill (inline) | Skill (forked) | MCP Server |
+|------|-----------|------------|------|------------|---------------|-----------------|-------------|----------------|----------------|------------|
+| **역할** | 전문가 위임 | 병렬 협업 | 자동 검증 | 인프라 검증 | 사용자 개입점 | 동적 질문 | 작업 추적 | 지식 주입 | 독립 분석/변환 | 외부 연동 |
+| **세션** | 단일 (위임) | 다중 (독립) | N/A | 세션 전 | N/A | N/A | N/A | N/A | 단일 (격리) | N/A |
+| **컨텍스트** | 부모와 분리 | 완전 독립 | 없음 | 없음 (세션 전) | 없음 | 현재 세션 | 팀 공유 | 세션 주입 | 부모와 분리 | 세션 주입 |
+| **SOT 관계** | Orchestrator가 갱신 | Team Lead만 갱신 | 읽기 전용 | 비접근 | 사용자 입력 반영 | 사용자 입력 반영 | SOT와 분리 | 무관 | 간접 (전처리 주입) | 무관 |
+| **품질 기여** | 전문 집중 | 다관점 병렬 | 결정론적 검증 | Silent Failure 방지 | 사람의 판단 | 구조화된 수집 | 의존성 관리 | 검증된 패턴 | 격리된 분석 | 외부 데이터 |
+| **정의 위치** | .claude/agents/*.md | Task tool | settings.json | settings.json (Setup) | .claude/commands/*.md | 워크플로우 내 | Task tool | .claude/skills/ | .claude/skills/ | .mcp.json |
 
 ---
 

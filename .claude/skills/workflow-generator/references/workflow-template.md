@@ -83,7 +83,7 @@ tools: [허용 도구 — 쉼표 구분]
 disallowedTools: [차단 도구]       # 선택적
 permissionMode: [default|plan|dontAsk]
 maxTurns: [최대 턴 수]
-memory: [user|project|local]
+memory: [user|project|local]      # C-3: 스코프 정의 아래 참조
 skills: [주입할 스킬 목록]         # 선택적
 mcpServers: [사용 가능 MCP]       # 선택적
 ---
@@ -92,6 +92,16 @@ mcpServers: [사용 가능 MCP]       # 선택적
 ```
 
 > **모델 선택 기준 (절대 기준 1)**: opus = 최고 품질 핵심 작업, sonnet = 안정적 반복 작업, haiku = 단순 보조 작업. "비용이 싸서"가 아니라 "품질이 충분한가"로 판단한다.
+
+#### Sub-agent Memory Scope 정의 (C-3)
+
+| Scope | 접근 범위 | SOT | 부모 세션 컨텍스트 | Knowledge Index | 용도 |
+|-------|----------|-----|------------------|-----------------|------|
+| `user` | 모든 프로젝트의 에이전트 | read-only | 없음 | 가능 | 글로벌 유틸리티 에이전트 |
+| `project` | 현재 프로젝트 내 에이전트 | read-only | Task prompt로 전달 | 가능 | 프로젝트 전문 에이전트 (기본값) |
+| `local` | 단일 에이전트 세션 | read-only | Task prompt로 전달 | 없음 | 일회성 분석/처리 작업 |
+
+> **Context Preservation과의 관계**: `project` 스코프 에이전트는 부모의 `latest.md` 경로를 Task prompt에 포함하면 세션 컨텍스트를 읽을 수 있다. `local` 스코프는 prompt에 전달된 내용만 사용하며, 세션 간 기억이 없다.
 
 ### Agent Team (병렬 협업이 필요한 경우)
 
@@ -191,6 +201,38 @@ workflow:
 
 **Exit Code 규칙**: `0` = 통과, `2` = 차단 (stderr → Claude에 피드백), 기타 = 논블로킹 에러
 **상세 패턴**: `references/claude-code-patterns.md §3. Hooks`
+
+### Setup Hooks (선택적 — 인프라 검증이 필요한 경우)
+
+워크플로우가 Hook 스크립트, 외부 의존성, 런타임 디렉터리 등 인프라에 의존하는 경우 포함한다.
+
+```json
+// .claude/settings.json (Setup 이벤트)
+{
+  "hooks": {
+    "Setup": [
+      {
+        "matcher": "init",
+        "hooks": [{
+          "type": "command",
+          "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/[setup_script].py",
+          "timeout": 30
+        }]
+      }
+    ]
+  }
+}
+```
+
+| 포함 기준 | 제외 기준 |
+|----------|----------|
+| Hook 스크립트 3개 이상 | Hook 없는 단순 워크플로우 |
+| 외부 의존성 (PyYAML, npm 등) | 표준 라이브러리만 사용 |
+| 런타임 디렉터리 사전 생성 필요 | 별도 인프라 불필요 |
+| CI/CD 파이프라인 통합 (`--init-only`) | 로컬 전용 워크플로우 |
+
+> **SOT 비접근**: Setup Hook은 인프라 계층에서 작동하며 SOT(`state.yaml`)에 접근하지 않는다.
+> **상세 패턴**: `references/claude-code-patterns.md §3-1. Setup Hooks`
 
 ### Slash Commands
 

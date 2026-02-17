@@ -20,6 +20,7 @@ Architecture:
 
 import json
 import os
+import re
 import sys
 import time
 import fcntl
@@ -61,6 +62,32 @@ DEFAULT_MAX_SNAPSHOTS = 3
 # Knowledge Archive limits (Area 1: Cross-Session Knowledge Archive)
 MAX_KNOWLEDGE_INDEX_ENTRIES = 200
 MAX_SESSION_ARCHIVES = 20
+# E5 Empty Snapshot Guard — rich content marker (used across all scripts)
+# If this section header changes in generate_snapshot_md(), update here too
+E5_RICH_CONTENT_MARKER = "### 수정 중이던 파일"
+
+# --- Truncation limits (Quality First — 절대 기준 1) ---
+# Edit preview: "왜" 그 편집을 했는지 의도 파악 가능한 길이
+EDIT_PREVIEW_CHARS = 1000
+# Error result: 에러 메시지 전체 보존 (stack trace + context)
+ERROR_RESULT_CHARS = 3000
+# Normal tool result
+NORMAL_RESULT_CHARS = 800
+# Write preview (first 3 lines)
+WRITE_PREVIEW_CHARS = 150
+# Generic tool input preview
+GENERIC_INPUT_CHARS = 200
+# Bash command preview
+BASH_CMD_CHARS = 200
+# Task prompt preview
+TASK_PROMPT_CHARS = 200
+# SOT content capture
+SOT_CAPTURE_CHARS = 3000
+# Anti-Skip Guard minimum output size (bytes)
+MIN_OUTPUT_SIZE = 100
+
+# --- SOT file paths (single definition — 절대 기준 2) ---
+SOT_FILENAMES = ("state.yaml", "state.yml", "state.json")
 
 
 # =============================================================================
@@ -229,18 +256,18 @@ def _extract_tool_use_summary(tool_name, tool_input):
         content = tool_input.get("content", "")
         lines = content.split("\n")
         preview = "\n".join(lines[:3])
-        return f"Write → {path} ({len(lines)} lines)\n  Preview: {_truncate(preview, 150)}"
+        return f"Write → {path} ({len(lines)} lines)\n  Preview: {_truncate(preview, WRITE_PREVIEW_CHARS)}"
 
     elif tool_name in ("Edit",):
         path = tool_input.get("file_path", "unknown")
         old = tool_input.get("old_string", "")
         new = tool_input.get("new_string", "")
-        # E3: 첫 3줄 × 300자로 확대 — 변경 의도 파악 가능
-        old_preview = "\n".join(old.split("\n")[:3]) if old else ""
-        new_preview = "\n".join(new.split("\n")[:3]) if new else ""
+        # B-1: 첫 5줄 × EDIT_PREVIEW_CHARS — "왜" 그 편집을 했는지 의도+맥락 보존
+        old_preview = "\n".join(old.split("\n")[:5]) if old else ""
+        new_preview = "\n".join(new.split("\n")[:5]) if new else ""
         return (f"Edit → {path}\n"
-                f"  OLD: {_truncate(old_preview, 300)}\n"
-                f"  NEW: {_truncate(new_preview, 300)}")
+                f"  OLD: {_truncate(old_preview, EDIT_PREVIEW_CHARS)}\n"
+                f"  NEW: {_truncate(new_preview, EDIT_PREVIEW_CHARS)}")
 
     elif tool_name in ("Read",):
         path = tool_input.get("file_path", "unknown")
@@ -249,13 +276,13 @@ def _extract_tool_use_summary(tool_name, tool_input):
     elif tool_name in ("Bash",):
         cmd = tool_input.get("command", "")
         desc = tool_input.get("description", "")
-        return f"Bash: {_truncate(cmd, 200)}" + (f" ({desc})" if desc else "")
+        return f"Bash: {_truncate(cmd, BASH_CMD_CHARS)}" + (f" ({desc})" if desc else "")
 
     elif tool_name in ("Task",):
         desc = tool_input.get("description", "")
         prompt = tool_input.get("prompt", "")
         agent_type = tool_input.get("subagent_type", "")
-        return f"Task ({agent_type}): {desc}\n  Prompt: {_truncate(prompt, 200)}"
+        return f"Task ({agent_type}): {desc}\n  Prompt: {_truncate(prompt, TASK_PROMPT_CHARS)}"
 
     elif tool_name in ("Glob",):
         pattern = tool_input.get("pattern", "")
@@ -276,21 +303,33 @@ def _extract_tool_use_summary(tool_name, tool_input):
         return f"WebFetch: {_truncate(url, 100)}"
 
     else:
-        # Generic: show first 200 chars of input
-        return f"{tool_name}: {_truncate(json.dumps(tool_input, ensure_ascii=False), 200)}"
+        # Generic: show first GENERIC_INPUT_CHARS of input
+        return f"{tool_name}: {_truncate(json.dumps(tool_input, ensure_ascii=False), GENERIC_INPUT_CHARS)}"
 
 
 def _extract_tool_result_summary(content):
-    """Extract summary from tool_result content."""
+    """Extract summary from tool_result content.
+
+    C-3: Error recovery narrative — error-containing results get expanded
+    truncation limit (ERROR_RESULT_CHARS) to preserve diagnostic context.
+    """
+    _ERROR_PATTERNS = ("error", "Error", "ERROR", "failed", "Failed", "FAILED",
+                       "traceback", "Traceback", "exception", "Exception")
+
+    def _limit_for(text):
+        if any(pat in text for pat in _ERROR_PATTERNS):
+            return ERROR_RESULT_CHARS  # B-2: 에러 메시지 전체 보존 (stack trace 포함)
+        return NORMAL_RESULT_CHARS
+
     if isinstance(content, str):
-        return _truncate(content, 800)
+        return _truncate(content, _limit_for(content))
     elif isinstance(content, list):
         texts = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
                 texts.append(block.get("text", ""))
         combined = "\n".join(texts)
-        return _truncate(combined, 800)
+        return _truncate(combined, _limit_for(combined))
     return ""
 
 
@@ -298,25 +337,24 @@ def _extract_tool_result_summary(content):
 # SOT State Capture
 # =============================================================================
 
+def sot_paths(project_dir):
+    """Build SOT file path list from SOT_FILENAMES constant (A-3: single definition)."""
+    return [os.path.join(project_dir, ".claude", fn) for fn in SOT_FILENAMES]
+
+
 def capture_sot(project_dir):
     """
     Read SOT file (state.yaml) if it exists.
     Hook is READ-ONLY for SOT — only captures content.
     """
-    sot_paths = [
-        os.path.join(project_dir, ".claude", "state.yaml"),
-        os.path.join(project_dir, ".claude", "state.yml"),
-        os.path.join(project_dir, ".claude", "state.json"),
-    ]
-
-    for sot_path in sot_paths:
+    for sot_path in sot_paths(project_dir):
         if os.path.exists(sot_path):
             try:
                 with open(sot_path, "r", encoding="utf-8") as f:
                     content = f.read()
                 return {
                     "path": sot_path,
-                    "content": _truncate(content, 3000),
+                    "content": _truncate(content, SOT_CAPTURE_CHARS),
                     "mtime": datetime.fromtimestamp(
                         os.path.getmtime(sot_path)
                     ).isoformat(),
@@ -346,11 +384,9 @@ def read_autopilot_state(project_dir):
     P1 Compliance: All fields are deterministic extractions from YAML/regex.
     SOT Compliance: Read-only file access.
     """
-    # Direct file read — same path search as capture_sot() but no truncation
-    sot_paths = [
-        os.path.join(project_dir, ".claude", "state.yaml"),
-        os.path.join(project_dir, ".claude", "state.yml"),
-    ]
+    # Direct file read — uses sot_paths() for consistency (A-3)
+    # Only YAML files (not JSON) — autopilot regex patterns assume YAML format
+    sot_paths = [p for p in sot_paths(project_dir) if not p.endswith(".json")]
 
     content = ""
     for sot_path in sot_paths:
@@ -393,7 +429,6 @@ def read_autopilot_state(project_dir):
 
     # Regex fallback (when PyYAML is not available)
     # Matches both "autopilot:\n  enabled: true" at any nesting level
-    import re
     enabled_match = re.search(
         r'autopilot\s*:\s*\n\s+enabled\s*:\s*(true|yes)',
         content, re.IGNORECASE
@@ -454,10 +489,6 @@ def validate_step_output(project_dir, step_number, outputs_map):
 
     Returns: (is_valid, reason_string)
     """
-    # 100 bytes — conservative minimum for meaningful content
-    # Prevents trivially satisfied validation (e.g., 1-byte file)
-    MIN_OUTPUT_SIZE = 100
-
     key = f"step-{step_number}"
 
     if key not in outputs_map:
@@ -512,10 +543,8 @@ def read_active_team_state(project_dir):
     P1 Compliance: All fields are deterministic extractions from YAML/regex.
     SOT Compliance: Read-only file access.
     """
-    sot_paths = [
-        os.path.join(project_dir, ".claude", "state.yaml"),
-        os.path.join(project_dir, ".claude", "state.yml"),
-    ]
+    # A-3: use sot_paths() — YAML only (regex parsing)
+    sot_paths = [p for p in sot_paths(project_dir) if not p.endswith(".json")]
 
     content = ""
     for sot_path in sot_paths:
@@ -553,7 +582,6 @@ def read_active_team_state(project_dir):
         pass
 
     # Regex fallback (when PyYAML is not available)
-    import re
     name_match = re.search(
         r'active_team\s*:\s*\n\s+name\s*:\s*["\']?(.+?)["\']?\s*$',
         content, re.MULTILINE
@@ -739,6 +767,156 @@ def extract_completion_state(entries, project_dir):
 
 
 # =============================================================================
+# Conversation Phase Detection (C-5)
+# =============================================================================
+
+def _classify_phase(tool_uses):
+    """Classify a set of tool uses into a single phase.
+
+    P1 Compliance: Deterministic classification based on tool proportions.
+    Returns: 'research', 'planning', 'implementation', 'orchestration', or 'unknown'
+    """
+    if not tool_uses:
+        return "unknown"
+
+    read_tools = sum(1 for t in tool_uses if t.get("tool_name") in
+                     ("Read", "Grep", "Glob", "WebSearch", "WebFetch"))
+    write_tools = sum(1 for t in tool_uses if t.get("tool_name") in
+                      ("Edit", "Write", "Bash"))
+    plan_tools = sum(1 for t in tool_uses if t.get("tool_name") in
+                     ("AskUserQuestion", "EnterPlanMode", "ExitPlanMode"))
+    task_tools = sum(1 for t in tool_uses if t.get("tool_name") in
+                     ("Task", "TaskCreate", "TaskUpdate", "TeamCreate", "SendMessage"))
+
+    total = len(tool_uses)
+
+    if plan_tools > 0 and plan_tools >= write_tools:
+        return "planning"
+    if task_tools > total * 0.3:
+        return "orchestration"
+    if read_tools > total * 0.6:
+        return "research"
+    if write_tools > total * 0.4:
+        return "implementation"
+    if read_tools > write_tools:
+        return "research"
+    return "implementation"
+
+
+def detect_conversation_phase(tool_uses):
+    """Detect current conversation phase from tool usage patterns.
+
+    P1 Compliance: Deterministic classification based on tool proportions.
+    Returns: 'research', 'planning', 'implementation', 'orchestration', or 'unknown'
+    """
+    return _classify_phase(tool_uses)
+
+
+def detect_phase_transitions(tool_uses, window_size=20):
+    """B-4: Detect phase transitions within a session.
+
+    Splits tool_uses into sliding windows and classifies each,
+    identifying where the phase changed (e.g., research → implementation).
+
+    P1 Compliance: Deterministic — window-based classification.
+    Returns: list of (phase, start_index, end_index) tuples.
+    """
+    if not tool_uses or len(tool_uses) < window_size:
+        return [(_classify_phase(tool_uses), 0, len(tool_uses))]
+
+    phases = []
+    current_phase = None
+    phase_start = 0
+
+    for i in range(0, len(tool_uses), window_size // 2):  # 50% overlap
+        window = tool_uses[i:i + window_size]
+        phase = _classify_phase(window)
+
+        if phase != current_phase:
+            if current_phase is not None:
+                phases.append((current_phase, phase_start, i))
+            current_phase = phase
+            phase_start = i
+
+    # Add final phase
+    if current_phase is not None:
+        phases.append((current_phase, phase_start, len(tool_uses)))
+
+    return phases if phases else [("unknown", 0, len(tool_uses))]
+
+
+# =============================================================================
+# Per-File Diff Stats (C-4)
+# =============================================================================
+
+def _get_per_file_diff_stats(project_dir):
+    """Get per-file line change counts from git diff --numstat.
+
+    P1 Compliance: deterministic subprocess output.
+    Returns: dict of {filepath: (added, removed)} or empty dict.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--numstat", "HEAD"],
+            cwd=project_dir, capture_output=True, text=True, timeout=5
+        )
+        if proc.returncode != 0:
+            return {}
+        result = {}
+        for line in proc.stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                added, removed, filepath = parts[0], parts[1], parts[2]
+                result[filepath] = (added, removed)
+        return result
+    except Exception:
+        return {}
+
+
+# =============================================================================
+# Decision Extraction (C-1)
+# =============================================================================
+
+def _extract_decisions(assistant_texts):
+    """Extract structured design decisions from assistant responses.
+
+    Detects:
+    1. Explicit markers: <!-- DECISION: ... -->
+    2. Structured patterns: **Decision:** / **결정:** / **선택:**
+
+    P1 Compliance: Regex-based deterministic extraction.
+    Returns: list of decision strings (max 10).
+    """
+    decisions = []
+    # Pattern 1: HTML comment markers
+    marker_pattern = re.compile(r'<!--\s*DECISION:\s*(.+?)\s*-->', re.DOTALL)
+    # Pattern 2: Bold markers
+    bold_pattern = re.compile(
+        r'\*\*(?:Decision|결정|선택|채택|판단)\s*(?::|：)\*\*\s*(.+?)(?:\n|$)',
+        re.IGNORECASE
+    )
+
+    for entry in assistant_texts:
+        content = entry.get("content", "")
+        for match in marker_pattern.finditer(content):
+            decisions.append(match.group(1).strip()[:300])
+        for match in bold_pattern.finditer(content):
+            decisions.append(match.group(1).strip()[:300])
+
+    # Dedup while preserving order
+    seen = set()
+    unique = []
+    for d in decisions:
+        if d not in seen:
+            seen.add(d)
+            unique.append(d)
+
+    return unique[:10]
+
+
+# =============================================================================
 # MD Snapshot Generation (Deterministic Data Only)
 # =============================================================================
 
@@ -757,9 +935,9 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
       - E4: Claude response priority selection + section promotion
 
     Section survival priority (truncation order):
-      1-8: IMMORTAL  (Header, Task, SOT, Autopilot*, Team*, Resume, Completion State, Git)
-      9-12: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
-      13-15: SACRIFICABLE (Statistics, Commands, Work Log)
+      1-9: IMMORTAL  (Header, Task, SOT, Autopilot*, Team*, Decisions*, Resume, Completion State, Git)
+      10-13: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
+      14-16: SACRIFICABLE (Statistics, Commands, Work Log)
       (* = conditional sections, only present when active)
     """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -780,6 +958,9 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     read_ops = _extract_read_operations(tool_uses)
     completion_state = extract_completion_state(entries, project_dir)
     git_state = capture_git_state(project_dir)
+    conversation_phase = detect_conversation_phase(tool_uses)  # C-5
+    diff_stats = _get_per_file_diff_stats(project_dir)  # C-4
+    decisions = _extract_decisions(assistant_texts)  # C-1
 
     # Build MD sections
     sections = []
@@ -791,6 +972,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     sections.append(f"> Saved: {now} | Trigger: {trigger}")
     sections.append(f"> Project: {project_dir}")
     sections.append(f"> Total entries: {len(entries)} | User msgs: {len(user_messages)} | Tool uses: {len(tool_uses)}")
+    sections.append(f"> Phase: {conversation_phase}")  # C-5: conversation phase detection
     sections.append("")
 
     # Section 1: Current Task (first + last user message — verbatim)
@@ -888,14 +1070,46 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     except Exception:
         pass  # Non-blocking — team section is supplementary
 
+    # Section 2.7: Design Decisions (C-1 — IMMORTAL, conditional)
+    if decisions:
+        sections.append("## 주요 설계 결정 (Design Decisions)")
+        sections.append("<!-- IMMORTAL: 세션 복원 시 '왜' 그 결정을 했는지 보존 -->")
+        sections.append("")
+        for i, dec in enumerate(decisions, 1):
+            sections.append(f"{i}. {dec}")
+        sections.append("")
+
     # Section 3: Resume Protocol (deterministic — P1 compliant)
     sections.append("## 복원 지시 (Resume Protocol)")
     sections.append("<!-- Python 결정론적 생성 — P1 준수 -->")
     sections.append("")
     if file_ops:
-        sections.append("### 수정 중이던 파일")
+        sections.append(E5_RICH_CONTENT_MARKER)
         for op in file_ops:
-            sections.append(f"- `{op['path']}` ({op['tool']}, {op['summary']})")
+            # C-4: per-file change summary from git diff
+            diff_suffix = ""
+            if diff_stats:
+                # Match by basename or relative path
+                rel_path = os.path.relpath(op['path'], project_dir) if os.path.isabs(op['path']) else op['path']
+                stats = diff_stats.get(rel_path)
+                if not stats:
+                    # Try 2-level suffix match (dir/file) to reduce false matches
+                    parent = os.path.basename(os.path.dirname(op['path']))
+                    basename = os.path.basename(op['path'])
+                    suffix_2 = os.path.join(parent, basename) if parent else basename
+                    for dp, ds in diff_stats.items():
+                        if dp.endswith(suffix_2):
+                            stats = ds
+                            break
+                    # Final fallback: basename-only (accept ambiguity)
+                    if not stats:
+                        for dp, ds in diff_stats.items():
+                            if dp.endswith(basename):
+                                stats = ds
+                                break
+                if stats:
+                    diff_suffix = f" (+{stats[0]}/-{stats[1]})"
+            sections.append(f"- `{op['path']}` ({op['tool']}, {op['summary']}){diff_suffix}")
     if read_ops:
         sections.append("### 참조하던 파일")
         for op in read_ops[:10]:
@@ -1428,8 +1642,10 @@ def _compress_snapshot(full_md, sections):
       Phase 7: Hard truncate only as absolute last resort
 
     Always preserved (IMMORTAL):
-      Header, Current Task, SOT, Resume Protocol,
+      Header, Current Task, SOT, Autopilot State*, Team State*,
+      Design Decisions*, Resume Protocol,
       Deterministic Completion State, Git Changes (stat+commits)
+      (* = conditional sections, only present when active)
 
     High priority (CRITICAL):
       Modified Files, Referenced Files, User Messages, Claude Responses
@@ -1574,7 +1790,11 @@ def _remove_section(sections, section_header):
 
 
 def _compress_responses(sections):
-    """Compress Claude responses: keep conclusion (last 300 chars) of each."""
+    """Compress Claude responses: structure-aware compression (C-7).
+
+    Preserves structural markers (headers, lists, code blocks, tables)
+    while dropping verbose prose. More generous limits for structured content.
+    """
     result = []
     in_section = False
 
@@ -1587,18 +1807,36 @@ def _compress_responses(sections):
             in_section = False
             result.append(line)
             continue
-        if in_section and (line.startswith(("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8."))):
-            # Numbered response — keep prefix + conclusion
-            if len(line) > 400:
-                prefix = line[:50]
-                conclusion = line[-300:]
-                result.append(f"{prefix} (...) {conclusion}")
+        if in_section and line and line[0].isdigit() and ". " in line[:5]:
+            # Numbered response — structure-aware compression
+            if len(line) > 500:
+                result.append(_structure_aware_compress_line(line))
             else:
                 result.append(line)
             continue
         result.append(line)
 
     return result
+
+
+def _structure_aware_compress_line(text, max_prefix=120, max_conclusion=400):
+    """Compress a single long text line, preserving structural markers (C-7).
+
+    Structure-rich content (headers, lists, tables) gets more generous limits.
+    """
+    structural_markers = ("## ", "### ", "- ", "* ", "| ", "```", "1. ", "2. ")
+    has_structure = any(m in text for m in structural_markers)
+
+    if has_structure:
+        # Structured content: keep more context
+        prefix = text[:max_prefix]
+        conclusion = text[-max_conclusion:]
+        return f"{prefix} (...구조 보존...) {conclusion}"
+    else:
+        # Plain prose: standard compression
+        prefix = text[:80]
+        conclusion = text[-300:]
+        return f"{prefix} (...) {conclusion}"
 
 
 def get_snapshot_dir(project_dir=None):
@@ -1632,14 +1870,14 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     user_messages = [e for e in entries if e["type"] == "user_message"]
     tool_uses = [e for e in entries if e["type"] == "tool_use"]
 
-    # First user message, first 100 chars (deterministic)
+    # First user message (C-2: expanded from 100→250 chars for richer cross-session context)
     user_task = ""
     if user_messages:
         # Skip system-injected messages
         for msg in user_messages:
             content = msg.get("content", "")
             if not (content.startswith("<") and ">" in content[:50]):
-                user_task = content[:100]
+                user_task = content[:250]
                 break
 
     # Last user instruction (deterministic) — 품질 최적화
@@ -1649,8 +1887,8 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         for msg in reversed(user_messages):
             content = msg.get("content", "")
             if not (content.startswith("<") and ">" in content[:50]):
-                if content[:100] != user_task:  # 첫 메시지와 동일하면 생략
-                    last_instruction = content[:100]
+                if content[:250] != user_task:  # 첫 메시지와 동일하면 생략
+                    last_instruction = content[:250]  # C-2: expanded from 100→250
                 break
 
     # Modified files — unique paths from Write/Edit
@@ -1671,6 +1909,24 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         name = tu.get("tool_name", "unknown")
         tools_used[name] = tools_used.get(name, 0) + 1
 
+    # B-3: Phase detection — current dominant phase
+    phase = detect_conversation_phase(tool_uses)
+
+    # B-3: Primary language detection (deterministic — file extension counting)
+    ext_counts = {}
+    all_files = modified_files + read_files
+    for fp in all_files:
+        ext = os.path.splitext(fp)[1].lower()
+        if ext:
+            ext_counts[ext] = ext_counts.get(ext, 0) + 1
+    primary_language = ""
+    if ext_counts:
+        primary_language = max(ext_counts, key=ext_counts.get)
+
+    # B-3: Phase transitions (multi-phase detection)
+    transitions = detect_phase_transitions(tool_uses)
+    phase_flow = " → ".join(t[0] for t in transitions) if len(transitions) > 1 else phase
+
     facts = {
         "session_id": session_id,
         "timestamp": datetime.now().isoformat(),
@@ -1681,6 +1937,9 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         "tools_used": tools_used,
         "trigger": trigger,
         "token_estimate": token_estimate,
+        "phase": phase,
+        "phase_flow": phase_flow,
+        "primary_language": primary_language,
     }
     if last_instruction:
         facts["last_instruction"] = last_instruction
@@ -1711,27 +1970,40 @@ def replace_or_append_session_facts(ki_path, facts):
 
     If an entry with the same session_id already exists, replaces it
     (later saves have more complete data — e.g., sessionend after threshold).
-    Uses file locking for concurrent safety.
+
+    A-1: Uses atomic temp-file + rename pattern within exclusive flock.
+    A-2: Empty/missing session_id skips dedup (appends as new unique entry).
 
     P1 Compliance: All operations are deterministic (JSON read/filter/write).
     SOT Compliance: Only called from save_context.py and _trigger_proactive_save.
     """
     session_id = facts.get("session_id", "")
-    os.makedirs(os.path.dirname(ki_path), exist_ok=True)
+    parent_dir = os.path.dirname(ki_path)
+    os.makedirs(parent_dir, exist_ok=True)
 
-    with open(ki_path, "a+", encoding="utf-8") as f:
+    # F-4: Atomic create-or-open — eliminates TOCTOU race
+    # open("a") creates if missing, then immediately close and reopen as "r+"
+    try:
+        f = open(ki_path, "r+", encoding="utf-8")
+    except FileNotFoundError:
+        open(ki_path, "w", encoding="utf-8").close()
+        f = open(ki_path, "r+", encoding="utf-8")
+
+    # A-1: "r+" for correct seek/read/truncate semantics
+    with f:
         try:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            f.seek(0)
             lines = f.readlines()
 
             # Filter out existing entry with same session_id
+            # A-2: Only dedup when session_id is non-empty and non-"unknown"
             kept = []
+            can_dedup = bool(session_id) and session_id != "unknown"
             for line in lines:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if session_id:
+                if can_dedup:
                     try:
                         entry = json.loads(stripped)
                         if entry.get("session_id") == session_id:
@@ -1748,6 +2020,7 @@ def replace_or_append_session_facts(ki_path, facts):
             f.truncate(0)
             f.writelines(kept)
             f.flush()
+            os.fsync(f.fileno())  # A-1: ensure durability
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 

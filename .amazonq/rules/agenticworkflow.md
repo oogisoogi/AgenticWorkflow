@@ -1,0 +1,42 @@
+# AgenticWorkflow — Amazon Q Developer 지시서
+
+> 이 프로젝트에서 작업하는 모든 AI는 AgenticWorkflow 방법론을 따라야 한다.
+
+## 필수 참조
+
+이 프로젝트의 모든 절대 기준, 설계 원칙, 워크플로우 구조는 `AGENTS.md`에 정의되어 있다.
+**반드시 `AGENTS.md`를 읽고 해당 규칙을 따라야 한다.**
+상세 아키텍처는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`를 참조한다.
+
+## 절대 기준 (핵심 요약)
+
+1. **품질 최우선** — 속도, 비용, 작업량보다 최종 결과물의 품질이 유일한 기준
+2. **단일 파일 SOT** — 모든 공유 상태는 단일 파일에 집중. 쓰기 권한은 Orchestrator만
+3. **코드 변경 프로토콜** — 의도 파악 → 영향 범위 분석 → 변경 설계 3단계 수행. 분석 깊이는 변경 규모에 비례
+
+> **상세 내용**: AGENTS.md §2 참조.
+
+## 워크플로우 구조
+
+모든 워크플로우는 3단계: **Research** → **Planning** → **Implementation**.
+
+## Amazon Q 구현 매핑
+
+| AgenticWorkflow 개념 | Amazon Q 대응 |
+|---------------------|--------------|
+| 전문 에이전트 | Amazon Q Developer의 단일 세션 내 역할 지정 |
+| 자동 검증 | `.amazonq/rules/` 내 검증 규칙 또는 외부 스크립트 |
+| 재사용 모듈 | `.amazonq/rules/` 내 도메인별 규칙 파일 |
+| SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용 |
+| Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. `AGENTS.md §5.1` 참조 |
+
+## 컨텍스트 보존
+
+Amazon Q Developer에는 자동 Hook 기반 컨텍스트 보존이 없다. 대안:
+
+- **수동 저장**: 작업 진행 시 `state.yaml`에 현재 상태 기록
+- **스냅샷**: 중요 시점에 작업 내역을 MD 파일로 수동 저장
+
+## 언어 및 스타일
+
+- **콘텐츠**: 한국어 / **기술 용어**: 영어 유지 / **시각화**: Mermaid 선호

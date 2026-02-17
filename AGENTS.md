@@ -193,14 +193,19 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
 ├── COPYRIGHT.md          ← 저작권
 ├── .claude/
-│   ├── settings.json          ← Hook 설정 (SessionEnd)
-│   ├── hooks/scripts/         ← Context Preservation System
+│   ├── settings.json          ← Hook 설정 (Setup + SessionEnd)
+│   ├── commands/              ← Slash Commands
+│   │   ├── install.md         (Setup Init 검증 결과 분석 — /install)
+│   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
+│   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
 │   │   ├── _context_lib.py    (공유 라이브러리 + Smart Throttling + Autopilot 상태 읽기·검증)
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적)
-│   │   └── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
+│   │   ├── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
+│   │   ├── setup_init.py      (Setup Init — 인프라 건강 검증, --init 트리거)
+│   │   └── setup_maintenance.py (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성

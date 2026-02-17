@@ -31,8 +31,9 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  # 설계 철학 및 아키텍처 전체 조감도
 ├── COPYRIGHT.md              # 저작권
 ├── .claude/
-│   ├── settings.json      # Hook 설정
-│   ├── hooks/scripts/     # Context Preservation System (6개 스크립트 + 디스패처)
+│   ├── settings.json      # Hook 설정 (Setup + SessionEnd)
+│   ├── commands/           # Slash Commands (/install, /maintenance)
+│   ├── hooks/scripts/     # Context Preservation System (6개 스크립트 + 디스패처) + Setup Hooks (2개)
 │   ├── context-snapshots/ # 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/ # 워크플로우 설계·생성 스킬
@@ -61,6 +62,8 @@ AgenticWorkflow/
 | `update_work_log.py` | PostToolUse | 작업 로그 누적, 75% threshold 시 자동 저장 |
 | `generate_context_summary.py` | Stop | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, E5 Guard) |
 | `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling, Autopilot 상태 읽기·검증 |
+| `setup_init.py` | Setup (`--init`) | 세션 시작 전 인프라 건강 검증 (Python, PyYAML, 스크립트 구문, 디렉터리) |
+| `setup_maintenance.py` | Setup (`--maintenance`) | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 
 ## Autopilot Mode
 
