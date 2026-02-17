@@ -1009,9 +1009,9 @@ graph TB
 ```
                 AGENTS.md (Hub — 방법론 SOT)
                /    |    |    \    \     \
-          CLAUDE  GEMINI .cursor  .github/
-          .md     .md    /rules   copilot-
-                         (Spoke)  instructions.md
+          CLAUDE  GEMINI .cursor
+          .md     .md    /rules
+                         (Spoke — 도구별 확장)
 ```
 
 | AI CLI 도구 | Spoke 파일 | 자동 읽기 |
@@ -1019,7 +1019,6 @@ graph TB
 | Claude Code | `CLAUDE.md` | Yes |
 | Gemini CLI | `GEMINI.md` (+ `@AGENTS.md` import) | Yes |
 | Codex CLI | `AGENTS.md` 직접 | Yes |
-| Copilot CLI | `.github/copilot-instructions.md` | Yes |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) |
 | Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
 

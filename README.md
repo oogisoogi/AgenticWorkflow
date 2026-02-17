@@ -105,7 +105,6 @@ AgenticWorkflow/
 | Claude Code | `CLAUDE.md` | Yes |
 | Gemini CLI | `GEMINI.md` + `.gemini/settings.json` | Yes |
 | Codex CLI | `AGENTS.md` (직접 읽음) | Yes |
-| Copilot CLI | `.github/copilot-instructions.md` | Yes |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes |
 | Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
 

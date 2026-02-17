@@ -1,7 +1,7 @@
 # AgenticWorkflow — AI 에이전트 공통 지시서
 
 > 이 파일은 **모델·도구에 무관하게** 이 프로젝트에서 작업하는 모든 AI 에이전트가 따라야 할 규칙이다.
-> Claude Code, Cursor, Copilot, Codex 등 어떤 도구를 사용하든 이 문서의 규칙이 적용된다.
+> Claude Code, Cursor, Codex 등 어떤 도구를 사용하든 이 문서의 규칙이 적용된다.
 
 ---
 
@@ -424,9 +424,9 @@ workflow:
 ```
                 AGENTS.md (Hub — 방법론 SOT)
                /    |    |    \    \     \
-          CLAUDE  GEMINI .cursor  .github/
-          .md     .md    /rules   copilot-
-                         (Spoke)  instructions.md
+          CLAUDE  GEMINI .cursor
+          .md     .md    /rules
+                         (Spoke — 도구별 확장)
 ```
 
 - **Hub (AGENTS.md)**: 절대 기준, 설계 원칙, 워크플로우 구조의 유일한 정의 지점
@@ -439,7 +439,6 @@ workflow:
 | **Claude Code** | `CLAUDE.md` | Yes | 별도 파일 |
 | **Gemini CLI** | `GEMINI.md` | Yes | 설정으로 추가 로드 |
 | **Codex CLI** | `AGENTS.md` (직접) | Yes | 네이티브 |
-| **Copilot CLI** | `.github/copilot-instructions.md` | Yes | 자동 인식 |
 | **Cursor** | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) | 인식 |
 | **Aider** | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 | 설정으로 로드 |
 
@@ -458,4 +457,3 @@ workflow:
 AGENTS.md의 절대 기준이 변경되면, 모든 Spoke 파일의 인라인 복제도 동기화해야 한다:
 - `CLAUDE.md`, `GEMINI.md` — 직접 수정
 - `.cursor/rules/` — 인라인 부분 수정
-- `.github/copilot-instructions.md` — 인라인 부분 수정
