@@ -820,11 +820,14 @@ FOR step IN workflow.steps:
 ### Anti-Skip Execution Protocol (구체적 실행 의사코드)
 
 ```python
+MAX_VERIFICATION_RETRIES = 2
+
 def execute_workflow_step(step, sot):
     """Orchestrator가 각 워크플로우 단계를 실행하는 프로토콜.
 
     절대 기준 1: 모든 산출물은 완전한 품질로 생성.
     절대 기준 2: SOT만이 상태의 단일 진실 원천.
+    Verification Protocol: 기능적 목표 100% 달성 확인 (AGENTS.md §5.3).
     """
     # 1. Pre-validation (이전 단계 산출물 검증)
     if step.number > 1:
@@ -833,6 +836,9 @@ def execute_workflow_step(step, sot):
         assert prev_path, f"Step {step.number - 1} output not in SOT"
         assert file_exists(prev_path), f"Step {step.number - 1} output missing"
         assert file_size(prev_path) >= 100, f"Step {step.number - 1} output too small (< 100 bytes)"
+
+    # 1b. Read Verification Criteria BEFORE execution
+    verification_criteria = step.get_verification_criteria()  # None if absent
 
     # 2. Execute step FULLY (Anti-Abbreviation Rule)
     output = step.execute()  # 완전 실행, 축약 금지
@@ -852,10 +858,34 @@ def execute_workflow_step(step, sot):
         handle_hook_failure(step, result.stderr)
         return  # BLOCKED — do NOT advance
 
-    # 6. Update SOT (순차적으로만 +1 증가)
+    # 6. Verification Gate (AGENTS.md §5.3 — 하위 호환: 기준 없으면 건너뜀)
+    if verification_criteria:
+        verify_result = self_verify(step.output, verification_criteria)
+        retry_count = 0
+        while not verify_result.all_pass and retry_count < MAX_VERIFICATION_RETRIES:
+            # 실패 기준만 식별하여 해당 부분만 재실행 (전체 재작업 아님)
+            remediate(step.output, verify_result.failed_criteria)
+            write_file(step.output_path, step.output)  # 갱신된 산출물 저장
+            verify_result = self_verify(step.output, verification_criteria)
+            retry_count += 1
+
+        if not verify_result.all_pass:
+            escalate_to_user(step, verify_result)  # 2회 초과 시 사용자 에스컬레이션
+            return  # BLOCKED — do NOT advance
+
+        write_verification_log(step.number, verify_result, retry_count)
+        # Verification Log: verification-logs/step-N-verify.md
+
+    # 7. Update SOT (순차적으로만 +1 증가)
     sot.outputs[f"step-{step.number}"] = step.output_path
     sot.current_step += 1  # NEVER increment by more than 1
 ```
+
+**Verification Gate 설계 원칙:**
+- **배치**: Hook(#5) 이후, SOT 갱신(#7) 이전 — 결정론적 게이트 → 의미론적 게이트 순서
+- **하위 호환**: `verification_criteria`가 `None`이면 Gate를 건너뛰어 기존 동작 유지
+- **부분 재실행**: 전체 재작업이 아닌, 실패한 기준에 해당하는 부분만 보완
+- **SOT 영향 없음**: 검증 상태는 `verification-logs/`에 기록. SOT 구조 변경 불필요 — `current_step` 진행이 이미 검증 완료를 의미
 
 ### Anti-Abbreviation Rule
 
@@ -881,12 +911,15 @@ Autopilot 모드에서도 에이전트는 사람이 검토하는 것처럼 완�
 - [ ] 모델 선택 근거를 Decision Log에 기록 (모델 선택 프로토콜 참조)
 
 #### (team) 단계 실행 중
+- [ ] 각 Teammate는 보고 전 자기 검증 수행 (L1 — AGENTS.md §5.3)
 - [ ] 각 Teammate 완료 시 SOT active_team 즉시 갱신
-- [ ] 각 산출물의 "Teammate 산출물 품질 요건" 충족 여부 검증
+- [ ] Team Lead가 각 Teammate 산출물을 단계 검증 기준 대비 검증 (L2)
+- [ ] L2 FAIL 시 SendMessage로 구체적 피드백 + 재실행 지시
 - [ ] 실패 시 Team 에러 처리 프로토콜 적용
 
 #### (team) 단계 완료 후
 - [ ] 모든 산출물 교차 검증 수행 (품질 게이트)
+- [ ] verification-logs/step-N-verify.md 생성 (Verification 기준 있는 경우)
 - [ ] SOT outputs에 최종 산출물 경로 기록
 - [ ] SOT current_step +1
 - [ ] TeamDelete → SOT active_team을 completed_teams로 이동
@@ -904,7 +937,8 @@ Autopilot의 설계 의도를 런타임에서 강화하는 하이브리드(Hook 
 | **Hook** | `_context_lib.py` | 스냅샷에 Autopilot 상태 섹션 보존 (IMMORTAL) |
 | **Hook** | `update_work_log.py` | work_log에 autopilot 단계 추적 필드 |
 | **프롬프트** | `CLAUDE.md` | Autopilot Execution Checklist (MANDATORY) |
-| **프롬프트** | 이 파일 | Anti-Skip Execution Protocol 의사코드 |
+| **프롬프트** | 이 파일 | Anti-Skip Execution Protocol + Verification Gate 의사코드 |
+| **프롬프트** | `AGENTS.md §5.3` | Verification Protocol — 검증 기준 유형, 실행 프로토콜, 로그 형식 |
 
 ---
 

@@ -260,14 +260,20 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 3. 설계 원칙 P1~P4 적용하며 3단계 구조로 작업 정의
 4. 각 단계에 데이터 전처리/후처리 명시 (P1)
 5. 휴먼-인-더-루프 지점 표시
-6. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
-7. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
-8. workflow.md 파일 생성
-9. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
-   - "이 단계가 최종 품질에 기여하는가?" — 품질에 무관한 단계만 제거
-   - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
-   - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가
-   - 참조: `prompt/distill-partner.md`
+6. **각 단계에 `Verification` 필드 정의** (AGENTS.md §5.3 — 필수):
+   - 구조적 완전성, 기능적 목표, 데이터 정합성, 파이프라인 연결 4가지 유형 중 해당되는 기준 포함
+   - 각 기준은 **제3자가 참/거짓 판정 가능한 구체적 문장**으로 작성
+   - `Verification` 필드는 `Task` 필드보다 **앞에** 배치 (에이전트가 먼저 인식)
+   - `(human)` 단계는 사람이 검증자이므로 `Verification` 필드 불필요
+7. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
+8. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
+9. workflow.md 파일 생성
+10. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
+    - "이 단계가 최종 품질에 기여하는가?" — 품질에 무관한 단계만 제거
+    - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
+    - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가
+    - "각 `Verification` 기준이 **파이프라인 연결**을 포함하는가?" — 단계 간 데이터 흐름 검증
+    - 참조: `prompt/distill-partner.md`
 
 ## Autopilot Mode 지원
 

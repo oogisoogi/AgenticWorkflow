@@ -23,6 +23,9 @@ workflow.md 파일의 표준 구조.
 ### 1. [단계명]
 - **Pre-processing**: [Python script 등으로 데이터 정제 — 생략 가능]
 - **Agent**: `@[agent-name]`
+- **Verification**:
+  - [ ] [구체적, 측정 가능한 기준 — 구조적 완전성/기능적 목표/데이터 정합성/파이프라인 연결]
+  - [ ] [구체적, 측정 가능한 기준]
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
 - **Translation**: `@translator` → [산출물].ko.md | none
@@ -31,6 +34,9 @@ workflow.md 파일의 표준 구조.
 ### 2. [단계명]
 - **Pre-processing**: [데이터 전처리]
 - **Agent**: `@[agent-name]`
+- **Verification**:
+  - [ ] [구체적, 측정 가능한 기준]
+  - [ ] [구체적, 측정 가능한 기준]
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
 - **Translation**: `@translator` → [산출물].ko.md | none
@@ -46,6 +52,9 @@ workflow.md 파일의 표준 구조.
 ### 4. [단계명]
 - **Pre-processing**: [데이터 전처리]
 - **Agent**: `@[agent-name]`
+- **Verification**:
+  - [ ] [구체적, 측정 가능한 기준]
+  - [ ] [파이프라인 연결: 이전 단계 산출물의 핵심 데이터를 참조하고 있음]
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
 - **Translation**: `@translator` → [산출물].ko.md | none
@@ -53,6 +62,9 @@ workflow.md 파일의 표준 구조.
 
 ### 5. [단계명]
 - **Agent**: `@[agent-name]`
+- **Verification**:
+  - [ ] [구체적, 측정 가능한 기준]
+  - [ ] [구체적, 측정 가능한 기준]
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
 - **Translation**: `@translator` → [산출물].ko.md | none
@@ -68,6 +80,9 @@ workflow.md 파일의 표준 구조.
 ### 7. [단계명]
 - **Pre-processing**: [데이터 전처리]
 - **Agent**: `@[agent-name]`
+- **Verification**:
+  - [ ] [구체적, 측정 가능한 기준]
+  - [ ] [이전 단계들의 핵심 인사이트가 최종 산출물에 반영됨]
 - **Task**: [수행 작업]
 - **Output**: [최종 산출물]
 - **Translation**: `@translator` → [산출물].ko.md | none
@@ -354,12 +369,20 @@ autopilot_logging:
 
 ### 1. 리소스 수집
 - **Agent**: `@content-collector`
+- **Verification**:
+  - [ ] 정의된 모든 채널(RSS, Newsletter, SNS)에서 수집 완료
+  - [ ] 각 수집 항목에 출처 URL + 수집 일자 포함
+  - [ ] 수집 결과 최소 10건 이상
 - **Task**: 정해진 채널에서 최신 컨텐츠 수집
 - **Output**: `raw-contents.md`
 - **Translation**: none
 
 ### 2. 인사이트 추출
 - **Agent**: `@insight-extractor`
+- **Verification**:
+  - [ ] 각 인사이트에 근거 출처(Step 1 raw-contents.md의 항목 참조) 포함
+  - [ ] 인사이트 최소 5건 이상, 각각 제목 + 요약 + 근거 구조
+  - [ ] Step 3 검토 에이전트가 판단 가능한 형식(제목, 중요도, 카테고리)으로 구조화
 - **Task**: 수집된 컨텐츠에서 핵심 인사이트 도출
 - **Output**: `insights-list.md`
 - **Translation**: `@translator` → `insights-list.ko.md`
@@ -374,12 +397,20 @@ autopilot_logging:
 
 ### 4. 심층 리서치
 - **Agent**: `@deep-researcher`
+- **Verification**:
+  - [ ] Step 3에서 선정된 각 주제에 대해 최소 3개 전문 출처 포함
+  - [ ] 각 출처에 URL + 발행일 + 핵심 인용 포함
+  - [ ] Step 5 개요 작성에 필요한 배경 데이터/트렌드 수치 포함
 - **Task**: 선정 주제에 대한 전문 자료/트렌드 조사
 - **Output**: `research-notes.md`
 - **Translation**: `@translator` → `research-notes.ko.md`
 
 ### 5. 개요 작성
 - **Agent**: `@outline-writer`
+- **Verification**:
+  - [ ] 각 글의 개요에 도입-본론-결론 구조 포함
+  - [ ] Step 4 리서치 결과의 핵심 데이터가 개요에 배치됨
+  - [ ] 예상 분량(단어 수) 및 타깃 독자 명시
 - **Task**: 조사 내용 기반 글 개요 작성
 - **Output**: `article-outlines.md`
 - **Translation**: `@translator` → `article-outlines.ko.md`
@@ -394,6 +425,10 @@ autopilot_logging:
 
 ### 7. 최종본 작성
 - **Agent**: `@article-writer`
+- **Verification**:
+  - [ ] Step 6 피드백의 모든 수정 사항이 반영됨
+  - [ ] Step 4 리서치 데이터의 핵심 인사이트가 본문에 인용됨
+  - [ ] 도입-본론-결론 구조 + SEO 메타 정보(제목, 설명, 키워드) 포함
 - **Task**: 피드백 반영하여 최종 글 작성
 - **Output**: `final-article.md`
 

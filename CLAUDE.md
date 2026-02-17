@@ -232,13 +232,21 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] SOT `current_step` 확인
 - [ ] 이전 단계 산출물 파일 존재 + 비어있지 않음 확인
 - [ ] 이전 단계 산출물 경로가 SOT `outputs`에 기록 확인
+- [ ] 해당 단계의 `Verification` 기준 읽기 — "100% 완료"의 정의를 먼저 인식 (AGENTS.md §5.3)
 
 #### 단계 실행 중
 - [ ] 단계의 모든 작업을 **완전히** 실행 (축약 금지 — 절대 기준 1)
 - [ ] 산출물을 **완전한 품질**로 생성
 
-#### 단계 완료 후
+#### 단계 완료 후 (Verification Gate — `Verification` 필드 있는 단계만)
 - [ ] 산출물 파일을 디스크에 저장
+- [ ] 산출물을 각 `Verification` 기준 대비 자기 검증
+- [ ] 실패 기준 있으면:
+  - [ ] 실패 원인·누락 식별
+  - [ ] 해당 부분만 재실행 (전체 재작업 아님)
+  - [ ] 재검증 (최대 2회 재시도, 초과 시 사용자 에스컬레이션)
+- [ ] 모든 기준 PASS 확인
+- [ ] `verification-logs/step-N-verify.md` 생성
 - [ ] SOT `outputs`에 산출물 경로 기록
 - [ ] SOT `current_step` +1 증가
 - [ ] `(human)` 단계: `autopilot-logs/step-N-decision.md` 생성
@@ -246,6 +254,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 
 #### `(team)` 단계 추가 체크리스트
 - [ ] `TeamCreate` 직후 → SOT `active_team` 기록 (name, status, tasks_pending)
+- [ ] 각 Teammate는 보고 전 자기 Task의 검증 기준 대비 자기 검증 수행 (L1 — AGENTS.md §5.3)
+- [ ] 각 Teammate 완료 시 → Team Lead가 단계 검증 기준 대비 종합 검증 (L2)
+- [ ] L2 FAIL 시 → SendMessage로 구체적 피드백 + 재실행 지시
 - [ ] 각 Teammate 완료 시 → SOT `active_team.tasks_completed` + `completed_summaries` 갱신
 - [ ] 모든 Task 완료 시 → SOT `outputs` 기록, `current_step` +1, `active_team.status` → `all_completed`
 - [ ] `TeamDelete` 직후 → SOT `active_team` → `completed_teams` 이동
@@ -265,6 +276,8 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - `(hook)` exit code 2 차단 무시 금지
 - `(team)` 단계에서 Teammate가 SOT를 직접 수정 금지 — Team Lead만 SOT 갱신
 - 세션 복원 시 `active_team`을 빈 객체로 초기화 금지 — 기존 `completed_summaries` 보존 필수 (보존적 재개 프로토콜)
+- Verification 기준 FAIL인 채로 다음 단계 진행 금지 — 최대 2회 재시도 후 사용자 에스컬레이션
+- Verification 기준을 "모두 PASS"로 허위 기록 금지 — 각 기준에 구체적 Evidence 필수
 
 ## 언어 및 스타일 규칙
 

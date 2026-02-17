@@ -485,6 +485,117 @@ outputs:
 
 이 패턴은 워크플로우 설계 시 선택적으로 적용한다.
 
+### 5.3 Verification Protocol (작업 검증)
+
+워크플로우 각 단계의 산출물이 **기능적 목표를 100% 달성했는지** 검증하는 프로토콜.
+
+**핵심 원칙:**
+> **"완료의 정의를 먼저 선언하고, 실행 후 검증하고, 실패 시 재실행한다."**
+
+Anti-Skip Guard(파일 존재 + 100 bytes 이상)가 **물리적 존재**를 보장하고, Verification Protocol이 **내용적 완전성**을 보장한다. 두 계층은 독립적으로 동작하며, 둘 다 통과해야 다음 단계로 진행한다.
+
+```
+품질 보장 계층 구조:
+
+  Anti-Skip Guard (Hook — 결정론적)
+    "파일이 존재하고, 의미 있는 크기인가?"
+      ↓ PASS
+  Verification Gate (Agent — 의미론적)
+    "기능적 목표를 100% 달성했는가?"
+      ↓ PASS
+  SOT 갱신 + 다음 단계 진행
+```
+
+#### 검증 기준 선언
+
+워크플로우의 각 단계에 `Verification` 필드를 정의한다. **Task보다 앞에 배치**하여 에이전트가 "무엇이 완료인지"를 먼저 인식한 상태에서 작업을 시작한다.
+
+```markdown
+### N. [Step Name]
+- **Verification**:
+  - [ ] [구체적, 측정 가능한 기준]
+  - [ ] [구체적, 측정 가능한 기준]
+- **Task**: [작업 설명]
+```
+
+#### 검증 기준 유형 (4가지)
+
+| 유형 | 검증 대상 | Good 예시 | Bad 예시 |
+|------|---------|----------|---------|
+| **구조적 완전성** | 산출물 내부 구조 | "5개 섹션(Intro, Analysis, Comparison, Recommendation, References) 모두 포함" | "잘 구성됨" |
+| **기능적 목표** | 작업 목표 달성 | "각 경쟁사 가격 데이터에 3개 이상 tier + 정확한 금액 포함" | "가격 정보 있음" |
+| **데이터 정합성** | 데이터 정확성 | "모든 URL이 유효하며 placeholder/example.com 없음" | "링크 확인" |
+| **파이프라인 연결** | 다음 단계 입력 호환 | "Step 4 분석 에이전트가 필요로 하는 competitor_name, pricing_tiers, feature_list 필드 포함" | "다음 단계 호환" |
+
+> **기준 작성 규칙**: 각 기준은 **제3자가 기계적으로 참/거짓 판정 가능**해야 한다. 주관적 판단("좋은 품질", "충분한 깊이")은 기준으로 사용하지 않는다. 주관적 품질 판단은 기존 `(human)` 체크포인트가 담당한다.
+
+#### 실행 프로토콜
+
+```
+1. 검증 기준 읽기 — 에이전트가 "100% 완료"의 정의를 먼저 인식
+2. 단계 실행 — 완전한 품질로 산출물 생성 (절대 기준 1)
+3. Anti-Skip Guard — 파일 존재 + ≥ 100 bytes (결정론적)
+4. Verification Gate — 산출물을 각 기준 대비 자기 검증 (의미론적)
+   ├─ 모든 기준 PASS → verification-logs/step-N-verify.md 생성 → SOT 갱신 → 진행
+   └─ 1개라도 FAIL:
+       ├─ 실패 원인 식별 + 해당 부분만 재실행 (전체 재작업 아님)
+       ├─ 재검증 (최대 2회 재시도)
+       └─ 2회 후에도 FAIL → 사용자에게 에스컬레이션
+5. SOT 갱신 — outputs 기록, current_step +1
+```
+
+> **자기 검증(Self-Verification)의 적용 범위**: 이 프로토콜의 검증은 **완전성(completeness)** 확인이다 — "실행해야 할 것을 실행했는가?" 주관적 **품질 판단(quality judgment)**은 기존 `(human)` 체크포인트가 담당하며, Verification Protocol이 이를 대체하지 않는다.
+
+#### 검증 로그 형식
+
+`verification-logs/step-N-verify.md`에 기록한다:
+
+```markdown
+# Verification Report — Step {N}: {Step Name}
+
+## Criteria Check
+| # | Criterion | Status | Evidence |
+|---|-----------|--------|----------|
+| 1 | [기준 텍스트] | PASS | [산출물에서 확인한 구체적 근거] |
+| 2 | [기준 텍스트] | FAIL→PASS | [1차 실패 사유] → [재실행 후 근거] |
+
+## Result: PASS (retry: 1)
+## Verified Output: research/insights.md (2,847 bytes)
+```
+
+#### (team) 단계 2계층 검증
+
+에이전트 그룹 단계에서는 2계층 검증을 수행한다:
+
+| 계층 | 수행자 | 검증 대상 | SOT 쓰기 |
+|------|--------|---------|---------|
+| **L1** | Teammate (자기 검증) | 자기 Task의 검증 기준 | **없음** — 세션 내부 완결 |
+| **L2** | Team Lead (종합 검증) | 단계 전체의 검증 기준 | **있음** — SOT outputs 갱신 |
+
+```
+Teammate: Task 실행 → 자기 검증 → PASS 시 Team Lead에 보고
+                                  → FAIL 시 자체 수정 후 재검증
+
+Team Lead: Teammate 산출물 수신 → 단계 기준 대비 종합 검증
+                                → PASS 시 SOT 갱신
+                                → FAIL 시 SendMessage로 구체적 피드백 + 재실행 지시
+```
+
+> **SOT 호환성**: Teammate는 여전히 산출물 파일만 생성하고, SOT에 쓰지 않는다. 자기 검증은 Teammate의 세션 내부에서 완결된다 (절대 기준 2 준수).
+
+#### 하위 호환성
+
+| 상황 | 동작 |
+|------|------|
+| `Verification` 필드 **있음** | Verification Gate 활성 — 기준 대비 검증 후 진행 |
+| `Verification` 필드 **없음** | 기존 동작 유지 — Anti-Skip Guard만으로 진행 |
+
+새로운 워크플로우 생성 시에는 `Verification` 필드를 필수로 포함한다. 기존 워크플로우는 점진적으로 추가 가능하다.
+
+#### SOT 영향
+
+**없음.** Verification Protocol은 에이전트 실행 프로토콜(프롬프트 계층)이며, SOT 구조를 변경하지 않는다. `current_step` 진행이 이미 검증 완료를 암묵적으로 의미하며, 검증 상세는 `verification-logs/` 파일에 기록한다.
+
 ---
 
 ## 6. 스킬 체계
