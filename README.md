@@ -75,6 +75,19 @@ AgenticWorkflow/
 
 상세: `AGENTS.md §5.1`
 
+## Verification Protocol
+
+워크플로우 각 단계의 산출물이 **기능적 목표를 100% 달성했는지** 검증하는 프로토콜입니다. Anti-Skip Guard(물리적 파일 검증) 위에 의미론적 Verification Gate를 추가하여, 내용적 완전성까지 보장합니다.
+
+- **검증 기준 선행 선언**: 워크플로우의 각 단계에 `Verification` 필드로 구체적·측정 가능한 기준을 Task 앞에 정의
+- **4가지 기준 유형**: 구조적 완전성, 기능적 목표, 데이터 정합성, 파이프라인 연결
+- **자기 검증 + 재실행**: 에이전트가 산출물을 기준 대비 검증 → 실패 시 해당 부분만 재실행 (최대 2회 재시도)
+- **Team 2계층 검증**: L1(Teammate 자기검증) + L2(Team Lead 종합검증)
+- **검증 로그**: `verification-logs/step-N-verify.md`에 기준별 PASS/FAIL + Evidence 기록
+- **하위 호환**: `Verification` 필드 없는 기존 워크플로우는 Anti-Skip Guard만으로 동작
+
+상세: `AGENTS.md §5.3`
+
 ## 절대 기준
 
 이 프로젝트의 모든 설계·구현 의사결정에 적용되는 최상위 규칙:

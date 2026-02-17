@@ -201,9 +201,14 @@ AgenticWorkflow/
 | AskUserQuestion | 선택지 중 품질 극대화 옵션 자동 선택 → 결정 로그 기록 |
 | `(hook)` exit code 2 | **변경 없음** — 그대로 차단, 피드백 전달, 재작업 |
 
-### Anti-Skip Guard
+### Anti-Skip Guard + Verification Gate (2계층 품질 보장)
 
-Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 산출물 파일 존재 + 최소 크기(100 bytes) 확인 후 SOT에 경로 기록. Hook 계층에서 `validate_step_output()` 함수가 결정론적 검증을 수행한다.
+Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 2계층 검증을 통과해야 진행한다:
+
+1. **Anti-Skip Guard** (결정론적) — 산출물 파일 존재 + 최소 크기(100 bytes). Hook 계층의 `validate_step_output()` 함수가 수행.
+2. **Verification Gate** (의미론적) — 산출물이 `Verification` 기준을 100% 달성했는지 에이전트 자기 검증. 실패 시 해당 부분만 재실행(최대 2회). `verification-logs/step-N-verify.md`에 기록.
+
+> `Verification` 필드가 없는 단계는 Anti-Skip Guard만으로 진행 (하위 호환). 상세: `AGENTS.md §5.3`
 
 ### 결정 로그
 

@@ -209,6 +209,9 @@ AI 동작:
 ### 1. [리서치 단계]
 - Pre-processing: [데이터 전처리 — P1]
 - Agent: @[agent-name]
+- Verification:
+  - [ ] [구체적, 측정 가능한 기준 — 구조적 완전성/기능적 목표/데이터 정합성/파이프라인 연결]
+  - [ ] [구체적, 측정 가능한 기준]
 - Task: [수행 작업]
 - Output: [산출물]
 - Translation: @translator → [산출물].ko.md | none
@@ -558,15 +561,21 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | AskUserQuestion | 사용자 선택 대기 | 품질 극대화 옵션 자동 선택 |
 | `(hook)` exit code 2 | 차단 | **동일하게 차단** |
 
-### Anti-Skip Guard
+### Anti-Skip Guard + Verification Gate (2계층 품질 보장)
 
-각 단계 완료 시 다음을 결정론적으로 검증합니다:
+각 단계 완료 시 2계층 검증을 통과해야 다음 단계로 진행합니다:
 
+**계층 1: Anti-Skip Guard (결정론적)**
 1. 산출물 파일이 SOT `outputs`에 경로로 기록됨
 2. 해당 파일이 디스크에 존재함
 3. 파일 크기가 최소 100 bytes 이상 (의미 있는 콘텐츠)
 
-검증 실패 시 다음 단계로 진행하지 않습니다.
+**계층 2: Verification Gate (의미론적 — `Verification` 필드 있는 단계만)**
+4. 산출물이 `Verification` 기준을 100% 달성했는지 에이전트가 자기 검증
+5. 실패 기준 발견 시 해당 부분만 재실행 (최대 2회 재시도)
+6. `verification-logs/step-N-verify.md`에 기준별 PASS/FAIL + Evidence 기록
+
+> `Verification` 필드가 없는 단계는 계층 1(Anti-Skip Guard)만으로 진행합니다 (하위 호환).
 
 ### Decision Log
 
@@ -598,7 +607,82 @@ Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임�
 
 ---
 
-## 13. 이중언어 워크플로우 (English-First + Korean Translation)
+## 13. Verification Protocol (작업 검증)
+
+워크플로우 각 단계의 산출물이 **기능적 목표를 100% 달성했는지** 검증하는 프로토콜입니다.
+
+### 왜 Verification Protocol이 필요한가
+
+Anti-Skip Guard는 "파일이 존재하고 비어있지 않은가"만 확인합니다. 하지만 파일이 존재해도 내용이 불완전할 수 있습니다. Verification Protocol은 이 간극을 메웁니다.
+
+```
+Anti-Skip Guard: "파일 있음, 2,847 bytes" → PASS (물리적)
+Verification Gate: "경쟁사 3곳 중 2곳만 분석됨" → FAIL (내용적)
+  → 누락된 1곳 분석 재실행 → PASS → 진행
+```
+
+### Verification 필드 작성법
+
+워크플로우의 각 단계에 `Verification` 필드를 `Task` 앞에 정의합니다:
+
+```markdown
+### 1. 경쟁사 리서치
+- **Agent**: `@researcher`
+- **Verification**:
+  - [ ] 경쟁사 3곳 이상의 가격 데이터 포함 (각 3개 이상 tier + 정확한 금액)
+  - [ ] 모든 URL이 유효하며 placeholder/example.com 없음
+  - [ ] Step 4 분석 에이전트가 필요로 하는 competitor_name, pricing_tiers 필드 포함
+- **Task**: 대상 경쟁사의 가격 정책 및 기능 비교 데이터 수집
+- **Output**: `research/competitor-analysis.md`
+```
+
+### 4가지 기준 유형
+
+| 유형 | 검증 대상 | 좋은 예 | 나쁜 예 |
+|------|---------|--------|--------|
+| **구조적 완전성** | 산출물 내부 구조 | "5개 섹션 모두 포함" | "잘 구성됨" |
+| **기능적 목표** | 작업 목표 달성 | "각 경쟁사 가격에 3개 이상 tier" | "가격 정보 있음" |
+| **데이터 정합성** | 데이터 정확성 | "모든 URL 유효, placeholder 없음" | "링크 확인" |
+| **파이프라인 연결** | 다음 단계 입력 호환 | "Step 4가 필요로 하는 필드 포함" | "다음 단계 호환" |
+
+> **핵심 규칙**: 각 기준은 **제3자가 기계적으로 참/거짓 판정 가능**해야 합니다. "좋은 품질", "충분한 깊이" 같은 주관적 판단은 기준으로 사용하지 않습니다.
+
+### 실행 흐름
+
+```
+에이전트가 Verification 기준 읽기 (Task보다 먼저)
+  ↓
+단계 실행 — 완전한 품질로 산출물 생성
+  ↓
+Anti-Skip Guard — 파일 존재 + ≥ 100 bytes
+  ↓
+Verification Gate — 산출물을 각 기준 대비 자기 검증
+  ├─ 모든 기준 PASS → verification-logs/step-N-verify.md 생성 → 진행
+  └─ FAIL → 실패 부분만 재실행 (최대 2회) → 초과 시 사용자 에스컬레이션
+```
+
+### Team 단계의 2계층 검증
+
+`(team)` 단계에서는 L1(Teammate 자기검증) + L2(Team Lead 종합검증) 2계층으로 동작합니다:
+
+```
+Teammate: Task 실행 → 자기 검증 (L1) → PASS 시 Team Lead에 보고
+                                      → FAIL 시 자체 수정 후 재검증
+
+Team Lead: Teammate 산출물 수신 → 단계 기준 대비 종합 검증 (L2)
+                                → PASS 시 SOT 갱신
+                                → FAIL 시 구체적 피드백 + 재실행 지시
+```
+
+### 하위 호환
+
+`Verification` 필드가 없는 기존 워크플로우는 **기존 동작(Anti-Skip Guard만)을 그대로 유지**합니다. 새로운 워크플로우 생성 시에는 `Verification` 필드를 필수로 포함합니다.
+
+상세: `AGENTS.md §5.3`
+
+---
+
+## 14. 이중언어 워크플로우 (English-First + Korean Translation)
 
 워크플로우 실행 시 모든 에이전트는 **영어로 작업**하고, 텍스트 산출물에 대해 `@translator` 서브에이전트가 한국어 번역을 생성합니다.
 
@@ -658,13 +742,13 @@ outputs:
 
 ---
 
-## 14. 전체 요약: 워크플로우 설계 → 구현 체크리스트
+## 15. 전체 요약: 워크플로우 설계 → 구현 체크리스트
 
 ### Phase 1: 설계
 
 - [ ] 아이디어 또는 설명 문서 준비
 - [ ] `workflow-generator` 스킬로 `workflow.md` 생성
-- [ ] 생성된 워크플로우 검토 — 단계, 에이전트, 사람 개입 지점 확인
+- [ ] 생성된 워크플로우 검토 — 단계, 에이전트, 사람 개입 지점, Verification 기준 확인
 - [ ] (선택) Distill 검증 — `prompt/distill-partner.md`로 품질 점검
 
 ### Phase 2: 구현
@@ -679,6 +763,7 @@ outputs:
 - [ ] MCP Server 연동 설정 (`.mcp.json`, 필요 시)
 - [ ] Agent Team 설정 (병렬 협업 필요 시)
 - [ ] Task 설계 (Agent Team 사용 시 — workflow.md 내 Task 정의)
+- [ ] Verification 기준 정의 (각 단계별 구체적·측정 가능한 기준 — §13 참조)
 - [ ] Error Handling 설정 (재시도, 롤백, 에스컬레이션 규칙)
 - [ ] Translation 필드 설정 (각 단계별 `@translator` 또는 `none`)
 - [ ] `translations/glossary.yaml` 초기화 (번역 대상 단계가 있는 경우)
@@ -687,6 +772,7 @@ outputs:
 
 - [ ] 워크플로우 전체 실행 테스트
 - [ ] 각 단계의 산출물 품질 확인 (절대 기준 1)
+- [ ] Verification Gate 정상 동작 확인 (`verification-logs/step-N-verify.md` 생성 확인)
 - [ ] SOT 파일 일관성 확인 (절대 기준 2)
 - [ ] 번역 파일(`*.ko.md`) 존재 + 용어 일관성 확인
 - [ ] Hook 게이트 정상 동작 확인
