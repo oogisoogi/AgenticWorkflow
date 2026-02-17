@@ -88,12 +88,6 @@ AgenticWorkflow/
 ├── .cursor/
 │   └── rules/
 │       └── agenticworkflow.mdc            ← Cursor 전용 지시서 (Spoke, alwaysApply)
-├── .windsurf/
-│   └── rules/
-│       └── agenticworkflow.md             ← Windsurf 전용 지시서 (Spoke)
-├── .amazonq/
-│   └── rules/
-│       └── agenticworkflow.md             ← Amazon Q Developer 전용 지시서 (Spoke)
 ├── .gemini/
 │   └── settings.json                      ← Gemini CLI 설정 (AGENTS.md 추가 로드)
 ├── .aider.conf.yml                        ← Aider 설정 (AGENTS.md 자동 로드)

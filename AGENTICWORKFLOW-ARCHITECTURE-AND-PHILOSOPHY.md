@@ -1009,9 +1009,9 @@ graph TB
 ```
                 AGENTS.md (Hub — 방법론 SOT)
                /    |    |    \    \     \
-          CLAUDE  GEMINI .cursor .windsurf .amazonq  .github/
-          .md     .md    /rules  /rules    /rules    copilot-
-                         (Spoke — 도구별 확장)        instructions.md
+          CLAUDE  GEMINI .cursor  .github/
+          .md     .md    /rules   copilot-
+                         (Spoke)  instructions.md
 ```
 
 | AI CLI 도구 | Spoke 파일 | 자동 읽기 |
@@ -1021,8 +1021,6 @@ graph TB
 | Codex CLI | `AGENTS.md` 직접 | Yes |
 | Copilot CLI | `.github/copilot-instructions.md` | Yes |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) |
-| Windsurf | `.windsurf/rules/agenticworkflow.md` | Yes |
-| Amazon Q | `.amazonq/rules/agenticworkflow.md` | Yes |
 | Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
 
 각 Spoke 파일은 두 가지 역할을 한다:

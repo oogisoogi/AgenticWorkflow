@@ -107,8 +107,6 @@ AgenticWorkflow/
 | Codex CLI | `AGENTS.md` (직접 읽음) | Yes |
 | Copilot CLI | `.github/copilot-instructions.md` | Yes |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes |
-| Windsurf | `.windsurf/rules/agenticworkflow.md` | Yes |
-| Amazon Q | `.amazonq/rules/agenticworkflow.md` | Yes |
 | Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
 
 모든 Spoke 파일의 절대 기준과 설계 원칙은 `AGENTS.md`와 동일합니다. 차이는 도구별 구현 매핑의 구체성뿐입니다.
