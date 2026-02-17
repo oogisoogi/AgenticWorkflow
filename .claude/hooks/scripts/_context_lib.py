@@ -487,6 +487,106 @@ def validate_step_output(project_dir, step_number, outputs_map):
 
 
 # =============================================================================
+# Active Team State (Read-Only — SOT Compliance, RLM Layer 2)
+# =============================================================================
+
+def read_active_team_state(project_dir):
+    """Read active_team state from SOT (state.yaml). Read-only.
+
+    Returns dict with active_team fields if a team is active, None otherwise.
+    This enables 2-Layer RLM: Layer 1 (auto snapshots) + Layer 2 (team summaries in SOT).
+
+    Schema (from claude-code-patterns.md §SOT 갱신 프로토콜):
+      active_team:
+        name: "team-name"
+        status: "partial" | "all_completed"
+        tasks_completed: ["task-1", ...]
+        tasks_pending: ["task-2", ...]
+        completed_summaries:
+          task-1:
+            agent: "@researcher"
+            model: "sonnet"
+            output: "path/to/output.md"
+            summary: "brief description"
+
+    P1 Compliance: All fields are deterministic extractions from YAML/regex.
+    SOT Compliance: Read-only file access.
+    """
+    sot_paths = [
+        os.path.join(project_dir, ".claude", "state.yaml"),
+        os.path.join(project_dir, ".claude", "state.yml"),
+    ]
+
+    content = ""
+    for sot_path in sot_paths:
+        if os.path.exists(sot_path):
+            try:
+                with open(sot_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                break
+            except Exception:
+                continue
+
+    if not content:
+        return None
+
+    # Try PyYAML first (precise structured parsing)
+    try:
+        import yaml
+        data = yaml.safe_load(content)
+        if isinstance(data, dict):
+            # Check both nested (workflow.active_team) and flat (active_team)
+            wf = data.get("workflow", {})
+            if not isinstance(wf, dict):
+                wf = {}
+            at = wf.get("active_team") or data.get("active_team")
+            if not isinstance(at, dict) or not at.get("name"):
+                return None
+            return {
+                "name": at.get("name", ""),
+                "status": at.get("status", "unknown"),
+                "tasks_completed": at.get("tasks_completed", []),
+                "tasks_pending": at.get("tasks_pending", []),
+                "completed_summaries": at.get("completed_summaries", {}),
+            }
+    except Exception:
+        pass
+
+    # Regex fallback (when PyYAML is not available)
+    import re
+    name_match = re.search(
+        r'active_team\s*:\s*\n\s+name\s*:\s*["\']?(.+?)["\']?\s*$',
+        content, re.MULTILINE
+    )
+    if not name_match:
+        return None
+
+    state = {
+        "name": name_match.group(1).strip(),
+        "status": "unknown",
+        "tasks_completed": [],
+        "tasks_pending": [],
+        "completed_summaries": {},
+    }
+
+    status_match = re.search(
+        r'active_team\s*:.*?status\s*:\s*["\']?(\w+)["\']?',
+        content, re.DOTALL
+    )
+    if status_match:
+        state["status"] = status_match.group(1).strip()
+
+    # Extract task lists (YAML inline array format)
+    for field in ["tasks_completed", "tasks_pending"]:
+        m = re.search(rf'{field}\s*:\s*\[([^\]]*)\]', content)
+        if m:
+            items = [s.strip().strip("\"'") for s in m.group(1).split(",") if s.strip()]
+            state[field] = items
+
+    return state
+
+
+# =============================================================================
 # Git State Capture (E2 — Ground Truth)
 # =============================================================================
 
@@ -657,9 +757,10 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
       - E4: Claude response priority selection + section promotion
 
     Section survival priority (truncation order):
-      1-6: IMMORTAL  (Header, Task, SOT, Resume, Completion State, Git)
-      7-10: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
-      11-13: SACRIFICABLE (Statistics, Commands, Work Log)
+      1-8: IMMORTAL  (Header, Task, SOT, Autopilot*, Team*, Resume, Completion State, Git)
+      9-12: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
+      13-15: SACRIFICABLE (Statistics, Commands, Work Log)
+      (* = conditional sections, only present when active)
     """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -752,6 +853,40 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                 sections.append("")
     except Exception:
         pass  # Non-blocking — autopilot section is supplementary
+
+    # Section 2.6: Active Team State (IMMORTAL — conditional, only when team active)
+    try:
+        team_state = read_active_team_state(project_dir)
+        if team_state:
+            sections.append("## Agent Team 상태 (Active Team State)")
+            sections.append("<!-- IMMORTAL: 세션 복원 시 반드시 보존 — RLM Layer 2 -->")
+            sections.append("")
+            sections.append(f"- **팀 이름**: {team_state['name']}")
+            sections.append(f"- **상태**: {team_state['status']}")
+            completed = team_state.get("tasks_completed", [])
+            pending = team_state.get("tasks_pending", [])
+            if completed:
+                sections.append(f"- **완료 Task**: {completed}")
+            if pending:
+                sections.append(f"- **대기 Task**: {pending}")
+            sections.append("")
+
+            # Completed summaries (RLM Layer 2 — team work summaries)
+            summaries = team_state.get("completed_summaries", {})
+            if summaries:
+                sections.append("### Teammate 작업 요약 (RLM Layer 2)")
+                for task_id, info in summaries.items():
+                    if isinstance(info, dict):
+                        agent = info.get("agent", "?")
+                        model = info.get("model", "?")
+                        output = info.get("output", "?")
+                        summary = info.get("summary", "")
+                        sections.append(f"- **{task_id}** ({agent}, {model}): {output}")
+                        if summary:
+                            sections.append(f"  - {summary}")
+                sections.append("")
+    except Exception:
+        pass  # Non-blocking — team section is supplementary
 
     # Section 3: Resume Protocol (deterministic — P1 compliant)
     sections.append("## 복원 지시 (Resume Protocol)")

@@ -107,11 +107,50 @@ mcpServers: [사용 가능 MCP]       # 선택적
 
 > **선택 기준**: Agent Team은 "빠르니까"가 아니라, 독립 전문가 병렬 작업이나 다관점 교차 검증이 **품질을 높이는 경우**에만 사용한다. 상세: `references/claude-code-patterns.md §2`
 
+**Team 생명주기 패턴:**
+
+| 패턴 | 설명 | SOT 정합성 | 사용 시점 |
+|------|------|-----------|----------|
+| **Step-scoped** (기본) | 단계 시작 시 TeamCreate → 단계 완료 시 TeamDelete | 간단 — active_team 1개만 추적 | 대부분의 경우 |
+| **Multi-step** | 여러 단계에 걸쳐 팀 유지 | 복잡 — 팀원 교체/추가 추적 필요 | 동일 전문가 그룹이 연속 단계를 수행해야 할 때 |
+
+> **기본값은 Step-scoped이다.** Multi-step은 품질 향상이 명확할 때만 사용하고, 사유를 SOT 섹션의 "품질 우선 조정"에 기술한다.
+
 ### SOT (상태 관리)
 - **SOT 파일**: `.claude/state.yaml`
 - **쓰기 권한**: [Orchestrator 또는 Team Lead — 단일 쓰기 지점]
 - **에이전트 접근**: [읽기 전용 — 산출물 파일만 생성, SOT 직접 수정 금지]
 - **품질 우선 조정**: [SOT 기본 패턴이 품질 병목을 일으키는 경우(예: 팀원이 stale data로 작업), 팀원 간 산출물 직접 참조 등 구조 조정 사유를 여기에 기술. 해당 없으면 "기본 패턴 적용" 기재. 상세: `references/claude-code-patterns.md §상태 관리`]
+
+#### Agent Team 사용 시 SOT 스키마 (active_team)
+
+Agent Team `(team)` 단계가 포함된 워크플로우는 SOT에 `active_team` 필드를 추가한다:
+
+```yaml
+# state.yaml — Agent Team 활성 시 추가 필드
+workflow:
+  # ... 기존 필드 (name, current_step, status, outputs, autopilot) ...
+  active_team:
+    name: "[team-name]"
+    status: "partial"               # partial | all_completed
+    tasks_completed: ["task-1"]
+    tasks_pending: ["task-2", "task-3"]
+    completed_summaries:            # RLM Layer 2 — 세션 복원 시 팀 작업 맥락 보존
+      task-1:
+        agent: "@[agent-name]"
+        model: "[opus|sonnet|haiku]"
+        output: "[산출물 경로]"
+        summary: "[작업 요약 — 1-2문장]"
+  completed_teams: []               # 완료된 팀 이력 (감사 추적)
+```
+
+**SOT 갱신 시점 (Team Lead만 수행):**
+1. `TeamCreate` 직후 → `active_team` 기록
+2. 각 Teammate 완료 시 (즉시) → `tasks_completed` 추가, `completed_summaries` 기록
+3. 모든 Task 완료 시 (즉시) → `outputs` 기록, `current_step` +1
+4. `TeamDelete` 직후 → `active_team` → `completed_teams` 이동
+
+> **상세 프로토콜**: `references/claude-code-patterns.md §SOT 갱신 프로토콜`
 
 ### Task Management
 
@@ -190,6 +229,11 @@ error_handling:
 
   on_context_overflow:
     action: save_and_recover   # Context Preservation System 자동 적용
+
+  on_teammate_failure:              # Agent Team 사용 시
+    attempt_1: retry_same_agent     # SendMessage로 피드백 → 같은 Teammate 재작업
+    attempt_2: replace_with_upgrade # Teammate shutdown → 새 Teammate (상위 모델)
+    attempt_3: human_escalation     # AskUserQuestion으로 사용자 판단 요청
 ```
 
 > **상세 패턴**: `references/claude-code-patterns.md §에러 처리`

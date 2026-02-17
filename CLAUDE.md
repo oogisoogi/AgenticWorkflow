@@ -206,7 +206,7 @@ Autopilot의 설계 의도를 런타임에서 강화하는 하이브리드(Hook 
 | 계층 | 메커니즘 | 강화 내용 |
 |------|---------|----------|
 | **Hook** (결정론적) | `restore_context.py` — SessionStart | Autopilot 활성 시 6개 실행 규칙 + 이전 단계 산출물 검증 결과를 컨텍스트에 주입 |
-| **Hook** (결정론적) | `generate_snapshot_md()` — 스냅샷 | Autopilot 상태 섹션을 IMMORTAL 우선순위로 보존 (세션 경계에서 유실 방지) |
+| **Hook** (결정론적) | `generate_snapshot_md()` — 스냅샷 | Autopilot 상태 + Agent Team 상태 섹션을 IMMORTAL 우선순위로 보존 (세션 경계에서 유실 방지) |
 | **Hook** (결정론적) | `generate_context_summary.py` — Stop | 자동 승인 패턴 감지 → Decision Log 누락 시 보완 생성 (안전망) |
 | **Hook** (결정론적) | `update_work_log.py` — PostToolUse | `autopilot_step` 필드로 단계 진행 추적 (사후 분석 가능) |
 | **프롬프트** (행동 유도) | Execution Checklist (아래) | 각 단계의 시작/실행/완료 시 필수 행동 명시 |
@@ -233,11 +233,20 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] `(human)` 단계: `autopilot-logs/step-N-decision.md` 생성
 - [ ] `(human)` 단계: SOT `auto_approved_steps`에 추가
 
+#### `(team)` 단계 추가 체크리스트
+- [ ] `TeamCreate` 직후 → SOT `active_team` 기록 (name, status, tasks_pending)
+- [ ] 각 Teammate 완료 시 → SOT `active_team.tasks_completed` + `completed_summaries` 갱신
+- [ ] 모든 Task 완료 시 → SOT `outputs` 기록, `current_step` +1, `active_team.status` → `all_completed`
+- [ ] `TeamDelete` 직후 → SOT `active_team` → `completed_teams` 이동
+- [ ] Teammate 산출물에 판단 근거(Decision Rationale) + 교차 참조 단서(Cross-Reference Cues) 포함 확인
+
 #### NEVER DO
 - `current_step`을 2 이상 한 번에 증가 금지
 - 산출물 없이 다음 단계 진행 금지
 - "자동이니까 간략하게" 금지 — 절대 기준 1 위반
 - `(hook)` exit code 2 차단 무시 금지
+- `(team)` 단계에서 Teammate가 SOT를 직접 수정 금지 — Team Lead만 SOT 갱신
+- 세션 복원 시 `active_team`을 빈 객체로 초기화 금지 — 기존 `completed_summaries` 보존 필수 (보존적 재개 프로토콜)
 
 ## 언어 및 스타일 규칙
 
