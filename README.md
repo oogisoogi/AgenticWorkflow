@@ -60,7 +60,17 @@ AgenticWorkflow/
 | `restore_context.py` | SessionStart | 포인터+요약으로 복원 |
 | `update_work_log.py` | PostToolUse | 작업 로그 누적, 75% threshold 시 자동 저장 |
 | `generate_context_summary.py` | Stop | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, E5 Guard) |
-| `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling |
+| `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling, Autopilot 상태 읽기·검증 |
+
+## Autopilot Mode
+
+워크플로우를 무중단으로 실행하는 모드입니다. `(human)` 단계를 품질 극대화 기본값으로 자동 승인하고, `(hook)` exit code 2는 그대로 차단합니다.
+
+- **Anti-Skip Guard**: 각 단계 완료 시 산출물 파일 존재 + 최소 크기(100 bytes) 검증
+- **Decision Log**: 자동 승인 결정은 `autopilot-logs/step-N-decision.md`에 기록
+- **런타임 강화**: Hook 기반 컨텍스트 주입 + 스냅샷 내 Autopilot 상태 보존
+
+상세: `AGENTS.md §5.1`
 
 ## 절대 기준
 

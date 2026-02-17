@@ -196,11 +196,11 @@ AgenticWorkflow/
 │   ├── settings.json          ← Hook 설정 (SessionEnd)
 │   ├── hooks/scripts/         ← Context Preservation System
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 + Smart Throttling)
+│   │   ├── _context_lib.py    (공유 라이브러리 + Smart Throttling + Autopilot 상태 읽기·검증)
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적)
-│   │   └── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard)
+│   │   └── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성
@@ -226,6 +226,7 @@ AgenticWorkflow/
 - 절대 기준 2 준수: SOT 파일(`state.yaml`)은 **읽기 전용**으로만 접근. 스냅샷은 별도 디렉터리(`context-snapshots/`)에 저장
 - **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
 - **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터, 완료 상태(도구 성공/실패), Git 변경 상태. 복원 품질의 바닥선 보장
+- **Autopilot 런타임 강화**: Autopilot 활성 시 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하고, 세션 복원 시 실행 규칙을 컨텍스트에 주입. Stop hook이 Decision Log 누락을 감지·보완
 
 **데이터 흐름:**
 
@@ -289,9 +290,24 @@ AgenticWorkflow/
 1. Autopilot ≠ 단계 생략: 모든 단계를 순차적으로 완전히 실행한다
 2. Autopilot ≠ 축약 출력: 모든 에이전트는 사람이 검토하는 것과 동일한 품질·분량의 산출물을 생성한다
 
+**Anti-Skip Guard (런타임 검증):**
+
+각 단계 완료 시 Orchestrator가 수행하는 결정론적 검증:
+1. 산출물 파일이 SOT `outputs`에 경로로 기록되었는가
+2. 해당 파일이 디스크에 존재하는가
+3. 파일 크기가 최소 100 bytes 이상인가 (의미 있는 콘텐츠 보장)
+
+> Claude Code의 Hook 시스템에서는 `_context_lib.py`의 `validate_step_output()` 함수가 이 검증을 결정론적으로 수행한다. 다른 도구에서는 동등한 파일 검증 로직을 구현한다.
+
 **SOT 기록:**
 ```yaml
 workflow:
+  name: "my-workflow"
+  current_step: 3
+  status: "running"
+  outputs:
+    step-1: "research/raw-contents.md"
+    step-2: "analysis/insights-list.md"
   autopilot:
     enabled: true
     activated_at: "ISO-8601"
@@ -300,7 +316,21 @@ workflow:
 
 - `autopilot.enabled`: Boolean — Autopilot 활성화 여부
 - `autopilot.auto_approved_steps`: 자동 승인된 단계 번호 목록
+- `outputs`: 단계별 산출물 경로 — Anti-Skip Guard의 검증 대상
 - 자동 승인 결정은 별도 로그 파일(`autopilot-logs/step-N-decision.md`)에 기록 (투명성 보장)
+- Decision Log 표준 템플릿: Claude Code의 `references/autopilot-decision-template.md` 참조
+
+**런타임 강화 (Claude Code 구현):**
+
+| 계층 | 메커니즘 | 강화 내용 |
+|------|---------|----------|
+| **Hook** | SessionStart 컨텍스트 주입 | 세션 시작/복원 시 Autopilot 실행 규칙 + 이전 단계 검증 결과를 프롬프트에 주입 |
+| **Hook** | 스냅샷 Autopilot 섹션 | 세션 경계에서 Autopilot 상태를 IMMORTAL 우선순위로 보존 |
+| **Hook** | Stop Decision Log 안전망 | 자동 승인 패턴 감지 → Decision Log 누락 시 보완 생성 |
+| **Hook** | PostToolUse 진행 추적 | work_log에 `autopilot_step` 필드로 단계 진행 기록 |
+| **프롬프트** | Execution Checklist | CLAUDE.md에 정의된 각 단계 시작/실행/완료 필수 행동 목록 |
+
+> Hook 계층은 SOT를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수).
 
 **활성화:** 기본값은 비활성(interactive). 워크플로우 Overview에 `Autopilot: enabled` 명시 또는 실행 시 사용자 지시로 활성화. 실행 중 토글 가능.
 

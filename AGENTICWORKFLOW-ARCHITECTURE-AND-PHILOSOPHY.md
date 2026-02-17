@@ -645,9 +645,9 @@ graph TB
     subgraph "스크립트"
         SAVE["save_context.py<br/>전체 스냅샷 저장"]
         UWL["update_work_log.py<br/>작업 로그 누적 + threshold 저장"]
-        GCS["generate_context_summary.py<br/>증분 스냅샷"]
+        GCS["generate_context_summary.py<br/>증분 스냅샷 + Decision Log 안전망"]
         REST["restore_context.py<br/>포인터+요약 복원"]
-        LIB["_context_lib.py<br/>공유 라이브러리"]
+        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ Autopilot 상태·검증"]
     end
 
     subgraph "데이터"
@@ -703,6 +703,7 @@ graph TB
 | `work_log.jsonl` | **쓰기** — fcntl.flock 파일 잠금 | Hook 전용 로그, SOT와 분리 |
 | `knowledge-index.jsonl` | **쓰기** — replace_or_append (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup. completion_summary, git_summary 포함 |
 | `sessions/` | **쓰기** — atomic write (`save_context.py` + `generate_context_summary.py` + `update_work_log.py` threshold 경로) | 세션 아카이브, SOT와 분리 |
+| `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
 
 **P1 원칙 적용 (정확도를 위한 데이터 정제):**
 
@@ -911,6 +912,45 @@ graph LR
 ```
 
 **핵심 제약:** `(hook)` 품질 게이트는 Autopilot에서도 그대로 차단. 모든 단계 완전 실행. 모든 산출물 완전 품질.
+
+**Anti-Skip Guard:**
+
+각 단계 완료 시 Orchestrator가 수행하는 결정론적 검증:
+1. 산출물 파일이 SOT `outputs`에 경로로 기록되었는가
+2. 해당 파일이 디스크에 존재하는가
+3. 파일 크기가 최소 100 bytes 이상인가 (의미 있는 콘텐츠 보장)
+
+**Decision Log:**
+
+자동 승인된 결정은 `autopilot-logs/step-N-decision.md`에 기록 (투명성 보장):
+- 필수 필드: step_number, checkpoint_type, decision, rationale, timestamp
+- 표준 템플릿: `.claude/skills/workflow-generator/references/autopilot-decision-template.md`
+
+**런타임 강화 아키텍처 (Claude Code 구현):**
+
+Autopilot의 설계 의도를 런타임에서 강화하는 하이브리드(Hook + 프롬프트) 시스템:
+
+```
+                  ┌─── Hook 계층 (결정론적) ───┐
+                  │                            │
+SessionStart ─────→ Autopilot 실행 규칙 주입    │  ← 세션 경계마다 규칙 재주입
+                  │ + 이전 단계 산출물 검증 결과  │
+                  │                            │
+Stop ─────────────→ Decision Log 누락 감지·보완  │  ← 자동 승인 패턴 regex 감지
+                  │                            │
+Snapshot ─────────→ Autopilot 상태 IMMORTAL 보존 │  ← 세션 경계에서 유실 방지
+                  │                            │
+PostToolUse ──────→ autopilot_step 진행 추적     │  ← work_log.jsonl 기록
+                  └────────────────────────────┘
+
+                  ┌─── 프롬프트 계층 (행동 유도) ─┐
+                  │                             │
+                  │  CLAUDE.md Execution Checklist │
+                  │  각 단계 시작/실행/완료 필수 행동 │
+                  └─────────────────────────────┘
+```
+
+> **SOT 준수**: Hook 계층은 SOT(`state.yaml`)를 읽기 전용으로만 접근한다. 쓰기는 `context-snapshots/`와 `autopilot-logs/`에만 수행 (절대 기준 2 준수).
 
 상세: `AGENTS.md §5.1`
 
@@ -1233,4 +1273,6 @@ error_handling:
 | **WHY/WHAT/HOW/VERIFY** | 스킬 파일 역할 분담 체계. SKILL.md=WHY, references=WHAT/HOW/VERIFY |
 | **AskUserQuestion** | 워크플로우 실행 중 동적으로 사용자에게 구조화된 질문을 하는 도구. P4 규칙 적용 |
 | **Autopilot Mode** | 워크플로우 실행 시 사람 개입 지점을 자동 승인하는 실행 모드. 모든 단계는 완전히 실행하며 Hook 품질 게이트는 영향받지 않음 |
+| **Anti-Skip Guard** | Autopilot에서 단계 건너뛰기를 방지하는 결정론적 검증. 산출물 파일 존재 + 최소 크기(100 bytes) 확인 |
+| **Decision Log** | Autopilot이 자동 승인한 결정의 투명성을 보장하는 기록. `autopilot-logs/step-N-decision.md` 형식 |
 | **Task System** | Agent Team에서 작업 할당·추적·의존성 관리를 위한 내장 도구 (TaskCreate/TaskUpdate/TaskList). SOT를 대체하지 않음 |

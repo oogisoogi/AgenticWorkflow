@@ -47,7 +47,7 @@
 | 재사용 모듈 (Skills) | `@file.md` import로 도메인 지식 주입 |
 | 외부 연동 (MCP) | Gemini extensions 또는 외부 API 스크립트 |
 | SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용 |
-| Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. `AGENTS.md §5.1` 참조 |
+| Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. Anti-Skip Guard(산출물 검증), Decision Log(`autopilot-logs/`) 포함. `AGENTS.md §5.1` 참조 |
 
 ## 컨텍스트 보존
 

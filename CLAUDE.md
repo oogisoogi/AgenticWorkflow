@@ -101,11 +101,11 @@ AgenticWorkflow/
 │   ├── settings.json                      ← Hook 설정 (SessionEnd)
 │   ├── hooks/scripts/                     ← Context Preservation System
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
-│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling)
+│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증)
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적)
-│   │   └── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard)
+│   │   └── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
 │   ├── context-snapshots/                 ← 런타임 스냅샷 (gitignored)
 │   │   ├── latest.md                      (최신 스냅샷)
 │   │   ├── knowledge-index.jsonl          (세션 간 축적 인덱스 — RLM 프로그래밍적 탐색 대상)
@@ -113,7 +113,7 @@ AgenticWorkflow/
 │   └── skills/
 │       ├── workflow-generator/            ← 워크플로우 설계·생성 스킬
 │       │   ├── SKILL.md
-│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide, context-injection-patterns)
+│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide, context-injection-patterns, autopilot-decision-template)
 │       └── doctoral-writing/              ← 박사급 학술 글쓰기 스킬
 │           ├── SKILL.md
 │           └── references/                (clarity-checklist, common-issues, before-after-examples, discipline-guides, korean-quick-reference)
@@ -137,7 +137,7 @@ AgenticWorkflow/
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
 | **PostToolUse** | `update_work_log.py` | 작업 로그 누적. 토큰 75% 초과 시 proactive 저장 |
-| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) |
+| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) + Autopilot Decision Log 안전망 |
 
 ### Claude의 활용 방법
 
@@ -146,6 +146,7 @@ AgenticWorkflow/
 - **Knowledge Archive**: `knowledge-index.jsonl`은 세션 간 축적되는 구조화된 인덱스이다. Stop hook과 SessionEnd/PreCompact 모두에서 기록된다. 각 엔트리에는 completion_summary(도구 성공/실패), git_summary(변경 상태), session_duration_entries(세션 길이)가 포함된다. Grep tool로 프로그래밍적 탐색이 가능하다 (RLM 패턴).
 - **Resume Protocol**: 스냅샷에 포함된 "복원 지시" 섹션은 수정/참조 파일 목록과 세션 정보를 결정론적으로 제공한다. `[CONTEXT RECOVERY]` 출력에는 완료 상태(도구 성공/실패)와 Git 변경 상태도 표시된다.
 - Hook 스크립트는 SOT(`state.yaml`)를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수).
+- **Autopilot 런타임 강화**: Autopilot 활성 시 SessionStart가 실행 규칙을 컨텍스트에 주입하고, 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하며, Stop hook이 Decision Log 누락을 감지·보완한다. PostToolUse는 work_log에 autopilot_step 필드를 추가하여 단계 진행을 추적한다.
 
 ### Hook 설정 위치
 
@@ -191,12 +192,26 @@ AgenticWorkflow/
 
 ### Anti-Skip Guard
 
-Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 산출물 파일 존재 + 비어있지 않음 확인 후 SOT에 경로 기록.
+Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 산출물 파일 존재 + 최소 크기(100 bytes) 확인 후 SOT에 경로 기록. Hook 계층에서 `validate_step_output()` 함수가 결정론적 검증을 수행한다.
 
 ### 결정 로그
 
 자동 승인된 결정은 `autopilot-logs/step-N-decision.md`에 기록: 단계, 옵션, 선택 근거(절대 기준 1 기반).
 Decision Log 표준 템플릿: `references/autopilot-decision-template.md`
+
+### 런타임 강화 메커니즘
+
+Autopilot의 설계 의도를 런타임에서 강화하는 하이브리드(Hook + 프롬프트) 시스템:
+
+| 계층 | 메커니즘 | 강화 내용 |
+|------|---------|----------|
+| **Hook** (결정론적) | `restore_context.py` — SessionStart | Autopilot 활성 시 6개 실행 규칙 + 이전 단계 산출물 검증 결과를 컨텍스트에 주입 |
+| **Hook** (결정론적) | `generate_snapshot_md()` — 스냅샷 | Autopilot 상태 섹션을 IMMORTAL 우선순위로 보존 (세션 경계에서 유실 방지) |
+| **Hook** (결정론적) | `generate_context_summary.py` — Stop | 자동 승인 패턴 감지 → Decision Log 누락 시 보완 생성 (안전망) |
+| **Hook** (결정론적) | `update_work_log.py` — PostToolUse | `autopilot_step` 필드로 단계 진행 추적 (사후 분석 가능) |
+| **프롬프트** (행동 유도) | Execution Checklist (아래) | 각 단계의 시작/실행/완료 시 필수 행동 명시 |
+
+> Hook 계층은 SOT를 읽기 전용으로만 접근하며 (절대 기준 2 준수), 쓰기는 `context-snapshots/`와 `autopilot-logs/`에만 수행한다.
 
 ### Autopilot Execution Checklist (MANDATORY)
 

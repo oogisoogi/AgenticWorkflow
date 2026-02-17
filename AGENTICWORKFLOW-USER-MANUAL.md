@@ -558,12 +558,43 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | AskUserQuestion | 사용자 선택 대기 | 품질 극대화 옵션 자동 선택 |
 | `(hook)` exit code 2 | 차단 | **동일하게 차단** |
 
+### Anti-Skip Guard
+
+각 단계 완료 시 다음을 결정론적으로 검증합니다:
+
+1. 산출물 파일이 SOT `outputs`에 경로로 기록됨
+2. 해당 파일이 디스크에 존재함
+3. 파일 크기가 최소 100 bytes 이상 (의미 있는 콘텐츠)
+
+검증 실패 시 다음 단계로 진행하지 않습니다.
+
+### Decision Log
+
+자동 승인된 결정은 `autopilot-logs/step-N-decision.md`에 기록됩니다:
+
+- **필수 필드**: step_number, checkpoint_type, decision, rationale, timestamp
+- **선택 필드**: alternatives_considered, output_path, quality_assessment
+- **표준 템플릿**: `.claude/skills/workflow-generator/references/autopilot-decision-template.md`
+
 ### 보장 사항
 
 - 모든 단계 순서대로 완전 실행 (건너뛰기 없음)
 - 모든 산출물은 사람 검토 시와 동일한 품질·분량
 - Hook 자동 검증은 동일하게 동작
 - 자동 승인 결정은 `autopilot-logs/`에 기록
+
+### 런타임 강화 (Claude Code)
+
+Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임에서 강화합니다:
+
+| 시점 | 메커니즘 | 효과 |
+|------|---------|------|
+| 세션 시작/복원 | SessionStart가 Autopilot 실행 규칙 주입 | 매 세션 경계에서 실행 규칙을 컨텍스트에 포함 |
+| 매 응답 후 | 스냅샷에 Autopilot 상태 섹션 보존 | 세션 경계에서 Autopilot 상태 유실 방지 (IMMORTAL 우선순위) |
+| 응답 완료 | Stop hook이 Decision Log 누락 감지 | 자동 승인 패턴이 있는데 로그가 없으면 보완 생성 |
+| 도구 사용 후 | PostToolUse가 autopilot_step 추적 | 단계 진행 패턴을 work_log에 기록 (사후 분석) |
+
+> 다른 AI 도구에서는 이 Hook 기반 강화가 없으므로, SOT와 Decision Log를 수동으로 관리해야 합니다.
 
 ---
 
