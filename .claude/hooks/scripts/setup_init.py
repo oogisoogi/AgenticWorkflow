@@ -34,6 +34,8 @@ from datetime import datetime
 # =============================================================================
 
 # Hook scripts that must exist and have valid Python syntax (6 scripts)
+# D-7: Intentionally duplicated in setup_maintenance.py — setup scripts are
+# independent from _context_lib.py by design (no import dependency).
 REQUIRED_SCRIPTS = [
     "_context_lib.py",
     "context_guard.py",

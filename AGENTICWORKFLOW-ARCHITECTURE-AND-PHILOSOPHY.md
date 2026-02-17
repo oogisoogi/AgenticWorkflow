@@ -749,6 +749,8 @@ graph TB
 
 ## 5. 설계 원칙 (Design Principles)
 
+> **참조 번호 주의**: 이 문서의 §5.x는 설계 원칙(P1~P4 + 교차 관심사)을 다룬다. Spoke 파일이나 SKILL.md에서 `§5.1 Autopilot`, `§5.3 Verification`, `§5.4 pACS`로 참조하는 것은 **AGENTS.md §5.x**(구현 요소)이다.
+
 설계 원칙은 절대 기준에 종속되는 하위 원칙이다. 절대 기준이 "무엇을 최적화하는가"를 정의하고, 설계 원칙은 "어떻게 최적화하는가"를 정의한다.
 
 ### 5.1 P1: 정확도를 위한 데이터 정제
@@ -893,6 +895,41 @@ Anti-Skip Guard가 **물리적 존재**를, Verification Gate가 **내용적 완
 **RLM 패턴 대응:** `verification-logs/`는 RLM의 Variable Persistence에 해당하는 외부 메모리 객체이다. 검증 결과를 파일로 영속화하여 세션 경계를 넘어 추적 가능하다.
 
 > **상세**: AGENTS.md §5.3 참조
+
+### 5.7 pACS — predicted Agent Confidence Score (자체 신뢰 평가)
+
+AlphaFold의 pLDDT(predicted Local Distance Difference Test)에서 영감을 받은 **에이전트 자기 신뢰도 평가 프로토콜**이다. Verification Protocol이 "완전성"을 보장한다면, pACS는 **"신뢰도"**를 수치화한다.
+
+**핵심 메커니즘:**
+
+| 구성 요소 | 설명 |
+|----------|------|
+| **3차원 평가** | F(Factual Grounding), C(Completeness), L(Logical Coherence) — 직교하는 3개 차원 |
+| **Min-Score 원칙** | pACS = min(F, C, L) — 가중 평균 아닌 최약점 기준 |
+| **Pre-mortem Protocol** | 점수 매기기 전 3개 약점 질문 필수 — 인플레이션 구조적 방지 |
+| **행동 트리거** | GREEN(≥70 자동진행), YELLOW(50-69 플래그), RED(<50 재작업) |
+| **Translation pACS** | Ft(Fidelity), Ct(Completeness), Nt(Naturalness) — 번역 품질 전용 |
+
+**품질 보장 4계층 아키텍처:**
+
+```
+L0   Anti-Skip Guard (결정론적)    — 파일 존재 + ≥ 100 bytes
+L1   Verification Gate (의미론적)   — 기능적 목표 100% 달성
+L1.5 pACS Self-Rating (신뢰도)    — Pre-mortem + F/C/L 채점
+[L2] Calibration (선택적)          — 별도 에이전트 교차 검증
+```
+
+**설계 결정 — "왜 가중 평균이 아닌 min-score인가":**
+
+캘리브레이션 데이터 없이 자기 평가하는 에이전트가 5개 차원의 가중 평균을 계산하면, **정밀도 환상(precision illusion)**이 발생한다. 실제로는 주관적 추정인데 소수점 단위의 정밀한 점수가 나오는 구조적 문제이다. Min-score는 "가장 약한 부분이 전체 품질을 결정한다"는 보수적 원칙으로, 과신을 방지한다. 이는 AlphaFold에서 단백질 구조의 신뢰도가 가장 낮은 잔기(residue)가 전체 모델의 유용성을 결정하는 것과 같은 원리이다.
+
+**설계 결정 — "왜 Pre-mortem이 필수인가":**
+
+에이전트의 자기 평가는 본질적으로 자기 확인 편향(confirmation bias)에 노출된다. Pre-mortem Protocol은 점수를 매기기 **전에** 약점을 명시적으로 인식하게 함으로써, "모든 것이 잘 되었다"는 기본 프레이밍을 **"어디가 불확실한가"**로 전환한다.
+
+**RLM 패턴 대응:** `pacs-logs/`는 Verification logs와 마찬가지로 RLM의 Variable Persistence에 해당한다. SOT의 `pacs.history` 필드는 세션 간 pACS 추이를 추적하여, 특정 워크플로우에서 반복적으로 낮은 차원(예: F가 항상 최저)을 식별하고 구조적 개선의 근거로 활용할 수 있다.
+
+> **상세**: AGENTS.md §5.4 참조
 
 ---
 

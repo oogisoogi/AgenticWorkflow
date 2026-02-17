@@ -386,10 +386,11 @@ def read_autopilot_state(project_dir):
     """
     # Direct file read — uses sot_paths() for consistency (A-3)
     # Only YAML files (not JSON) — autopilot regex patterns assume YAML format
-    sot_paths = [p for p in sot_paths(project_dir) if not p.endswith(".json")]
+    # CQ-1: Renamed to avoid shadowing the sot_paths() function
+    yaml_sot_paths = [p for p in sot_paths(project_dir) if not p.endswith(".json")]
 
     content = ""
-    for sot_path in sot_paths:
+    for sot_path in yaml_sot_paths:
         if os.path.exists(sot_path):
             try:
                 with open(sot_path, "r", encoding="utf-8") as f:
@@ -544,10 +545,11 @@ def read_active_team_state(project_dir):
     SOT Compliance: Read-only file access.
     """
     # A-3: use sot_paths() — YAML only (regex parsing)
-    sot_paths = [p for p in sot_paths(project_dir) if not p.endswith(".json")]
+    # B-1: Renamed to avoid shadowing the sot_paths() function (same fix as CQ-1)
+    yaml_sot_paths = [p for p in sot_paths(project_dir) if not p.endswith(".json")]
 
     content = ""
-    for sot_path in sot_paths:
+    for sot_path in yaml_sot_paths:
         if os.path.exists(sot_path):
             try:
                 with open(sot_path, "r", encoding="utf-8") as f:
@@ -876,6 +878,37 @@ def _get_per_file_diff_stats(project_dir):
 
 
 # =============================================================================
+# Next Step Extraction (CM-3)
+# =============================================================================
+
+def _extract_next_step(assistant_texts):
+    """CM-3: Extract forward-looking statement from last assistant response.
+
+    Captures the next action Claude was about to take, enabling task-based
+    session resumption instead of summary-based guessing.
+
+    P1 Compliance: Regex-based deterministic extraction.
+    Returns: str or None (first match from last response, max 500 chars).
+    """
+    if not assistant_texts:
+        return None
+
+    # Search last 3 assistant responses (reverse order) for forward-looking patterns
+    # CM-F: Expanded from 200→500 chars to preserve structured action plans
+    _NEXT_STEP_PATTERN = re.compile(
+        r'(?:다음으로|이제|그 다음|그 후|Next,?|Now |Then )'
+        r'\s*(.{10,500}?)(?:\.\s|\n\n|$)',
+        re.MULTILINE,
+    )
+    for entry in reversed(assistant_texts[-3:]):
+        content = entry.get("content", "")
+        match = _NEXT_STEP_PATTERN.search(content)
+        if match:
+            return match.group(0).strip()[:500]
+    return None
+
+
+# =============================================================================
 # Decision Extraction (C-1)
 # =============================================================================
 
@@ -900,13 +933,36 @@ def _extract_decisions(assistant_texts):
         re.IGNORECASE
     )
     # Pattern 3: Implicit intent (Korean) — "~하겠습니다" preceded by context
+    # CM-2: Filter noise — routine action declarations are not design decisions
+    _INTENT_NOISE = re.compile(
+        r'읽겠습니다|확인하겠습니다|시작하겠습니다|살펴보겠습니다|'
+        r'진행하겠습니다|분석하겠습니다|검토하겠습니다|파악하겠습니다|'
+        r'Let me read|Let me check|I\'ll start|I\'ll look',
+        re.IGNORECASE,
+    )
+    # B-2: Non-greedy .{10,120}? to prevent capturing unrelated preceding text
     intent_pattern = re.compile(
-        r'(?:^|\n)\s*[-*]?\s*(.{10,120}(?:하겠습니다|로 결정|을 선택|를 채택|접근 방식|approach))',
+        r'(?:^|\n)\s*[-*]?\s*(.{10,120}?(?:하겠습니다|로 결정|을 선택|를 채택|접근 방식|approach))',
         re.MULTILINE
     )
     # Pattern 4: Rationale markers
     rationale_pattern = re.compile(
         r'(?:선택\s*이유|근거|Rationale|Reason(?:ing)?)\s*(?::|：)\s*(.+?)(?:\n|$)',
+        re.IGNORECASE
+    )
+    # CM-A + E-2: Comparison/selection patterns — captures "A instead of B" decisions
+    comparison_pattern = re.compile(
+        r'(.{5,80}?)\s+(?:대신|보다는?|rather than|instead of|over)\s+(.{5,80}?)(?:\.|,|\n|$)',
+        re.IGNORECASE | re.MULTILINE
+    )
+    # CM-A + E-2: Trade-off/architecture direction patterns
+    tradeoff_pattern = re.compile(
+        r'(?:trade-?off|장단점|pros?\s*(?:and|&)\s*cons?|단점은|downside)\s*(?::|：|은|는)?\s*(.+?)(?:\n|$)',
+        re.IGNORECASE
+    )
+    # CM-A + E-2: Explicit choice verb patterns (English)
+    choice_pattern = re.compile(
+        r'(?:chose|opted for|selected|decided to|went with|picked)\s+(.{10,150}?)(?:\.|,|\n|$)',
         re.IGNORECASE
     )
 
@@ -917,9 +973,20 @@ def _extract_decisions(assistant_texts):
         for match in bold_pattern.finditer(content):
             decisions.append(("[decision] " + match.group(1).strip())[:300])
         for match in intent_pattern.finditer(content):
-            decisions.append(("[intent] " + match.group(1).strip())[:300])
+            matched_text = match.group(1).strip()
+            # CM-2: Skip routine action declarations (noise)
+            if _INTENT_NOISE.search(matched_text):
+                continue
+            decisions.append(("[intent] " + matched_text)[:300])
         for match in rationale_pattern.finditer(content):
             decisions.append(("[rationale] " + match.group(1).strip())[:300])
+        # CM-A + E-2: New high-signal decision patterns
+        for match in comparison_pattern.finditer(content):
+            decisions.append(("[decision] " + match.group(0).strip())[:300])
+        for match in tradeoff_pattern.finditer(content):
+            decisions.append(("[rationale] " + match.group(0).strip())[:300])
+        for match in choice_pattern.finditer(content):
+            decisions.append(("[decision] " + match.group(0).strip())[:300])
 
     # Dedup while preserving order
     seen = set()
@@ -929,11 +996,24 @@ def _extract_decisions(assistant_texts):
             seen.add(d)
             unique.append(d)
 
-    # Quality-tag priority sort: high-signal decisions survive the 15-slot cutoff
-    # even when noisy [intent] matches (e.g., "파일을 읽겠습니다") appear earlier.
+    # CM-2: Stratified slot allocation — [intent] capped at 3 slots (noise reduction)
+    # Remaining 12 slots guaranteed for high-signal decisions ([explicit]/[decision]/[rationale])
     _DECISION_PRIORITY = {"[explicit]": 0, "[decision]": 1, "[rationale]": 2, "[intent]": 3}
-    unique.sort(key=lambda d: _DECISION_PRIORITY.get(d.split("]")[0] + "]" if "]" in d else "", 4))
-    return unique[:15]
+    # B-3: Safer tag extraction — use find() on prefix only to avoid false matches
+    # from ']' characters in the decision content itself
+    def _get_decision_tag(d):
+        if d.startswith("["):
+            end = d.find("]")
+            if 0 < end < 20:  # Tags are short ([explicit], [intent], etc.)
+                return d[:end + 1]
+        return ""
+    unique.sort(key=lambda d: _DECISION_PRIORITY.get(_get_decision_tag(d), 4))
+
+    # Separate high-signal from intent, cap intent at 3
+    high_signal = [d for d in unique if not d.startswith("[intent]")]
+    intent_only = [d for d in unique if d.startswith("[intent]")]
+    result = high_signal[:12] + intent_only[:3]
+    return result[:15]
 
 
 # =============================================================================
@@ -996,17 +1076,36 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     sections.append("")
 
     # Section 1: Current Task (first + last user message — verbatim)
+    # CM-6: IMMORTAL — user messages are the ground truth for task context
     sections.append("## 현재 작업 (Current Task)")
-    if user_messages:
-        first_msg = user_messages[0]["content"]
+    sections.append("<!-- IMMORTAL: 사용자 작업 지시 — 세션 복원의 핵심 맥락 -->")
+    # CM-C: Filter system commands (/clear, /help, etc.) — show real task, not commands
+    _SYSTEM_CMD = re.compile(
+        r'^\s*<command-name>|^\s*/(?:clear|help|compact|init|resume|review|login|logout|mcp|config)\b',
+        re.IGNORECASE | re.MULTILINE,
+    )
+    real_user_msgs = [m for m in user_messages if not _SYSTEM_CMD.search(m.get("content", ""))]
+    if real_user_msgs:
+        first_msg = real_user_msgs[0]["content"]
         sections.append(_truncate(first_msg, 3000))
-        if len(user_msgs_filtered) > 1:
-            last_msg = user_msgs_filtered[-1]["content"]
+        # Last instruction from filtered (non-continuation) messages
+        real_filtered = [m for m in user_msgs_filtered if not _SYSTEM_CMD.search(m.get("content", ""))]
+        if real_filtered and len(real_filtered) > 1:
+            last_msg = real_filtered[-1]["content"]
             if last_msg != first_msg:
                 sections.append("")
-                sections.append(f"**마지막 사용자 지시:** {_truncate(last_msg, 1000)}")
+                sections.append(f"**최근 지시 (Latest Instruction):** {_truncate(last_msg, 1500)}")
+    elif user_messages:
+        # Fallback: all messages are system commands, show the first one anyway
+        sections.append(_truncate(user_messages[0]["content"], 3000))
     else:
         sections.append("(사용자 메시지 없음)")
+
+    # CM-3: Next Step extraction — last assistant's forward-looking statement
+    next_step = _extract_next_step(assistant_texts)
+    if next_step:
+        sections.append("")
+        sections.append(f"**다음 단계 (Next Step):** {next_step}")
     sections.append("")
 
     # Section 2: SOT State (deterministic file read)
@@ -1744,8 +1843,29 @@ def _compress_snapshot(full_md, sections):
     if len(result) <= MAX_SNAPSHOT_CHARS:
         return result
 
-    # Phase 7: Hard truncate (absolute last resort)
-    return result[:MAX_SNAPSHOT_CHARS] + "\n\n(... 크기 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
+    # Phase 7: IMMORTAL-aware hard truncate (absolute last resort)
+    # CM-E: Preserve IMMORTAL sections, truncate non-IMMORTAL from bottom up
+    immortal_lines = []
+    other_lines = []
+    in_immortal_section = False
+    for line in compressed:
+        if "<!-- IMMORTAL:" in line:
+            in_immortal_section = True
+        if line.startswith("## ") and "IMMORTAL" not in line and in_immortal_section:
+            in_immortal_section = False
+        if in_immortal_section or line.startswith("# Context Recovery"):
+            immortal_lines.append(line)
+        else:
+            other_lines.append(line)
+
+    immortal_text = "\n".join(immortal_lines)
+    budget = MAX_SNAPSHOT_CHARS - len(immortal_text) - 100
+    if budget > 0:
+        other_text = "\n".join(other_lines)
+        return immortal_text + "\n" + other_text[:budget] + \
+            "\n\n(... 크기 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
+    # Even IMMORTAL exceeds limit — absolute last resort char truncate
+    return result[:MAX_SNAPSHOT_CHARS] + "\n\n(... 크기 초과로 잘림)"
 
 
 def _dedup_sections(sections):
@@ -1915,6 +2035,83 @@ def read_stdin_json():
 # Knowledge Archive (Area 1: Cross-Session Knowledge Archive)
 # =============================================================================
 
+def _classify_error_patterns(entries):
+    """CM-1: Classify error patterns from tool results for cross-session learning.
+
+    P1 Compliance: Regex-based deterministic classification.
+    Returns: list of {"type": str, "tool": str, "file": str} dicts (max 5).
+    """
+    tool_results = [e for e in entries if e["type"] == "tool_result"]
+    tool_uses = [e for e in entries if e["type"] == "tool_use"]
+
+    # Build tool_use_id → tool_name mapping
+    id_to_tool = {tu.get("tool_use_id", ""): tu.get("tool_name", "") for tu in tool_uses}
+    id_to_file = {tu.get("tool_use_id", ""): tu.get("file_path", "") for tu in tool_uses}
+
+    # CM-B + E-1: Expanded error taxonomy — reduces "unknown" classification from ~80% to ~30%
+    ERROR_TAXONOMY = [
+        ("file_not_found", re.compile(r"No such file|FileNotFoundError|ENOENT|not found", re.I)),
+        ("permission", re.compile(r"Permission denied|EACCES|PermissionError|EPERM", re.I)),
+        ("syntax", re.compile(r"SyntaxError|syntax error|parse error|unexpected token", re.I)),
+        ("timeout", re.compile(r"timed? ?out|TimeoutError|deadline exceeded|ETIMEDOUT", re.I)),
+        ("dependency", re.compile(r"ModuleNotFoundError|ImportError|Cannot find module|require\(\) failed", re.I)),
+        # B-4: Added re.DOTALL — "old_string ... not found" may span multiple lines
+        ("edit_mismatch", re.compile(r"old_string.*not found|not unique|no match|string not found in file", re.I | re.DOTALL)),
+        # E-1: New patterns
+        ("type_error", re.compile(r"TypeError|type error|is not a function|undefined is not", re.I)),
+        ("value_error", re.compile(r"ValueError|invalid (?:value|argument|literal)|out of range", re.I)),
+        ("connection", re.compile(r"ConnectionError|ECONNREFUSED|ECONNRESET|network error|fetch failed", re.I)),
+        ("memory", re.compile(r"MemoryError|out of memory|heap|ENOMEM|allocation failed", re.I)),
+        ("git_error", re.compile(r"fatal:.*git|merge conflict|CONFLICT|not a git repository", re.I)),
+        ("command_not_found", re.compile(r"command not found|not recognized|is not recognized", re.I)),
+    ]
+
+    patterns = []
+    for tr in tool_results:
+        if not tr.get("is_error", False):
+            continue
+        content = tr.get("content", "")[:500]
+        tid = tr.get("tool_use_id", "")
+        error_type = "unknown"
+        for etype, regex in ERROR_TAXONOMY:
+            if regex.search(content):
+                error_type = etype
+                break
+        patterns.append({
+            "type": error_type,
+            "tool": id_to_tool.get(tid, ""),
+            "file": os.path.basename(id_to_file.get(tid, "")),
+        })
+
+    return patterns[:5]
+
+
+def _extract_pacs_from_sot(project_dir):
+    """CM-1: Extract pACS min-score from SOT (read-only).
+
+    P1 Compliance: Deterministic YAML/regex extraction.
+    SOT Compliance: Read-only access.
+    Returns: int or None.
+    """
+    if not project_dir:
+        return None
+    try:
+        import yaml
+        for sp in sot_paths(project_dir):
+            if os.path.exists(sp) and not sp.endswith(".json"):
+                with open(sp, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f.read())
+                if isinstance(data, dict):
+                    wf = data.get("workflow", {})
+                    if isinstance(wf, dict):
+                        pacs = wf.get("pacs", {})
+                        if isinstance(pacs, dict) and "min_score" in pacs:
+                            return pacs["min_score"]
+    except Exception:
+        pass
+    return None
+
+
 def extract_session_facts(session_id, trigger, project_dir, entries, token_estimate=0):
     """Extract deterministic session facts for knowledge-index.jsonl.
 
@@ -1976,6 +2173,24 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         name = tu.get("tool_name", "unknown")
         tools_used[name] = tools_used.get(name, 0) + 1
 
+    # CM-D + E-3: Tool sequence — consecutive distinct tool names (run-length compressed)
+    # Captures work patterns like "Read→Read→Edit→Bash→Read→Edit" → "Read(2)→Edit→Bash→Read→Edit"
+    tool_sequence_parts = []
+    prev_tool = None
+    count = 0
+    for tu in tool_uses:
+        name = tu.get("tool_name", "unknown")
+        if name == prev_tool:
+            count += 1
+        else:
+            if prev_tool:
+                tool_sequence_parts.append(f"{prev_tool}({count})" if count > 1 else prev_tool)
+            prev_tool = name
+            count = 1
+    if prev_tool:
+        tool_sequence_parts.append(f"{prev_tool}({count})" if count > 1 else prev_tool)
+    tool_sequence = "→".join(tool_sequence_parts[-30:])  # Last 30 segments to cap size
+
     # B-3: Phase detection — current dominant phase
     phase = detect_conversation_phase(tool_uses)
 
@@ -1990,9 +2205,14 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     if ext_counts:
         primary_language = max(ext_counts, key=ext_counts.get)
 
-    # B-3: Phase transitions (multi-phase detection)
+    # B-3: Phase transitions (multi-phase detection, with tool_count per phase)
     transitions = detect_phase_transitions(tool_uses)
-    phase_flow = " → ".join(t[0] for t in transitions) if len(transitions) > 1 else phase
+    if len(transitions) > 1:
+        phase_flow = " → ".join(
+            f"{t[0]}({t[2]-t[1]})" for t in transitions
+        )
+    else:
+        phase_flow = phase
 
     facts = {
         "session_id": session_id,
@@ -2008,6 +2228,7 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         "phase": phase,
         "phase_flow": phase_flow,
         "primary_language": primary_language,
+        "tool_sequence": tool_sequence,  # CM-D + E-3: work pattern analysis
     }
     if last_instruction:
         facts["last_instruction"] = last_instruction
@@ -2025,10 +2246,39 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     }
     facts["git_summary"] = git_state.get("status", "")[:200]
 
+    # E-4: final_status — deterministic session outcome classification
+    total_fails = completion["edit_fail"] + completion["bash_fail"]
+    total_success = completion["edit_success"] + completion["bash_success"]
+    if total_fails == 0 and total_success > 0:
+        facts["final_status"] = "success"
+    elif total_fails > 0 and total_success > total_fails:
+        facts["final_status"] = "incomplete"  # Some failures but mostly succeeded
+    elif total_fails > 0:
+        facts["final_status"] = "error"
+    else:
+        facts["final_status"] = "unknown"  # No edits/bash at all (read-only session)
+
     # Session duration (deterministic timestamp difference)
     timestamps = [e.get("timestamp", "") for e in entries if e.get("timestamp")]
     if len(timestamps) >= 2:
         facts["session_duration_entries"] = len(timestamps)
+
+    # CM-1: Cross-session knowledge enrichment fields
+    # 1. Design decisions — top 5 high-signal decisions for RLM probing
+    assistant_texts = [e for e in entries if e["type"] == "assistant_text"]
+    all_decisions = _extract_decisions(assistant_texts)
+    high_signal = [d for d in all_decisions if not d.startswith("[intent]")]
+    facts["design_decisions"] = high_signal[:5]
+
+    # 2. Error patterns — classified Bash/Edit failures for cross-session learning
+    error_patterns = _classify_error_patterns(entries)
+    if error_patterns:
+        facts["error_patterns"] = error_patterns
+
+    # 3. pACS min-score — SOT에서 추출 (있는 경우, read-only)
+    pacs_min = _extract_pacs_from_sot(project_dir)
+    if pacs_min is not None:
+        facts["pacs_min"] = pacs_min
 
     return facts
 

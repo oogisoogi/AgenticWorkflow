@@ -6,5 +6,11 @@ __pycache__/
 # Context Preservation System — session-specific runtime data
 .claude/context-snapshots/
 
+# D-1: Workflow runtime directories (generated during workflow execution)
+verification-logs/
+autopilot-logs/
+pacs-logs/
+translations/
+
 # Setup Hook logs — runtime diagnostics (regenerated on each run)
 .claude/hooks/*.log

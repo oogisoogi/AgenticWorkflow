@@ -561,21 +561,39 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | AskUserQuestion | 사용자 선택 대기 | 품질 극대화 옵션 자동 선택 |
 | `(hook)` exit code 2 | 차단 | **동일하게 차단** |
 
-### Anti-Skip Guard + Verification Gate (2계층 품질 보장)
+### 4계층 품질 보장 (Quality Assurance Stack)
 
-각 단계 완료 시 2계층 검증을 통과해야 다음 단계로 진행합니다:
+각 단계 완료 시 최대 4계층 검증을 통과해야 다음 단계로 진행합니다:
 
-**계층 1: Anti-Skip Guard (결정론적)**
+| 계층 | 이름 | 유형 | 수행 조건 |
+|------|------|------|----------|
+| **L0** | Anti-Skip Guard | 결정론적 | 항상 |
+| **L1** | Verification Gate | 의미론적 | `Verification` 필드 있는 단계 |
+| **L1.5** | pACS (Self-Rating) | 자기 평가 | pACS 활성 + Verification 통과 |
+| **[L2]** | Calibration | 교차 검증 | 고위험 단계 (선택) |
+
+**L0: Anti-Skip Guard (결정론적)**
 1. 산출물 파일이 SOT `outputs`에 경로로 기록됨
 2. 해당 파일이 디스크에 존재함
 3. 파일 크기가 최소 100 bytes 이상 (의미 있는 콘텐츠)
 
-**계층 2: Verification Gate (의미론적 — `Verification` 필드 있는 단계만)**
+**L1: Verification Gate (의미론적 — `Verification` 필드 있는 단계만)**
 4. 산출물이 `Verification` 기준을 100% 달성했는지 에이전트가 자기 검증
 5. 실패 기준 발견 시 해당 부분만 재실행 (최대 2회 재시도)
 6. `verification-logs/step-N-verify.md`에 기준별 PASS/FAIL + Evidence 기록
 
-> `Verification` 필드가 없는 단계는 계층 1(Anti-Skip Guard)만으로 진행합니다 (하위 호환).
+**L1.5: pACS — predicted Agent Confidence Score (자기 신뢰 평가)**
+7. Verification 통과 후, 에이전트가 F(Factual Grounding)/C(Completeness)/L(Logical Coherence) 3차원으로 자기 산출물을 채점
+8. pACS = min(F, C, L) — 가장 약한 차원이 전체 신뢰도 결정
+9. RED(< 50) → 해당 차원 재작업, YELLOW(50-69) → 경고 후 진행, GREEN(≥ 70) → 통과
+10. `pacs-logs/step-N-pacs.md`에 Pre-mortem 답변 + 점수 기록
+
+**[L2]: Calibration (선택적 — 고위험 단계만)**
+11. `@verifier` 서브에이전트가 독립적으로 산출물을 교차 검증
+12. 상세: `AGENTS.md §5.4`
+
+> `Verification` 필드가 없는 단계는 L0(Anti-Skip Guard)만으로 진행합니다 (하위 호환).
+> pACS는 Verification 없이 단독 사용 불가 — L1 통과가 L1.5의 선행 조건입니다.
 
 ### Decision Log
 
@@ -661,17 +679,23 @@ Verification Gate — 산출물을 각 기준 대비 자기 검증
   └─ FAIL → 실패 부분만 재실행 (최대 2회) → 초과 시 사용자 에스컬레이션
 ```
 
-### Team 단계의 2계층 검증
+### Team 단계의 3계층 검증
 
-`(team)` 단계에서는 L1(Teammate 자기검증) + L2(Team Lead 종합검증) 2계층으로 동작합니다:
+`(team)` 단계에서는 L1 → L1.5 → L2 3계층으로 동작합니다:
+
+| 계층 | 수행자 | 검증 대상 | SOT 쓰기 |
+|------|--------|---------|---------|
+| **L1** | Teammate (자기 검증) | 자기 Task의 검증 기준 | **없음** — 세션 내부 완결 |
+| **L1.5** | Teammate (pACS) | 자기 Task 산출물의 신뢰도 | **없음** — 점수를 보고 메시지에 포함 |
+| **L2** | Team Lead (종합 검증 + 단계 pACS) | 단계 전체의 검증 기준 | **있음** — SOT outputs + pacs 갱신 |
 
 ```
-Teammate: Task 실행 → 자기 검증 (L1) → PASS 시 Team Lead에 보고
+Teammate: Task 실행 → 자기 검증 (L1) → PASS → pACS 자기 채점 (L1.5) → Team Lead에 보고
                                       → FAIL 시 자체 수정 후 재검증
 
-Team Lead: Teammate 산출물 수신 → 단계 기준 대비 종합 검증 (L2)
-                                → PASS 시 SOT 갱신
-                                → FAIL 시 구체적 피드백 + 재실행 지시
+Team Lead: Teammate 산출물 + pACS 수신 → 단계 기준 대비 종합 검증 + 단계 pACS 산출 (L2)
+                                       → PASS 시 SOT 갱신
+                                       → FAIL 또는 Teammate pACS RED 시 → 구체적 피드백 + 재실행 지시
 ```
 
 ### 하위 호환

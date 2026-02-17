@@ -114,7 +114,7 @@ AgenticWorkflow/
 │   └── skills/
 │       ├── workflow-generator/            ← 워크플로우 설계·생성 스킬
 │       │   ├── SKILL.md
-│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide, context-injection-patterns, autopilot-decision-template)
+│       │   └── references/                (claude-code-patterns, workflow-template, document-analysis-guide, context-injection-patterns, autopilot-decision-template, state.yaml.example)
 │       └── doctoral-writing/              ← 박사급 학술 글쓰기 스킬
 │           ├── SKILL.md
 │           └── references/                (clarity-checklist, common-issues, before-after-examples, discipline-guides, korean-quick-reference)
@@ -201,14 +201,16 @@ AgenticWorkflow/
 | AskUserQuestion | 선택지 중 품질 극대화 옵션 자동 선택 → 결정 로그 기록 |
 | `(hook)` exit code 2 | **변경 없음** — 그대로 차단, 피드백 전달, 재작업 |
 
-### Anti-Skip Guard + Verification Gate (2계층 품질 보장)
+### Anti-Skip Guard + Verification Gate + pACS (4계층 품질 보장)
 
-Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 2계층 검증을 통과해야 진행한다:
+Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 최대 4계층 검증을 통과해야 진행한다:
 
-1. **Anti-Skip Guard** (결정론적) — 산출물 파일 존재 + 최소 크기(100 bytes). Hook 계층의 `validate_step_output()` 함수가 수행.
-2. **Verification Gate** (의미론적) — 산출물이 `Verification` 기준을 100% 달성했는지 에이전트 자기 검증. 실패 시 해당 부분만 재실행(최대 2회). `verification-logs/step-N-verify.md`에 기록.
+1. **L0 Anti-Skip Guard** (결정론적) — 산출물 파일 존재 + 최소 크기(100 bytes). Hook 계층의 `validate_step_output()` 함수가 수행.
+2. **L1 Verification Gate** (의미론적) — 산출물이 `Verification` 기준을 100% 달성했는지 에이전트 자기 검증. 실패 시 해당 부분만 재실행(최대 2회). `verification-logs/step-N-verify.md`에 기록.
+3. **L1.5 pACS Self-Rating** (신뢰도) — Pre-mortem Protocol 수행 후 F/C/L 3차원 채점. `pacs-logs/step-N-pacs.md`에 기록. RED(< 50) 시 재작업.
+4. **[L2 Calibration]** (선택적) — 별도 `@verifier` 에이전트가 pACS 점수 교차 검증. 고위험 단계만.
 
-> `Verification` 필드가 없는 단계는 Anti-Skip Guard만으로 진행 (하위 호환). 상세: `AGENTS.md §5.3`
+> `Verification` 필드가 없는 단계는 Anti-Skip Guard만으로 진행 (하위 호환). 상세: `AGENTS.md §5.3`, `§5.4`
 
 ### 결정 로그
 
@@ -252,6 +254,16 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
   - [ ] 재검증 (최대 2회 재시도, 초과 시 사용자 에스컬레이션)
 - [ ] 모든 기준 PASS 확인
 - [ ] `verification-logs/step-N-verify.md` 생성
+
+#### 단계 완료 후 (pACS — Verification Gate 통과 후 수행)
+- [ ] Pre-mortem Protocol 3개 질문에 답하기 (AGENTS.md §5.4)
+- [ ] F, C, L 3차원 채점 → pACS = min(F, C, L) 산출
+- [ ] `pacs-logs/step-N-pacs.md` 생성
+- [ ] SOT `pacs` 필드 갱신 (current_step_score, dimensions, weak_dimension, history)
+- [ ] pACS RED(< 50) 시:
+  - [ ] 약점 차원 식별 + 해당 부분 재작업
+  - [ ] 재채점 (최대 2회, 초과 시 사용자 에스컬레이션)
+- [ ] pACS YELLOW(50-69) 시: Decision Log에 약점 차원 기록 후 진행
 - [ ] SOT `outputs`에 산출물 경로 기록
 - [ ] SOT `current_step` +1 증가
 - [ ] `(human)` 단계: `autopilot-logs/step-N-decision.md` 생성
@@ -260,8 +272,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 #### `(team)` 단계 추가 체크리스트
 - [ ] `TeamCreate` 직후 → SOT `active_team` 기록 (name, status, tasks_pending)
 - [ ] 각 Teammate는 보고 전 자기 Task의 검증 기준 대비 자기 검증 수행 (L1 — AGENTS.md §5.3)
-- [ ] 각 Teammate 완료 시 → Team Lead가 단계 검증 기준 대비 종합 검증 (L2)
-- [ ] L2 FAIL 시 → SendMessage로 구체적 피드백 + 재실행 지시
+- [ ] 각 Teammate는 L1 통과 후 pACS 자기 채점 수행 (L1.5 — 세션 내부 완결, 점수를 보고 메시지에 포함)
+- [ ] 각 Teammate 완료 시 → Team Lead가 단계 검증 기준 대비 종합 검증 (L2) + 단계 pACS 산출
+- [ ] L2 FAIL 또는 Teammate pACS RED 시 → SendMessage로 구체적 피드백 + 재실행 지시
 - [ ] 각 Teammate 완료 시 → SOT `active_team.tasks_completed` + `completed_summaries` 갱신
 - [ ] 모든 Task 완료 시 → SOT `outputs` 기록, `current_step` +1, `active_team.status` → `all_completed`
 - [ ] `TeamDelete` 직후 → SOT `active_team` → `completed_teams` 이동
@@ -273,6 +286,8 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] 번역 파일 비어있지 않음 확인
 - [ ] SOT `outputs.step-N-ko`에 번역 경로 기록
 - [ ] `translations/glossary.yaml` 갱신 확인
+- [ ] Translation pACS 채점 완료 (Ft/Ct/Nt — `@translator` Step 4, AGENTS.md §5.4)
+- [ ] Translation pACS 로그 생성 (`pacs-logs/step-N-translation-pacs.md`)
 
 #### NEVER DO
 - `current_step`을 2 이상 한 번에 증가 금지
@@ -283,6 +298,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - 세션 복원 시 `active_team`을 빈 객체로 초기화 금지 — 기존 `completed_summaries` 보존 필수 (보존적 재개 프로토콜)
 - Verification 기준 FAIL인 채로 다음 단계 진행 금지 — 최대 2회 재시도 후 사용자 에스컬레이션
 - Verification 기준을 "모두 PASS"로 허위 기록 금지 — 각 기준에 구체적 Evidence 필수
+- Pre-mortem Protocol 생략하고 pACS 점수만 부여 금지 — 약점 인식이 점수의 전제
+- pACS를 Verification Gate 없이 단독 수행 금지 — L1 통과가 L1.5의 전제
+- pACS 점수를 전부 90+ 부여 금지 — Pre-mortem에서 식별한 약점과 점수 정합성 필수
 
 ## 언어 및 스타일 규칙
 

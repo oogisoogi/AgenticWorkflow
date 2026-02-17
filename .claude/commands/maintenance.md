@@ -20,6 +20,9 @@ description: "Hook 시스템 주기적 건강 검진 및 정리"
 | **Knowledge index** | 잘못된 JSON 라인 번호 확인 → 해당 라인 제거 제안 |
 | **Work log** | 1MB 초과 시 이전 로그 정리 제안 (백업 후 삭제) |
 | **Script syntax** | 오류 있는 스크립트를 Read → 수정 |
+| **verification-logs/** | 30일 초과 검증 로그 정리 제안 |
+| **pacs-logs/** | 30일 초과 pACS 로그 정리 제안 |
+| **autopilot-logs/** | 30일 초과 Decision Log 정리 제안 |
 
 **3단계 — 정리 작업 (사용자 승인 필수):**
 

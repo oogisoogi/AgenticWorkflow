@@ -24,6 +24,9 @@ description: "Hook 인프라 검증 결과 분석 및 문제 해결"
 | Script not found | 파일 누락 원인 조사. git status 확인 |
 | context-snapshots/ 생성 실패 | 권한 문제 확인 (ls -la .claude/) |
 | Python version < 3 | Python 3 설치 안내 |
+| verification-logs/ 미존재 | 디렉터리 생성 제안 (워크플로우 실행 시 필요) |
+| pacs-logs/ 미존재 | 디렉터리 생성 제안 (pACS 활성 워크플로우 시 필요) |
+| autopilot-logs/ 미존재 | 디렉터리 생성 제안 (Autopilot 모드 시 필요) |
 
 **4단계 — WARNING 문제 해결:**
 | 문제 | 해결 방법 |

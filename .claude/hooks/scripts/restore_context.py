@@ -339,6 +339,11 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
                 ts = s.get("timestamp", "")[:10]
                 task = s.get("user_task", "(기록 없음)")[:80]
                 output_lines.append(f"  - [{ts}] {task}")
+            # CM-4: RLM query examples — activate programmatic probing
+            output_lines.append("  RLM 쿼리 예시 (Grep tool 사용):")
+            output_lines.append(f'  - Grep "design_decisions" {ki_path} → 설계 결정 포함 세션')
+            output_lines.append(f'  - Grep "error_patterns" {ki_path} → 에러 패턴 포함 세션')
+            output_lines.append(f'  - Grep "phase_flow.*implementation" {ki_path} → 구현 단계 세션')
         if os.path.isdir(sessions_dir):
             output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
 

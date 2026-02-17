@@ -370,9 +370,22 @@ workflow:
 | **Hook** | 스냅샷 Autopilot 섹션 | 세션 경계에서 Autopilot 상태를 IMMORTAL 우선순위로 보존 |
 | **Hook** | Stop Decision Log 안전망 | 자동 승인 패턴 감지 → Decision Log 누락 시 보완 생성 |
 | **Hook** | PostToolUse 진행 추적 | work_log에 `autopilot_step` 필드로 단계 진행 기록 |
-| **프롬프트** | Execution Checklist | CLAUDE.md에 정의된 각 단계 시작/실행/완료 필수 행동 목록 |
+| **프롬프트** | Execution Checklist | 아래 정의된 각 단계 시작/실행/완료 필수 행동 목록 (Claude Code 상세: CLAUDE.md) |
 
 > Hook 계층은 SOT를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수).
+
+**Autopilot Execution Checklist (도구 공통):**
+
+모든 도구에서 Autopilot 모드로 워크플로우를 실행할 때 각 단계마다 수행해야 하는 필수 행동:
+
+| 시점 | 필수 행동 |
+|------|----------|
+| **단계 시작 전** | SOT `current_step` 확인, 이전 단계 산출물 파일 존재 + 비어있지 않음 검증, `Verification` 기준 읽기 |
+| **단계 실행 중** | 모든 작업 완전 실행 (축약 금지 — 절대 기준 1), 완전한 품질의 산출물 생성 |
+| **단계 완료 후** | 산출물 디스크 저장, `Verification` 기준 대비 자기 검증, 실패 시 해당 부분만 재실행(최대 2회), SOT `outputs`에 경로 기록, `current_step` +1, Decision Log 생성 |
+| **절대 금지** | `current_step` 2이상 한 번에 증가, 산출물 없이 진행, "자동이니까 간략하게" 축약, Verification FAIL인 채로 진행 |
+
+> **Claude Code 상세**: CLAUDE.md의 Autopilot Execution Checklist에 `(team)` 단계, 번역, Hook 연동 등 Claude Code 전용 체크리스트가 추가로 정의되어 있다.
 
 **활성화:** 기본값은 비활성(interactive). 워크플로우 Overview에 `Autopilot: enabled` 명시 또는 실행 시 사용자 지시로 활성화. 실행 중 토글 가능.
 
@@ -563,25 +576,29 @@ Anti-Skip Guard(파일 존재 + 100 bytes 이상)가 **물리적 존재**를 보
 ## Verified Output: research/insights.md (2,847 bytes)
 ```
 
-#### (team) 단계 2계층 검증
+#### (team) 단계 3계층 검증
 
-에이전트 그룹 단계에서는 2계층 검증을 수행한다:
+에이전트 그룹 단계에서는 3계층 검증을 수행한다:
 
 | 계층 | 수행자 | 검증 대상 | SOT 쓰기 |
 |------|--------|---------|---------|
 | **L1** | Teammate (자기 검증) | 자기 Task의 검증 기준 | **없음** — 세션 내부 완결 |
-| **L2** | Team Lead (종합 검증) | 단계 전체의 검증 기준 | **있음** — SOT outputs 갱신 |
+| **L1.5** | Teammate (pACS) | 자기 Task 산출물의 신뢰도 | **없음** — 점수를 보고 메시지에 포함 |
+| **L2** | Team Lead (종합 검증 + 단계 pACS) | 단계 전체의 검증 기준 | **있음** — SOT outputs + pacs 갱신 |
 
 ```
-Teammate: Task 실행 → 자기 검증 → PASS 시 Team Lead에 보고
-                                  → FAIL 시 자체 수정 후 재검증
+Teammate: Task 실행 → 자기 검증(L1) → pACS 자기 채점(L1.5)
+            → PASS + GREEN/YELLOW 시 Team Lead에 보고 (pACS 점수 포함)
+            → FAIL 또는 RED 시 자체 수정 후 재검증·재채점
 
-Team Lead: Teammate 산출물 수신 → 단계 기준 대비 종합 검증
-                                → PASS 시 SOT 갱신
-                                → FAIL 시 SendMessage로 구체적 피드백 + 재실행 지시
+Team Lead: Teammate 산출물 + pACS 점수 수신
+            → 단계 기준 대비 종합 검증(L2)
+            → 단계 pACS = min(각 Teammate pACS) — min-score 원칙 적용
+            → PASS 시 SOT 갱신 (outputs + pacs)
+            → FAIL 시 SendMessage로 구체적 피드백 + 재실행 지시
 ```
 
-> **SOT 호환성**: Teammate는 여전히 산출물 파일만 생성하고, SOT에 쓰지 않는다. 자기 검증은 Teammate의 세션 내부에서 완결된다 (절대 기준 2 준수).
+> **SOT 호환성**: Teammate는 여전히 산출물 파일만 생성하고, SOT에 쓰지 않는다. 자기 검증과 pACS 자기 채점은 Teammate의 세션 내부에서 완결되며, 보고 메시지를 통해 Team Lead에 전달된다 (절대 기준 2 준수). Team Lead만 `pacs-logs/`에 기록하고 SOT를 갱신한다.
 
 #### 하위 호환성
 
@@ -595,6 +612,147 @@ Team Lead: Teammate 산출물 수신 → 단계 기준 대비 종합 검증
 #### SOT 영향
 
 **없음.** Verification Protocol은 에이전트 실행 프로토콜(프롬프트 계층)이며, SOT 구조를 변경하지 않는다. `current_step` 진행이 이미 검증 완료를 암묵적으로 의미하며, 검증 상세는 `verification-logs/` 파일에 기록한다.
+
+### 5.4 pACS — predicted Agent Confidence Score (자체 신뢰 평가)
+
+워크플로우 실행 중 에이전트가 **자기 산출물의 신뢰도를 구조적으로 자기 평가**하는 프로토콜. AlphaFold의 pLDDT(predicted Local Distance Difference Test)에서 영감을 받았다.
+
+**핵심 원칙:**
+> **"점수를 매기기 전에, 약점을 먼저 말하라."** (Pre-mortem Protocol)
+
+Verification Protocol(§5.3)이 "완전성(completeness)" — 실행해야 할 것을 실행했는가 — 를 검증한다면, pACS는 **"신뢰도(confidence)" — 실행 결과를 얼마나 믿을 수 있는가**를 수치화한다. 두 프로토콜은 서로 다른 차원에서 품질을 보장하며 독립적으로 동작한다.
+
+#### 3개 평가 차원 (Orthogonal Dimensions)
+
+| 차원 | 측정 대상 | 낮은 점수 징후 |
+|------|---------|-------------|
+| **F — Factual Grounding** | 사실 근거의 견고함 | 출처 불명, 기억 기반 추론, 미검증 가정 |
+| **C — Completeness** | 요구사항 대비 누락 없음 | 일부 항목 생략, 분석 깊이 부족 |
+| **L — Logical Coherence** | 논증·구조의 내적 일관성 | 모순, 비약, 근거와 결론 불일치 |
+
+> **3차원으로 제한하는 이유**: 에이전트의 자기 평가는 캘리브레이션 데이터가 없는 주관적 추정이다. 차원이 많을수록 정밀도 환상(precision illusion)이 커지고, 차원 간 교란이 증가한다. 3개 직교 차원이 실용적 상한이다.
+
+#### Min-Score 원칙
+
+> **pACS = min(F, C, L)**
+
+가중 평균을 사용하지 않는다. 하나의 차원이 낮으면 전체 신뢰도가 낮다. 가장 약한 고리가 전체 품질을 결정한다.
+
+#### Pre-mortem Protocol (필수 — 점수 매기기 전에 수행)
+
+점수 인플레이션을 구조적으로 방지하는 메커니즘이다. 에이전트는 점수를 매기기 **전에** 아래 3개 질문에 반드시 답한다:
+
+1. **"이 산출물에서 가장 불확실한 부분은 어디인가?"** — 출처 미확인, 최신성 불명, 추정에 의존하는 영역
+2. **"빠뜨렸을 가능성이 가장 높은 것은 무엇인가?"** — 요구사항 일부 미충족, 엣지 케이스 미고려, 데이터 공백
+3. **"이 논증에서 가장 약한 연결은 어디인가?"** — 근거→결론 비약, 전제 검증 부족, 대안 미탐색
+
+Pre-mortem 응답에서 심각한 문제가 드러나면, 해당 차원에 높은 점수를 부여할 수 없다.
+
+#### 행동 트리거 (Action Triggers)
+
+| 등급 | 점수 범위 | 행동 | 근거 |
+|------|---------|------|------|
+| **GREEN** | pACS ≥ 70 | 자동 진행 | 에이전트가 높은 확신 — 정상 품질 |
+| **YELLOW** | 50 ≤ pACS < 70 | 진행하되 약점 플래그 | 부분적 불확실성 — 사후 검토 대상 |
+| **RED** | pACS < 50 | 재작업 또는 에스컬레이션 | 신뢰 불가 — 해당 부분 재실행 필수 |
+
+#### 품질 보장 계층 구조 (4계층)
+
+```
+L0  Anti-Skip Guard (Hook — 결정론적)
+      "파일이 존재하고, 의미 있는 크기인가?"
+        ↓ PASS
+L1  Verification Gate (Agent — 의미론적)
+      "기능적 목표를 100% 달성했는가?"
+        ↓ PASS
+L1.5  pACS Self-Rating (Agent — 신뢰도)
+        Pre-mortem → F, C, L 채점 → min(F,C,L) = pACS
+        ↓ GREEN/YELLOW: 진행 (YELLOW은 플래그)
+        ↓ RED: 재작업 또는 에스컬레이션
+[L2]  Calibration (선택적 — 고위험 단계만)
+        별도 에이전트가 pACS 점수의 적절성을 교차 검증
+```
+
+> **L1과 L1.5의 관계**: Verification Gate는 "체크리스트 항목 PASS/FAIL" — 이진 판정. pACS는 "전체적 신뢰도 0-100" — 연속적 자기 평가. Verification이 모두 PASS여도 pACS가 낮을 수 있다 (예: 모든 항목을 다뤘지만 출처 품질이 낮은 경우).
+
+#### SOT 기록
+
+```yaml
+workflow:
+  # ... 기존 필드 ...
+  pacs:
+    current_step_score: 72          # 현재 단계 pACS
+    dimensions: {F: 72, C: 85, L: 78}
+    weak_dimension: "F"             # min-score 차원
+    pre_mortem_flag: "Step 3 데이터 출처 2건 미확인"
+    history:                        # 단계별 이력
+      step-1: {score: 85, weak: "C"}
+      step-2: {score: 72, weak: "F"}
+```
+
+- `pacs` 필드는 기존 SOT 스키마에 **추가 전용** — 기존 `workflow`, `autopilot`, `outputs`, `active_team` 필드와 독립
+- `pacs`가 없는 SOT도 정상 동작 (하위 호환)
+- Hook의 `capture_sot()`가 SOT 전체를 스냅샷에 포함하므로, `pacs` 필드도 자동으로 세션 경계에서 보존됨
+
+#### Translation pACS (번역 산출물용)
+
+`@translator` 서브에이전트의 번역 산출물에 대한 추가 3차원:
+
+| 차원 | 측정 대상 | 낮은 점수 징후 |
+|------|---------|-------------|
+| **Ft — Fidelity** | 원문 의미의 정확한 전달 | 의역 과잉, 의미 왜곡, 용어 불일치 |
+| **Ct — Translation Completeness** | 원문 대비 누락 없음 | 문단/문장/각주 생략 |
+| **Nt — Naturalness** | 번역체가 아닌 자연스러운 한국어 | 영어 어순 직역, 번역투 |
+
+Translation pACS = min(Ft, Ct, Nt). 행동 트리거는 동일 (GREEN/YELLOW/RED).
+
+#### L2 Calibration (선택적 — 고위험 단계용)
+
+별도의 검증 에이전트(`@verifier`)가 산출물과 pACS 점수를 교차 검증한다:
+- 에이전트가 부여한 pACS와 검증자의 독립 평가를 비교
+- 점수 괴리가 15점 이상이면 중재 (사용자 에스컬레이션)
+
+워크플로우 설계 시 `Calibration: @verifier`를 명시한 단계에서만 적용한다. 기본값은 자기 평가(L1.5)만.
+
+#### pACS 로그 형식
+
+`pacs-logs/step-N-pacs.md`에 기록한다:
+
+```markdown
+# pACS Report — Step {N}: {Step Name}
+
+## Pre-mortem
+1. **Most uncertain**: [불확실한 부분]
+2. **Likely omission**: [누락 가능성]
+3. **Weakest link**: [가장 약한 논증 연결]
+
+## Scores
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| F (Factual Grounding) | {0-100} | [구체적 근거] |
+| C (Completeness) | {0-100} | [구체적 근거] |
+| L (Logical Coherence) | {0-100} | [구체적 근거] |
+
+## Result: pACS = {min(F,C,L)} → {GREEN|YELLOW|RED}
+## Weak Dimension: {F|C|L} — {약점 설명}
+```
+
+#### Autopilot에서의 pACS
+
+- pACS GREEN → 자동 진행
+- pACS YELLOW → 자동 진행 + Decision Log에 약점 차원 기록
+- pACS RED → 자동 재작업 (최대 2회). 재작업 후에도 RED → 사용자 에스컬레이션
+- Autopilot Decision Log에 `pacs_score`, `weak_dimension` 필드 추가
+
+#### 하위 호환성
+
+| 상황 | 동작 |
+|------|------|
+| 워크플로우에 pACS 참조 없음 | 기존 L0+L1만으로 진행 |
+| SOT에 `pacs` 필드 없음 | 정상 동작 — Hook·에이전트 모두 무시 |
+| Verification 없이 pACS만 | 허용하지 않음 — pACS는 Verification Gate 통과 후 수행 |
+
+> **설계 결정**: pACS를 Verification 없이 단독 사용하는 것은 금지한다. 완전성 검증(L1) 없이 신뢰도 평가(L1.5)만 하면, "다 빠뜨렸지만 확신은 높다"는 모순적 상태가 가능해진다.
 
 ---
 

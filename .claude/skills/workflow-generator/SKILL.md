@@ -251,6 +251,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
   - SOT 상태 관리: §SOT State Management Protocol
 - 문서 분석 가이드 (Case 2): `references/document-analysis-guide.md`
 - 컨텍스트 주입 패턴 (Sub-agent/Team 입력 전달): `references/context-injection-patterns.md`
+- SOT 템플릿 (state.yaml 부트스트랩): `references/state.yaml.example`
 - Autopilot Decision Log 템플릿: `references/autopilot-decision-template.md`
 
 ## 최종 생성 절차
@@ -261,13 +262,32 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 4. 각 단계에 데이터 전처리/후처리 명시 (P1)
 5. 휴먼-인-더-루프 지점 표시
 6. **각 단계에 `Verification` 필드 정의** (AGENTS.md §5.3 — 필수):
-   - 구조적 완전성, 기능적 목표, 데이터 정합성, 파이프라인 연결 4가지 유형 중 해당되는 기준 포함
-   - 각 기준은 **제3자가 참/거짓 판정 가능한 구체적 문장**으로 작성
    - `Verification` 필드는 `Task` 필드보다 **앞에** 배치 (에이전트가 먼저 인식)
    - `(human)` 단계는 사람이 검증자이므로 `Verification` 필드 불필요
+   - 각 기준은 **제3자가 참/거짓 판정 가능한 구체적 문장**으로 작성
+   - 4가지 기준 유형을 조합하여 포함:
+     - **구조적 완전성**: 산출물 내부 구조 → "5개 섹션 모두 포함", "각 항목에 3개 이상 하위 항목"
+     - **기능적 목표**: 작업 목표 달성 → "경쟁사 3곳 이상의 가격 데이터", "모든 API endpoint 구현"
+     - **데이터 정합성**: 데이터 정확성 → "모든 URL 유효, placeholder 없음", "수치 데이터 출처 명시"
+     - **파이프라인 연결**: 다음 단계 입력 호환 → "Step N이 필요로 하는 필드 포함", "출력 형식이 Step N+1 입력과 일치"
 7. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
 8. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
-9. workflow.md 파일 생성
+   - **Context Injection 패턴 선택** (각 에이전트 단계별):
+     - 입력 < 50KB → Pattern A (Full Delegation — 파일 경로 전달)
+     - 입력 50-200KB + 부분 관련 → Pattern B (Filtered — Pre-processing 스크립트로 정제 후 전달)
+     - 입력 > 200KB 또는 분할 필요 → Pattern C (Recursive Decomposition — 청크 병렬 처리)
+     - 절대 기준 1 우선: 크기와 무관하게 필터링이 품질을 높이면 Pattern B 선택
+     - 상세: `references/context-injection-patterns.md`
+   - **Agent Team 사용 시 SOT 설계 필수** (절대 기준 2):
+     - SOT 파일 위치 (`.claude/state.yaml`), Team Lead 단일 쓰기 권한, 팀원 산출물 규칙
+     - `active_team` 스키마: name, status, tasks_completed/pending, completed_summaries
+     - SOT 갱신 4시점: TeamCreate 직후 → Teammate 완료 시 → 전체 완료 시 → TeamDelete 직후
+     - 상세: `references/workflow-template.md §Agent Team 사용 시 SOT 스키마`
+9. **English-First 실행 원칙 적용** (AGENTS.md §5.2):
+   - 모든 에이전트 Task 설명과 프롬프트는 **영어**로 작성 (AI 성능 극대화 — 절대 기준 1)
+   - 사용자 대화(워크플로우 설계)는 한국어, 에이전트 실행은 영어
+   - `@translator` 서브에이전트가 영어→한국어 번역 담당 (Translation 필드로 명시)
+10. workflow.md 파일 생성
 10. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
     - "이 단계가 최종 품질에 기여하는가?" — 품질에 무관한 단계만 제거
     - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
@@ -283,3 +303,12 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 - 사용자가 "자동으로 실행", "무중단 실행" 등을 요청하면 `enabled`로 설정
 - `(human)` 단계 설계 자체는 변경하지 않음 — Autopilot은 실행 모드이지 설계 변경이 아님
 - 선택 사항: 각 `(human)` 단계에 `Autopilot Default` 필드로 자동 승인 시 기본 동작 명시
+
+## pACS 지원
+
+생성하는 workflow.md에 pACS(자체 신뢰 평가) 필드를 포함한다.
+
+- Overview 섹션에 `- **pACS**: [enabled|disabled]` 추가 (기본값: enabled, AGENTS.md §5.4)
+- pACS는 Autopilot 모드와 독립적으로 동작 — 수동 실행에서도 적용
+- `(human)` 단계는 사람이 평가자이므로 pACS 불필요 (Verification과 동일 원칙)
+- 사용자가 명시적으로 "pACS 없이" 등을 요청하면 `disabled`로 설정

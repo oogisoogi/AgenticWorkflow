@@ -72,7 +72,10 @@ def main():
             text=True,
             timeout=25,  # Leave buffer within parent hook timeout (30s)
         )
-        sys.exit(result.returncode)
+        # B-5: Only propagate exit code 2 (hook blocking signal).
+        # All other non-zero codes are treated as non-blocking (exit 0)
+        # to maintain hook design principle: hooks should not break the session.
+        sys.exit(2 if result.returncode == 2 else 0)
     except subprocess.TimeoutExpired:
         sys.exit(0)
     except Exception:

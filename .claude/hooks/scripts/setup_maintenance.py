@@ -38,6 +38,8 @@ STALE_ARCHIVE_SECONDS = STALE_ARCHIVE_DAYS * 24 * 3600
 WORK_LOG_SIZE_WARN = 1_000_000
 
 # Hook scripts to re-validate
+# D-7: Intentionally duplicated in setup_init.py — setup scripts are
+# independent from _context_lib.py by design (no import dependency).
 REQUIRED_SCRIPTS = [
     "_context_lib.py",
     "context_guard.py",

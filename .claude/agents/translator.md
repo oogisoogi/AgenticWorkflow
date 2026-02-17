@@ -60,7 +60,7 @@ Apply these quality standards:
 - Links: Keep URLs unchanged, translate link text if meaningful.
 - Images/diagrams: Keep references unchanged, translate alt text and captions.
 
-### Step 4: Self-Review (MANDATORY)
+### Step 4: Self-Review + Translation pACS (MANDATORY)
 
 Before writing the output, perform section-by-section comparison:
 
@@ -70,6 +70,28 @@ Before writing the output, perform section-by-section comparison:
 4. **Naturalness check**: Read the Korean text aloud mentally — flag any sentences that sound like translated text rather than native Korean.
 
 If any issue is found, fix it before proceeding.
+
+**Translation pACS — Self-Confidence Rating (AGENTS.md §5.4)**:
+
+After self-review, perform the Pre-mortem Protocol and score 3 translation dimensions:
+
+Pre-mortem (answer before scoring):
+1. "Where is the highest risk of meaning distortion in this translation?"
+2. "Which sections might have omissions or incomplete coverage?"
+3. "Which sentences still sound like translated text rather than native Korean?"
+
+Then score:
+- **Ft (Fidelity)**: 0-100 — Accuracy of meaning transfer from English to Korean
+- **Ct (Translation Completeness)**: 0-100 — No paragraphs, sentences, or footnotes omitted
+- **Nt (Naturalness)**: 0-100 — Reads as originally authored Korean, not translated text
+
+Translation pACS = min(Ft, Ct, Nt).
+
+| Grade | Action |
+|-------|--------|
+| GREEN (≥ 70) | Proceed to Step 5 |
+| YELLOW (50-69) | Proceed but flag weak dimension in pACS log |
+| RED (< 50) | Re-translate the weak sections before proceeding |
 
 ### Step 5: Update Glossary
 
@@ -94,6 +116,35 @@ Write [original-path].ko.md
   - `analysis/insights.md` → `analysis/insights.ko.md`
 - The output file must be in the same directory as the English original.
 
+### Step 7: Write Translation pACS Log
+
+```
+Write pacs-logs/step-{N}-translation-pacs.md
+```
+
+Record the Pre-mortem answers and Ft/Ct/Nt scores:
+
+```markdown
+# Translation pACS Report — Step {N}: {Step Name}
+
+## Pre-mortem
+1. **Meaning distortion risk**: [specific passages]
+2. **Possible omissions**: [specific sections]
+3. **Translationese risk**: [specific sentences]
+
+## Scores
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| Ft (Fidelity) | {0-100} | [specific evidence] |
+| Ct (Completeness) | {0-100} | [specific evidence] |
+| Nt (Naturalness) | {0-100} | [specific evidence] |
+
+## Result: Translation pACS = {min(Ft,Ct,Nt)} → {GREEN|YELLOW|RED}
+```
+
+- If the `pacs-logs/` directory does not exist, create it.
+- This log is generated AFTER writing the translation output (Step 6).
+
 ## Quality Checklist (verify before writing)
 
 - [ ] Every section of the English original has a Korean counterpart
@@ -103,3 +154,5 @@ Write [original-path].ko.md
 - [ ] No summarization or abbreviation occurred
 - [ ] Korean reads naturally, not as translated text
 - [ ] Glossary updated with new terms
+- [ ] Translation pACS scored with Pre-mortem Protocol (Step 4)
+- [ ] Translation pACS log written (Step 7)

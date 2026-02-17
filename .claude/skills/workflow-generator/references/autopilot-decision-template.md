@@ -26,6 +26,8 @@ autopilot-logs/step-{N}-decision.md
 | `Output Verified` | 이전 단계 산출물 검증 결과 (파일 경로, 크기) |
 | `SOT Updated` | SOT에 기록한 필드 목록 |
 | `Source` | 로그 생성 주체 (Claude / Hook safety net) |
+| `pACS Score` | 해당 단계 pACS 점수 (AGENTS.md §5.4) |
+| `pACS Weak Dimension` | Min-score 차원 (F/C/L) 및 약점 설명 |
 
 ## 표준 템플릿
 
@@ -42,6 +44,8 @@ autopilot-logs/step-{N}-decision.md
   - {대안 2} → {기각 사유}
 - **Output Verified**: {이전 단계 산출물 검증 결과}
 - **SOT Updated**: {갱신한 SOT 필드 목록}
+- **pACS Score**: {pACS 점수} → {GREEN|YELLOW|RED}
+- **pACS Weak Dimension**: {F|C|L} — {약점 설명}
 ```
 
 ## 구체적 예시
@@ -63,6 +67,8 @@ autopilot-logs/step-{N}-decision.md
   - 카테고리별 1개씩 선정 → 카테고리 분류가 불완전하여 기각
 - **Output Verified**: step-2 insights-list.md (8,320 bytes) — OK
 - **SOT Updated**: auto_approved_steps: [3], current_step: 4
+- **pACS Score**: 78 → GREEN
+- **pACS Weak Dimension**: F — 인사이트 2건의 데이터 출처 미확인
 ```
 
 ### AskUserQuestion 자동 응답
@@ -82,6 +88,8 @@ autopilot-logs/step-{N}-decision.md
   - 순서 재배치 → 논리적 흐름이 이미 적절
 - **Output Verified**: step-5 article-outlines.md (5,120 bytes) — OK
 - **SOT Updated**: auto_approved_steps: [3, 6], current_step: 7
+- **pACS Score**: 82 → GREEN
+- **pACS Weak Dimension**: C — 섹션 3의 하위 항목 세분화 여지 있음
 ```
 
 ## 런타임 연동

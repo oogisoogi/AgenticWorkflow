@@ -15,6 +15,7 @@ workflow.md 파일의 표준 구조.
 - **Output**: [최종 산출물]
 - **Frequency**: [실행 주기 - daily/weekly/on-demand 등]
 - **Autopilot**: [disabled|enabled] — 사람 개입 지점 자동 승인 모드 (기본값: disabled)
+- **pACS**: [enabled|disabled] — 자체 신뢰 평가 프로토콜 (기본값: enabled, AGENTS.md §5.4)
 
 ---
 
@@ -272,6 +273,24 @@ $ARGUMENTS  ← 사용자 입력 파라미터
 ### MCP Servers
 [외부 연동 서버 — `.mcp.json` 또는 `.claude/settings.json`에 정의]
 
+### Runtime Directories
+
+워크플로우 실행 시 자동 생성이 필요한 디렉터리. Setup Hook(`--init`)에서 사전 검증한다.
+
+```yaml
+runtime_directories:
+  # 필수 — Verification Gate 산출물
+  verification-logs/:        # step-N-verify.md (L1 검증 결과)
+
+  # 조건부 — 기능 활성 시
+  autopilot-logs/:           # step-N-decision.md (Autopilot 자동 승인 결정 로그)
+  pacs-logs/:                # step-N-pacs.md (pACS 자체 신뢰 평가 결과)
+  translations/:             # glossary.yaml + *.ko.md (@translator 번역 산출물)
+```
+
+> **초기화 시점**: 워크플로우 첫 실행 전 `mkdir -p`로 생성하거나, Setup Hook에 검증 로직 포함.
+> **gitignore 고려**: `verification-logs/`, `autopilot-logs/`, `pacs-logs/`는 프로젝트 `.gitignore`에 추가 권장 (런타임 산출물).
+
 ### Error Handling
 
 ```yaml
@@ -313,6 +332,23 @@ autopilot_logging:
     - rationale              # 절대 기준 1 기반
     - timestamp
   template: "references/autopilot-decision-template.md"
+```
+
+### pACS Logs (pACS 활성 시 — 기본값: enabled)
+
+```yaml
+pacs_logging:
+  log_directory: "pacs-logs/"
+  log_format: "step-{N}-pacs.md"
+  translation_log_format: "step-{N}-translation-pacs.md"
+  dimensions: [F, C, L]                  # Factual Grounding, Completeness, Logical Coherence
+  translation_dimensions: [Ft, Ct, Nt]   # Fidelity, Translation Completeness, Naturalness
+  scoring: "min-score"                    # pACS = min(F, C, L)
+  triggers:
+    GREEN: "≥ 70 → auto-proceed"
+    YELLOW: "50-69 → proceed with flag"
+    RED: "< 50 → rework or escalate"
+  protocol: "AGENTS.md §5.4"
 ```
 
 **Decision Log 예시** (`autopilot-logs/step-3-decision.md`):
