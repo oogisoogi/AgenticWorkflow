@@ -528,6 +528,7 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | Claude Code | `CLAUDE.md` | Yes — Hook, Skill, Context Preservation 등 전체 기능 지원 |
 | Gemini CLI | `GEMINI.md` + `.gemini/settings.json` | Yes — `@AGENTS.md` import으로 Hub 직접 로드 |
 | Codex CLI | `AGENTS.md` (직접 읽음) | Yes — 별도 Spoke 불필요 |
+| Copilot CLI | `.github/copilot-instructions.md` | Yes — AGENTS.md도 자동 인식 |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes — `alwaysApply: true` 설정 |
 | Aider | `.aider.conf.yml` → `AGENTS.md` 자동 로드 | 설정 기반 |
 

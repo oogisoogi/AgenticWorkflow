@@ -83,6 +83,8 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-USER-MANUAL.md         ← 이 코드베이스 자체의 사용자 매뉴얼
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
 ├── COPYRIGHT.md                           ← 저작권
+├── .github/
+│   └── copilot-instructions.md            ← GitHub Copilot 전용 지시서 (Spoke)
 ├── .cursor/
 │   └── rules/
 │       └── agenticworkflow.mdc            ← Cursor 전용 지시서 (Spoke, alwaysApply)
