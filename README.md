@@ -33,7 +33,7 @@ AgenticWorkflow/
 ├── .claude/
 │   ├── settings.json      # Hook 설정 (Setup + SessionEnd)
 │   ├── commands/           # Slash Commands (/install, /maintenance)
-│   ├── hooks/scripts/     # Context Preservation System (6개 스크립트 + 디스패처) + Setup Hooks (2개)
+│   ├── hooks/scripts/     # Context Preservation System (6개 파일: 디스패처 + 공유 라이브러리 + 4개 핸들러) + Setup Hooks (2개)
 │   ├── context-snapshots/ # 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/ # 워크플로우 설계·생성 스킬

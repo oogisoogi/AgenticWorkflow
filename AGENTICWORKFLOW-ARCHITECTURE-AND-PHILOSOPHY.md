@@ -195,7 +195,7 @@ graph TB
         AGENTS["AGENTS.md<br/>범용 에이전트 지시서"]
 
         subgraph "Skills"
-            WG["workflow-generator<br/>SKILL.md + 5 refs"]
+            WG["workflow-generator<br/>SKILL.md + 6 refs"]
             DW["doctoral-writing<br/>SKILL.md + 5 refs"]
         end
 
@@ -1201,6 +1201,9 @@ references/ (WHAT/HOW/WHERE/VERIFY)
 | `workflow-template.md` | **WHAT** — workflow.md의 표준 구조 + 표기법 | Phase 1: 워크플로우 생성 |
 | `claude-code-patterns.md` | **HOW** — Sub-agent, Team, Hook 구현 패턴 | Phase 2: 구현 설계 |
 | `document-analysis-guide.md` | **WHAT** — 문서 분석 체크리스트 (6대 추출 범주) | Phase 1 Case 2: 문서 분석 |
+| `context-injection-patterns.md` | **HOW** — 컨텍스트 주입 패턴 가이드 | Phase 2: 에이전트 프롬프트 설계 |
+| `autopilot-decision-template.md` | **VERIFY** — Autopilot Decision Log 표준 템플릿 | Autopilot 모드 실행 시 결정 기록 |
+| `state.yaml.example` | **WHAT** — SOT 파일 구조 예시 + 필드 설명 | Phase 2: SOT 초기화 |
 
 **doctoral-writing의 역할 분담:**
 

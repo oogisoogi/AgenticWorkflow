@@ -475,6 +475,9 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | `references/claude-code-patterns.md` | Sub-agents, Agent Teams, Hooks, SOT 등 구현 패턴 상세 | Phase 2에서 구성요소를 실제로 만들 때 |
 | `references/workflow-template.md` | workflow.md의 표준 구조와 표기 규칙 | Phase 1에서 workflow.md 생성 시 |
 | `references/document-analysis-guide.md` | 첨부 문서 분석 체크리스트와 출력 형식 | Phase 1 Case 2에서 문서 분석 시 |
+| `references/context-injection-patterns.md` | 에이전트 프롬프트에 컨텍스트를 주입하는 패턴 가이드 | Phase 2에서 에이전트 프롬프트 설계 시 |
+| `references/autopilot-decision-template.md` | Autopilot Decision Log의 표준 템플릿 | Autopilot 모드 실행 시 결정 기록 |
+| `references/state.yaml.example` | SOT 파일 구조 예시 및 필드 설명 | Phase 2에서 SOT 초기화 시 |
 
 ### 8.2 doctoral-writing
 
