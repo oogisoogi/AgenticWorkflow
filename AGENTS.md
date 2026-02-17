@@ -199,10 +199,10 @@ AgenticWorkflow/
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 + Smart Throttling + Autopilot 상태 읽기·검증)
+│   │   ├── _context_lib.py    (공유 라이브러리 + 절삭 상수 중앙화 + sot_paths() 경로 통합 + 다단계 전환 감지 + Smart Throttling + Autopilot 상태 읽기·검증)
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
-│   │   ├── update_work_log.py (작업 로그 누적)
+│   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
 │   │   ├── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
 │   │   ├── setup_init.py      (Setup Init — 인프라 건강 검증, --init 트리거)
 │   │   └── setup_maintenance.py (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
@@ -229,14 +229,14 @@ AgenticWorkflow/
 - RLM 패턴 적용: 작업 내역을 **외부 메모리 객체**(MD 파일)로 영속화하고, 새 세션에서 포인터 기반으로 복원
 - P1 원칙 준수: 트랜스크립트 파싱·통계 산출은 Python 코드가 결정론적으로 수행. AI는 의미 해석에만 집중
 - 절대 기준 2 준수: SOT 파일(`state.yaml`)은 **읽기 전용**으로만 접근. 스냅샷은 별도 디렉터리(`context-snapshots/`)에 저장
-- **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
+- **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태), phase(세션 단계), phase_flow(다단계 전환 흐름), primary_language(주요 파일 확장자) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
 - **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터, 완료 상태(도구 성공/실패), Git 변경 상태. 복원 품질의 바닥선 보장
 - **Autopilot 런타임 강화**: Autopilot 활성 시 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하고, 세션 복원 시 실행 규칙을 컨텍스트에 주입. Stop hook이 Decision Log 누락을 감지·보완
 
 **데이터 흐름:**
 
 ```
-작업 진행 중 ─→ [PostToolUse] update_work_log.py ─→ work_log.jsonl 누적
+작업 진행 중 ─→ [PostToolUse] update_work_log.py ─→ work_log.jsonl 누적 (9개 도구 추적)
                                                      │ (토큰 75% 초과 시)
                                                      ↓
 응답 완료 ────→ [Stop] generate_context_summary.py ─→ latest.md 저장 (30초 throttling)

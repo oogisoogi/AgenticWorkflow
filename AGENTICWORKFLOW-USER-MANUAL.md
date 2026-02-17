@@ -366,7 +366,7 @@ workflow.md에 `(hook)` 구간이 있다면:
 | `0` | 통과 |
 | `2` | 차단 — 에이전트에 피드백 전달, 재작업 |
 
-> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태)으로 이전 맥락을 복원합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에도 기록합니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
+> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태)으로 이전 맥락을 복원합니다. PostToolUse는 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate)를 추적합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 포함하여 기록합니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
 
 ### 6.5 Slash Commands 만들기
 
@@ -592,7 +592,7 @@ Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임�
 | 세션 시작/복원 | SessionStart가 Autopilot 실행 규칙 주입 | 매 세션 경계에서 실행 규칙을 컨텍스트에 포함 |
 | 매 응답 후 | 스냅샷에 Autopilot 상태 섹션 보존 | 세션 경계에서 Autopilot 상태 유실 방지 (IMMORTAL 우선순위) |
 | 응답 완료 | Stop hook이 Decision Log 누락 감지 | 자동 승인 패턴이 있는데 로그가 없으면 보완 생성 |
-| 도구 사용 후 | PostToolUse가 autopilot_step 추적 | 단계 진행 패턴을 work_log에 기록 (사후 분석) |
+| 도구 사용 후 | PostToolUse가 autopilot_step 추적 (9개 도구) | 단계 진행 패턴을 work_log에 기록 (사후 분석) |
 
 > 다른 AI 도구에서는 이 Hook 기반 강화가 없으므로, SOT와 Decision Log를 수동으로 관리해야 합니다.
 

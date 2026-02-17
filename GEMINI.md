@@ -57,6 +57,8 @@ Gemini CLI에는 Claude Code의 자동 Hook 기반 컨텍스트 보존 시스템
 - **세션 로그**: Gemini CLI의 `/memory` 기능으로 핵심 사항 기억
 - **SOT 기반 복원**: `state.yaml`에 워크플로우 진행 상태를 기록하여 새 세션에서 복원
 
+> Claude Code의 Context Preservation System은 Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어) 메타데이터를 자동 기록한다. Gemini에서는 이 정보를 수동으로 기록하거나, 세션 종료 시 상태를 `state.yaml`에 요약하는 방식으로 대응한다.
+
 ## 설계 원칙
 
 - **P1**: AI에게 전달하기 전 Python 등으로 노이즈 제거 (전처리/후처리 명시)
