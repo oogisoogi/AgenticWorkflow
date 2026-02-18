@@ -1191,7 +1191,6 @@ graph TB
 | Codex CLI | `AGENTS.md` 직접 | Yes |
 | Copilot CLI | `.github/copilot-instructions.md` | Yes |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) |
-| Aider | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 |
 
 각 Spoke 파일은 두 가지 역할을 한다:
 1. **절대 기준 인라인 + 상세 참조**: 핵심 정의를 인라인으로 포함하고, 상세는 AGENTS.md 참조

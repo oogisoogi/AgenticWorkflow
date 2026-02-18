@@ -538,9 +538,8 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | Codex CLI | `AGENTS.md` (직접 읽음) | Yes — 별도 Spoke 불필요 |
 | Copilot CLI | `.github/copilot-instructions.md` | Yes — AGENTS.md도 자동 인식 |
 | Cursor | `.cursor/rules/agenticworkflow.mdc` | Yes — `alwaysApply: true` 설정 |
-| Aider | `.aider.conf.yml` → `AGENTS.md` 자동 로드 | 설정 기반 |
 
-사용법: 해당 AI CLI 도구로 이 프로젝트 디렉터리에 진입하면, 도구가 자동으로 해당 Spoke 파일을 읽고 AgenticWorkflow 방법론을 따릅니다. 별도 설정이 필요 없습니다 (Aider 제외 — `.aider.conf.yml`이 이미 포함되어 있으므로 Aider도 자동 적용).
+사용법: 해당 AI CLI 도구로 이 프로젝트 디렉터리에 진입하면, 도구가 자동으로 해당 Spoke 파일을 읽고 AgenticWorkflow 방법론을 따릅니다. 별도 설정이 필요 없습니다.
 
 > 상세 아키텍처: `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §7.1 참조
 

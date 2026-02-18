@@ -852,7 +852,6 @@ Translation pACS = min(Ft, Ct, Nt). 행동 트리거는 동일 (GREEN/YELLOW/RED
 | **Codex CLI** | `AGENTS.md` (직접) | Yes | 네이티브 |
 | **Copilot CLI** | `.github/copilot-instructions.md` | Yes | 자동 인식 |
 | **Cursor** | `.cursor/rules/agenticworkflow.mdc` | Yes (alwaysApply) | 인식 |
-| **Aider** | `.aider.conf.yml` → `AGENTS.md` 로드 | 설정 필요 | 설정으로 로드 |
 
 ### Spoke 파일 원칙
 

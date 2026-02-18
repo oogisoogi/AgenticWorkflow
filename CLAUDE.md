@@ -90,7 +90,6 @@ AgenticWorkflow/
 │       └── agenticworkflow.mdc            ← Cursor 전용 지시서 (Spoke, alwaysApply)
 ├── .gemini/
 │   └── settings.json                      ← Gemini CLI 설정 (AGENTS.md 추가 로드)
-├── .aider.conf.yml                        ← Aider 설정 (AGENTS.md 자동 로드)
 ├── .claude/
 │   ├── settings.json                      ← Hook 설정 (Setup + SessionEnd)
 │   ├── agents/                             ← Sub-agent 정의
