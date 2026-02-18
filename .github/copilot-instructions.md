@@ -28,6 +28,7 @@ Copilot CLI는 `AGENTS.md`를 자동으로 인식하므로, 해당 파일의 모
 | 자동 검증 | GitHub Actions 또는 외부 스크립트로 구현 |
 | SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용. SOT 파일 형식: `state.yaml`, `state.yml`, `state.json` |
 | Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. Anti-Skip Guard: 산출물 파일 존재 + 최소 100 bytes 검증. `AGENTS.md §5.1` 참조 |
+| ULW (Ultrawork) Mode | 프롬프트에 `ulw` 포함 시 활성화. Autopilot과 달리 SOT 없이 범용 작업에서 동작하는 집중 모드. Sisyphus Mode(100% 완료까지 지속) + Auto Task Tracking. `AGENTS.md §5.1.1` 참조 |
 | Verification Protocol | 각 단계 산출물의 기능적 목표 100% 달성 검증. Anti-Skip Guard(물리적) 위에 의미론적 Verification Gate 계층. 검증 기준은 Task 앞에 선언, 실패 시 최대 2회 재시도. `AGENTS.md §5.3` 참조 |
 | pACS (자체 신뢰 평가) | Verification Gate 통과 후 에이전트가 F/C/L 3차원 자기 평가. Pre-mortem Protocol 필수. min-score 원칙. GREEN(≥70): 자동 진행, YELLOW(50-69): 플래그 후 진행, RED(<50): 재작업. `AGENTS.md §5.4` 참조 |
 
