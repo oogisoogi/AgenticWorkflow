@@ -100,7 +100,7 @@ AgenticWorkflow/
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
-│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴, IMMORTAL-aware 압축)
+│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴, IMMORTAL-aware 압축)
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
@@ -140,7 +140,7 @@ AgenticWorkflow/
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
 | **PostToolUse** | `update_work_log.py` | 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate) 작업 로그 누적. 토큰 75% 초과 시 proactive 저장 |
-| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) + Autopilot Decision Log 안전망 |
+| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) + Autopilot Decision Log 안전망 + ULW 상태 IMMORTAL 보존 |
 
 ### Claude의 활용 방법
 
@@ -156,6 +156,7 @@ AgenticWorkflow/
 - **Error Taxonomy**: 도구 에러를 12개 패턴(file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found)으로 분류한다. Knowledge Archive의 error_patterns 필드에 기록되어, "unknown" 분류를 ~30%로 감소시킨다. False positive 방지를 위해 negative lookahead, 한정어 매칭 등을 적용한다.
 - **시스템 명령 필터링**: 스냅샷의 "현재 작업" 섹션에서 `/clear`, `/help` 등 시스템 명령을 자동 필터링하여 실제 사용자 작업 의도만 캡처한다.
 - **Autopilot 런타임 강화**: Autopilot 활성 시 SessionStart가 실행 규칙을 컨텍스트에 주입하고, 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하며, Stop hook이 Decision Log 누락을 감지·보완한다. PostToolUse는 work_log에 autopilot_step 필드를 추가하여 단계 진행을 추적한다.
+- **ULW 모드 감지·보존**: `detect_ulw_mode()` 함수가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지한다. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 5개 실행 규칙을 컨텍스트에 주입한다. **암묵적 해제**: 새 세션(`source=startup`)에서는 이전 스냅샷에 ULW 상태가 있어도 규칙을 주입하지 않는다 — `clear`/`compact`/`resume` source만 ULW를 계승한다. `check_ulw_compliance()` 함수가 5개 실행 규칙의 준수를 결정론적으로 검증하여 스냅샷 IMMORTAL에 경고를 포함한다. Knowledge Archive에 `ulw_active: true`로 태깅되어 `Grep "ulw_active" knowledge-index.jsonl`로 RLM 쿼리 가능하다.
 
 ### Hook 설정 위치
 
@@ -304,6 +305,58 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - Pre-mortem Protocol 생략하고 pACS 점수만 부여 금지 — 약점 인식이 점수의 전제
 - pACS를 Verification Gate 없이 단독 수행 금지 — L1 통과가 L1.5의 전제
 - pACS 점수를 전부 90+ 부여 금지 — Pre-mortem에서 식별한 약점과 점수 정합성 필수
+
+## ULW (Ultrawork) Mode
+
+프롬프트에 `ulw`를 포함하면 **Ultrawork 모드**가 활성화된다. Autopilot(워크플로우 전용, SOT 기반)과 달리 **범용 작업에서 SOT 없이** 동작하는 집중 작업 모드이다.
+
+### 핵심 기능
+
+| 기능 | 설명 |
+|------|------|
+| **Sisyphus Mode** | 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도 |
+| **Auto Task Tracking** | 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증 |
+
+### 활성화 패턴
+
+| 사용자 명령 | 동작 |
+|-----------|------|
+| "ulw 이거 해줘", "ulw 리팩토링해줘" | 트랜스크립트에서 `ulw` 감지 → ULW 모드 활성화 |
+| 새 세션에서 `ulw` 없는 프롬프트 | ULW 비활성 (암묵적 해제 — 명시적 해제 불필요) |
+
+### Autopilot과의 차이
+
+| 항목 | Autopilot | ULW |
+|------|-----------|-----|
+| **대상** | 워크플로우 단계 실행 | 범용 작업 |
+| **상태 관리** | SOT (`state.yaml`) | 스냅샷 IMMORTAL (SOT 불필요) |
+| **병렬 실행** | `(team)` 단계 지원 | 미지원 (기존 워크플로우와 충돌 방지) |
+| **비활성화** | SOT `autopilot.enabled: false` | 암묵적 (새 세션 시 ulw 없으면 비활성) |
+| **Verification Gate** | L0-L2 4계층 | 해당 없음 (TaskList 기반 완료 확인) |
+
+### 5가지 실행 규칙
+
+1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음
+2. **Auto Task Tracking** — 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증
+3. **Error Recovery** — 에러 발생 시 대안을 시도하고, 대안도 실패하면 사용자에게 보고
+4. **No Partial Completion** — "일부만 완료"는 미완료와 동일 — 전체 완료까지 계속
+5. **Progress Reporting** — 각 Task 완료 시 TaskUpdate로 상태 갱신
+
+### 런타임 강화 메커니즘
+
+| 계층 | 메커니즘 | 강화 내용 |
+|------|---------|----------|
+| **Hook** (결정론적) | `_context_lib.py` — `detect_ulw_mode()` | 트랜스크립트 정규식으로 `ulw` 감지 |
+| **Hook** (결정론적) | `generate_snapshot_md()` — 스냅샷 | ULW 상태 섹션을 IMMORTAL 우선순위로 보존 |
+| **Hook** (결정론적) | `extract_session_facts()` — Knowledge Archive | `ulw_active: true` 태깅 → RLM 쿼리 가능 |
+| **Hook** (결정론적) | `restore_context.py` — SessionStart | ULW 활성 시 5개 실행 규칙을 컨텍스트에 주입 (startup source 제외 — 암묵적 해제) |
+| **Hook** (결정론적) | `_context_lib.py` — `check_ulw_compliance()` | 5개 실행 규칙 준수를 결정론적으로 검증 → 스냅샷 IMMORTAL에 경고 포함 |
+
+### NEVER DO
+- ULW 활성 상태에서 Task를 "일부 완료"로 남기고 멈추기 금지
+- 에러 발생 시 대안 시도 없이 포기 금지
+- TaskCreate 없이 암묵적으로 작업 진행 금지 (비-trivial 작업 시)
+- ULW와 Autopilot 동시 활성화 시 ULW가 Autopilot을 override 금지 — Autopilot이 우선
 
 ## 언어 및 스타일 규칙
 

@@ -89,6 +89,12 @@ MIN_OUTPUT_SIZE = 100
 # --- SOT file paths (single definition — 절대 기준 2) ---
 SOT_FILENAMES = ("state.yaml", "state.yml", "state.json")
 
+# --- Tool result error detection patterns (shared by check_ulw_compliance + extract_completion_state) ---
+TOOL_ERROR_PATTERNS = [
+    "Error:", "error:", "FAILED", "failed",
+    "not found", "Permission denied", "No such file",
+]
+
 
 # =============================================================================
 # Transcript Parsing
@@ -617,6 +623,156 @@ def read_active_team_state(project_dir):
 
 
 # =============================================================================
+# ULW (Ultrawork) Mode Detection
+# =============================================================================
+
+def detect_ulw_mode(entries):
+    """Detect ULW (Ultrawork) mode activation from user messages.
+
+    Scans transcript entries for the "ulw" keyword in user messages.
+    Uses word-boundary regex to prevent false positives from variable names,
+    file paths, or URLs (e.g., "resultw", "/usr/local/ulwrap").
+
+    Args:
+        entries: List of parsed transcript entries.
+
+    Returns:
+        dict with {active, detected_in, source_message, message_index} or None.
+
+    P1 Compliance: Deterministic regex match on verbatim user messages.
+    """
+    # Word-boundary pattern: not preceded/followed by alphanumeric, underscore, slash, dot, hyphen
+    ULW_PATTERN = re.compile(
+        r'(?<![a-zA-Z0-9_/\-\.])ulw(?![a-zA-Z0-9_/\-\.])',
+        re.IGNORECASE,
+    )
+
+    user_messages = [
+        (i, e) for i, e in enumerate(entries)
+        if e.get("type") == "user_message"
+        and not (e.get("content", "").startswith("<") and ">" in e.get("content", "")[:50])
+    ]
+
+    for idx, (msg_index, entry) in enumerate(user_messages):
+        content = entry.get("content", "")
+        if ULW_PATTERN.search(content):
+            return {
+                "active": True,
+                "detected_in": "first" if idx == 0 else "subsequent",
+                "source_message": content[:500],
+                "message_index": msg_index,
+            }
+
+    return None
+
+
+def check_ulw_compliance(entries):
+    """ULW 모드 활성 시 5개 실행 규칙의 준수 여부를 결정론적으로 검증.
+
+    All checks are pure counting and pattern matching — P1 compliant.
+    No heuristic inference. No AI judgment.
+
+    Checks:
+      1. Auto Task Tracking: TaskCreate used? (threshold: 5+ tool uses)
+      2. Progress Reporting: TaskUpdate used? (when TaskCreate exists)
+      3. Completion Verification: TaskList used? (when TaskCreate exists)
+      4. Error Recovery: post-error tool actions exist?
+      5. Sisyphus Mode: indirect — incomplete tasks at session end
+
+    Args:
+        entries: List of parsed transcript entries.
+
+    Returns:
+        dict with compliance metrics and warnings, or None if ULW inactive.
+    """
+    ulw_state = detect_ulw_mode(entries)
+    if not ulw_state:
+        return None
+
+    # Filter: only count entries AFTER ULW activation point
+    # Prevents false positives when ULW is activated in a "subsequent" message
+    ulw_start_idx = ulw_state["message_index"]
+    post_ulw_entries = entries[ulw_start_idx:]
+
+    tool_uses = [e for e in post_ulw_entries if e.get("type") == "tool_use"]
+    tool_results = [e for e in post_ulw_entries if e.get("type") == "tool_result"]
+
+    compliance = {
+        "active": True,
+        "task_creates": 0,
+        "task_updates": 0,
+        "task_lists": 0,
+        "total_tool_uses": len(tool_uses),
+        "errors_detected": 0,
+        "post_error_actions": 0,
+        "warnings": [],
+    }
+
+    # Count task management tool uses
+    for tu in tool_uses:
+        name = tu.get("tool_name", "")
+        if name == "TaskCreate":
+            compliance["task_creates"] += 1
+        elif name == "TaskUpdate":
+            compliance["task_updates"] += 1
+        elif name == "TaskList":
+            compliance["task_lists"] += 1
+
+    # Detect errors and post-error recovery attempts
+    # Uses module-level TOOL_ERROR_PATTERNS (DRY — shared with extract_completion_state)
+    last_error_global_idx = -1
+
+    for i, entry in enumerate(post_ulw_entries):
+        if entry.get("type") == "tool_result":
+            is_error = entry.get("is_error", False)
+            content = entry.get("content", "")[:500]
+            if is_error or any(sig in content for sig in TOOL_ERROR_PATTERNS):
+                compliance["errors_detected"] += 1
+                last_error_global_idx = i
+
+    # Count tool uses that occurred AFTER the last error (recovery attempts)
+    if last_error_global_idx >= 0:
+        for i, entry in enumerate(post_ulw_entries):
+            if i > last_error_global_idx and entry.get("type") == "tool_use":
+                compliance["post_error_actions"] += 1
+
+    # Generate deterministic warnings
+    # W1: No task tracking despite significant tool usage
+    if compliance["task_creates"] == 0 and compliance["total_tool_uses"] >= 5:
+        compliance["warnings"].append(
+            "ULW_NO_TASKS: 도구 {}회 사용, TaskCreate 0회 — Auto Task Tracking 미준수".format(
+                compliance["total_tool_uses"]
+            )
+        )
+
+    # W2: Tasks created but never updated (no progress reporting)
+    if compliance["task_creates"] > 0 and compliance["task_updates"] == 0:
+        compliance["warnings"].append(
+            "ULW_NO_PROGRESS: TaskCreate {}회, TaskUpdate 0회 — Progress Reporting 미준수".format(
+                compliance["task_creates"]
+            )
+        )
+
+    # W3: Tasks created but never listed (no completion verification)
+    if compliance["task_creates"] > 0 and compliance["task_lists"] == 0:
+        compliance["warnings"].append(
+            "ULW_NO_VERIFY: TaskCreate {}회, TaskList 0회 — 완료 검증 미수행".format(
+                compliance["task_creates"]
+            )
+        )
+
+    # W4: Errors detected but no subsequent actions (no error recovery)
+    if compliance["errors_detected"] > 0 and compliance["post_error_actions"] == 0:
+        compliance["warnings"].append(
+            "ULW_NO_RECOVERY: 에러 {}건 감지, 후속 조치 0건 — Error Recovery 미준수".format(
+                compliance["errors_detected"]
+            )
+        )
+
+    return compliance
+
+
+# =============================================================================
 # Git State Capture (E2 — Ground Truth)
 # =============================================================================
 
@@ -686,11 +842,8 @@ def extract_completion_state(entries, project_dir):
         content = tr.get("content", "")
         is_error = tr.get("is_error", False)
         # Supplementary error pattern matching (defensive — in case is_error is missing)
-        ERROR_PATTERNS = [
-            "Error:", "error:", "FAILED", "failed",
-            "not found", "Permission denied", "No such file",
-        ]
-        has_error_pattern = any(p in content for p in ERROR_PATTERNS) if not is_error else False
+        # Uses module-level TOOL_ERROR_PATTERNS (DRY — shared with check_ulw_compliance)
+        has_error_pattern = any(p in content for p in TOOL_ERROR_PATTERNS) if not is_error else False
         result_by_id[tid] = is_error or has_error_pattern
 
     # 3. Edit/Write success/failure counts (matched via tool_use_id)
@@ -1035,7 +1188,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
       - E4: Claude response priority selection + section promotion
 
     Section survival priority (truncation order):
-      1-9: IMMORTAL  (Header, Task, SOT, Autopilot*, Team*, Decisions*, Resume, Completion State, Git)
+      1-9: IMMORTAL  (Header, Task, SOT, Autopilot*, ULW*, Team*, Decisions*, Resume, Completion State, Git)
       10-13: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
       14-16: SACRIFICABLE (Statistics, Commands, Work Log)
       (* = conditional sections, only present when active)
@@ -1188,6 +1341,49 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                 sections.append("")
     except Exception:
         pass  # Non-blocking — team section is supplementary
+
+    # Section 2.65: ULW State (IMMORTAL — conditional, only when active)
+    try:
+        ulw_state = detect_ulw_mode(entries)
+        if ulw_state:
+            sections.append("## ULW 상태 (Ultrawork Mode State)")
+            sections.append("<!-- IMMORTAL: 세션 복원 시 반드시 보존 -->")
+            sections.append("")
+            sections.append(f"- **활성화**: Yes")
+            sections.append(f"- **감지 위치**: {ulw_state['detected_in']} user message (index {ulw_state['message_index']})")
+            sections.append(f"- **원본 지시**: {_truncate(ulw_state['source_message'], 500)}")
+            sections.append("")
+            sections.append("### ULW 실행 규칙 (Execution Rules)")
+            sections.append("1. **Sisyphus Mode**: 모든 Task가 100% 완료될 때까지 멈추지 않음")
+            sections.append("2. **Auto Task Tracking**: 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증")
+            sections.append("3. **Error Recovery**: 에러 발생 시 대안을 시도하고, 대안도 실패하면 사용자에게 보고")
+            sections.append("4. **No Partial Completion**: '일부만 완료'는 미완료와 동일 — 전체 완료까지 계속")
+            sections.append("5. **Progress Reporting**: 각 Task 완료 시 TaskUpdate로 상태 갱신")
+            sections.append("")
+
+            # ULW Compliance Guard — deterministic rule compliance check
+            ulw_compliance = check_ulw_compliance(entries)
+            if ulw_compliance:
+                sections.append("### 준수 상태 (Compliance Guard)")
+                sections.append(f"- TaskCreate: {ulw_compliance['task_creates']}회")
+                sections.append(f"- TaskUpdate: {ulw_compliance['task_updates']}회")
+                sections.append(f"- TaskList: {ulw_compliance['task_lists']}회")
+                sections.append(f"- 총 도구 사용: {ulw_compliance['total_tool_uses']}회")
+                if ulw_compliance["errors_detected"] > 0:
+                    sections.append(f"- 에러 감지: {ulw_compliance['errors_detected']}건")
+                    sections.append(f"- 에러 후 조치: {ulw_compliance['post_error_actions']}건")
+                warnings = ulw_compliance.get("warnings", [])
+                if warnings:
+                    sections.append("")
+                    sections.append("**⚠ 규칙 위반 감지:**")
+                    for w in warnings:
+                        sections.append(f"- {w}")
+                else:
+                    sections.append("")
+                    sections.append("✅ 모든 규칙 준수")
+                sections.append("")
+    except Exception:
+        pass  # Non-blocking — ULW section is supplementary
 
     # Section 2.7: Design Decisions (C-1 — IMMORTAL, conditional)
     if decisions:
@@ -1795,8 +1991,8 @@ def _compress_snapshot(full_md, sections):
       Phase 7: Hard truncate only as absolute last resort
 
     Always preserved (IMMORTAL):
-      Header, Current Task, SOT, Autopilot State*, Team State*,
-      Design Decisions*, Resume Protocol,
+      Header, Current Task, SOT, Autopilot State*, ULW State*,
+      Team State*, Design Decisions*, Resume Protocol,
       Deterministic Completion State, Git Changes (stat+commits)
       (* = conditional sections, only present when active)
 
@@ -2282,6 +2478,11 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     pacs_min = _extract_pacs_from_sot(project_dir)
     if pacs_min is not None:
         facts["pacs_min"] = pacs_min
+
+    # 4. ULW mode detection — tag session for RLM cross-session queries
+    ulw_state = detect_ulw_mode(entries)
+    if ulw_state:
+        facts["ulw_active"] = True
 
     return facts
 

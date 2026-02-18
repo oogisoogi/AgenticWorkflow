@@ -61,7 +61,7 @@ AgenticWorkflow/
 | `restore_context.py` | SessionStart | 포인터+요약으로 복원 |
 | `update_work_log.py` | PostToolUse | 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate) 작업 로그 누적, 75% threshold 시 자동 저장 |
 | `generate_context_summary.py` | Stop | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, E5 Guard) |
-| `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling, Autopilot 상태 읽기·검증, 절삭 상수 중앙화(10개), sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴 분류, IMMORTAL-aware 압축 |
+| `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화(10개), sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴 분류, IMMORTAL-aware 압축 |
 | `setup_init.py` | Setup (`--init`) | 세션 시작 전 인프라 건강 검증 (Python, PyYAML, 스크립트 구문, 디렉터리) |
 | `setup_maintenance.py` | Setup (`--maintenance`) | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 
@@ -74,6 +74,16 @@ AgenticWorkflow/
 - **런타임 강화**: Hook 기반 컨텍스트 주입 + 스냅샷 내 Autopilot 상태 보존
 
 상세: `AGENTS.md §5.1`
+
+## ULW (Ultrawork) Mode
+
+프롬프트에 `ulw`를 포함하면 활성화되는 범용 집중 작업 모드입니다. Autopilot(워크플로우 전용, SOT 기반)과 달리 **SOT 없이** 동작합니다.
+
+- **Sisyphus Mode**: 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도
+- **Auto Task Tracking**: 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증
+- **Compliance Guard**: Python Hook이 5개 실행 규칙의 준수를 결정론적으로 검증 (스냅샷 IMMORTAL 보존)
+
+상세: `CLAUDE.md` ULW Mode 섹션
 
 ## 4계층 품질 보장 (Quality Assurance Stack)
 

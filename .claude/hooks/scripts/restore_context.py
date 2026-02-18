@@ -107,6 +107,7 @@ def main():
         snapshot_age=snapshot_age,
         fallback_note=fallback_note,
         project_dir=project_dir,
+        snapshot_content=snapshot_content,
     )
 
     # Output to stdout — Claude receives this as session context
@@ -192,6 +193,10 @@ def _extract_brief_summary(content):
                 summary_parts.append(("autopilot", line.strip()[:100]))
                 break
 
+    # C1: Extract ULW mode presence
+    if "ULW 상태" in content or "Ultrawork Mode" in content:
+        summary_parts.append(("ulw", "ULW (Ultrawork) Mode Active"))
+
     # C1: Extract active team info
     if "Agent Team" in content or "active_team" in content:
         for line in lines:
@@ -239,7 +244,7 @@ def _verify_sot_consistency(snapshot_content, project_dir):
     return None
 
 
-def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note="", project_dir=None):
+def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note="", project_dir=None, snapshot_content=""):
     """Build the RLM-style recovery output for SessionStart injection."""
     age_str = _format_age(snapshot_age)
 
@@ -262,6 +267,7 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
     error_info = []
     autopilot_info = ""
     team_info = ""
+    ulw_info = ""
 
     for label, content in summary:
         if label == "현재 작업":
@@ -284,6 +290,8 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             autopilot_info = content
         elif label == "team":
             team_info = content
+        elif label == "ulw":
+            ulw_info = content
 
     if task_info:
         output_lines.append(f"■ 현재 작업: {task_info}")
@@ -311,6 +319,8 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
         output_lines.append(f"■ Autopilot: {autopilot_info}")
     if team_info:
         output_lines.append(f"■ Team: {team_info}")
+    if ulw_info:
+        output_lines.append(f"■ ULW: {ulw_info}")
 
     # E6: Fallback note (if using archive instead of latest.md)
     if fallback_note:
@@ -344,6 +354,7 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             output_lines.append(f'  - Grep "design_decisions" {ki_path} → 설계 결정 포함 세션')
             output_lines.append(f'  - Grep "error_patterns" {ki_path} → 에러 패턴 포함 세션')
             output_lines.append(f'  - Grep "phase_flow.*implementation" {ki_path} → 구현 단계 세션')
+            output_lines.append(f'  - Grep "ulw_active" {ki_path} → ULW 세션')
         if os.path.isdir(sessions_dir):
             output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
 
@@ -387,6 +398,23 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
                             output_lines.append(f"  {mark} {reason}")
         except Exception:
             pass  # Non-blocking — autopilot injection is supplementary
+
+    # ULW (Ultrawork) Mode context injection (conditional)
+    # Detects from snapshot content — transcript not available at SessionStart
+    # "startup" excluded: ULW deactivates implicitly in new sessions (design decision)
+    # Only inject for clear/compact/resume where the same logical session continues
+    if (snapshot_content
+            and source != "startup"
+            and ("ULW 상태" in snapshot_content or "Ultrawork Mode" in snapshot_content)):
+        output_lines.append("")
+        output_lines.append("━━━ ULTRAWORK (ULW) MODE ACTIVE ━━━")
+        output_lines.append("")
+        output_lines.append("■ ULW EXECUTION RULES (MANDATORY):")
+        output_lines.append("  1. Sisyphus Mode — 모든 Task가 100% 완료될 때까지 멈추지 않음")
+        output_lines.append("  2. Auto Task Tracking — 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증")
+        output_lines.append("  3. Error Recovery — 에러 발생 시 대안 시도, 대안도 실패하면 사용자에게 보고")
+        output_lines.append("  4. No Partial Completion — '일부만 완료'는 미완료와 동일, 전체 완료까지 계속")
+        output_lines.append("  5. Progress Reporting — 각 Task 완료 시 TaskUpdate로 상태 갱신")
 
     # Instruction for Claude
     output_lines.extend([

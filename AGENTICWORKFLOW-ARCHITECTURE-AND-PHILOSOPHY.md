@@ -1097,6 +1097,42 @@ PostToolUse ──────→ autopilot_step 진행 추적     │  ← work
 
 상세: `AGENTS.md §5.1`
 
+### ULW Mode (범용 집중 작업 모드)
+
+Autopilot이 워크플로우 단계에 한정된다면, ULW는 **범용 작업**에서 SOT 없이 동작하는 집중 모드이다.
+
+| 항목 | Autopilot | ULW |
+|------|-----------|-----|
+| 대상 | 워크플로우 단계 | 범용 작업 |
+| 상태 관리 | SOT (`state.yaml`) | 스냅샷 IMMORTAL (SOT 불필요) |
+| 활성화 | SOT `autopilot.enabled: true` | 프롬프트에 `ulw` 포함 |
+| 비활성화 | SOT 변경 | 암묵적 (새 세션 시 `ulw` 없으면 비활성) |
+
+**핵심 기능:**
+1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음
+2. **Auto Task Tracking** — TaskCreate → TaskUpdate → TaskList
+
+**결정론적 강화 (Claude Code 구현):**
+
+```
+                  ┌─── Hook 계층 (결정론적) ───┐
+                  │                            │
+detect_ulw_mode ──→ 트랜스크립트 정규식 감지     │  ← word-boundary 오탐 방지
+                  │                            │
+Snapshot ─────────→ ULW 상태 IMMORTAL 보존      │  ← 세션 경계에서 유실 방지
+                  │                            │
+SessionStart ─────→ ULW 실행 규칙 주입          │  ← clear/compact/resume 시
+                  │ (startup 제외 — 암묵적 해제) │
+                  │                            │
+Stop ─────────────→ Compliance Guard 검증       │  ← 5개 규칙 준수 결정론적 체크
+                  │ + Knowledge Archive 태깅    │
+                  └────────────────────────────┘
+```
+
+> **Autopilot과의 공존**: 양쪽 동시 활성화 시 Autopilot이 우선. ULW는 Autopilot을 override하지 않는다.
+
+상세: `CLAUDE.md` ULW Mode 섹션
+
 ---
 
 ## 7. 문서 아키텍처 (Documentation Architecture)

@@ -392,6 +392,29 @@ workflow:
 
 **활성화:** 기본값은 비활성(interactive). 워크플로우 Overview에 `Autopilot: enabled` 명시 또는 실행 시 사용자 지시로 활성화. 실행 중 토글 가능.
 
+### 5.1.1 ULW Mode (Claude Code)
+
+Autopilot이 워크플로우 단계 실행에 한정된다면, **ULW(Ultrawork)**는 범용 작업에서 SOT 없이 동작하는 집중 모드이다. 프롬프트에 `ulw`를 포함하면 활성화된다.
+
+**핵심 기능:**
+1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도
+2. **Auto Task Tracking** — 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증
+
+**Autopilot과의 차이:**
+
+| 항목 | Autopilot | ULW |
+|------|-----------|-----|
+| 대상 | 워크플로우 단계 | 범용 작업 |
+| 상태 관리 | SOT (`state.yaml`) | 스냅샷 IMMORTAL |
+| 비활성화 | SOT 변경 | 암묵적 (새 세션 시 `ulw` 없으면 비활성) |
+| 병렬 실행 | `(team)` 지원 | 미지원 |
+
+**결정론적 강화:** Python Hook이 5개 실행 규칙의 준수를 결정론적으로 검증 (Compliance Guard). 위반 시 스냅샷 IMMORTAL 섹션에 경고 기록.
+
+> **공존 규칙**: Autopilot과 ULW 동시 활성화 시 Autopilot이 우선. ULW는 Autopilot을 override하지 않는다.
+
+상세: `CLAUDE.md` ULW Mode 섹션
+
 ### 5.2 English-First 실행 및 번역 프로토콜
 
 워크플로우 **실행** 시 모든 에이전트는 **영어로 작업**하고 **영어로 산출물**을 생성한다. AI는 영어에서 가장 높은 성능을 발휘하므로, 영어 우선 실행은 **절대 기준 1(품질)**의 직접적 구현이다.
