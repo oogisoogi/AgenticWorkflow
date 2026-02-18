@@ -201,7 +201,7 @@ AgenticWorkflow/
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 + 절삭 상수 중앙화 + sot_paths() 경로 통합 + 다단계 전환 감지 + Smart Throttling + Autopilot 상태 읽기·검증 + 결정 품질 태그 정렬 + Error Taxonomy 12패턴 + IMMORTAL-aware 압축)
+│   │   ├── _context_lib.py    (공유 라이브러리 + 절삭 상수 중앙화 + sot_paths() 경로 통합 + 다단계 전환 감지 + Smart Throttling + Autopilot 상태 읽기·검증 + ULW 감지·준수 검증 + 결정 품질 태그 정렬 + Error Taxonomy 12패턴 + IMMORTAL-aware 압축)
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
@@ -234,6 +234,7 @@ AgenticWorkflow/
 - **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태), phase(세션 단계), phase_flow(다단계 전환 흐름), primary_language(주요 파일 확장자), error_patterns(Error Taxonomy 12패턴 분류), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
 - **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터, 완료 상태(도구 성공/실패), Git 변경 상태. 복원 품질의 바닥선 보장
 - **Autopilot 런타임 강화**: Autopilot 활성 시 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하고, 세션 복원 시 실행 규칙을 컨텍스트에 주입. Stop hook이 Decision Log 누락을 감지·보완
+- **ULW 모드 감지·보존**: `detect_ulw_mode()`가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 5개 실행 규칙을 컨텍스트에 주입. `check_ulw_compliance()`가 준수를 결정론적으로 검증. Knowledge Archive에 `ulw_active: true` 태깅
 - **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션은 `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 정렬하여, 15개 슬롯에 고신호 결정이 우선 배치됨. 비교·트레이드오프·선택 패턴도 추출
 - **IMMORTAL-aware 압축**: 스냅샷 크기 초과 시 IMMORTAL 섹션을 우선 보존하고 비-IMMORTAL 콘텐츠를 먼저 절삭. 극단적 경우에도 IMMORTAL 텍스트 시작 부분 보존
 - **Error Taxonomy**: 도구 에러를 12패턴으로 분류 (file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found). False positive 방지를 위해 negative lookahead·한정어 매칭 적용. Knowledge Archive의 error_patterns 필드에 기록

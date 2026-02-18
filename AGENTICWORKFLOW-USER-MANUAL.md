@@ -628,6 +628,69 @@ Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임�
 
 ---
 
+## 12-1. ULW (Ultrawork) Mode
+
+Autopilot이 워크플로우 단계 실행에 한정된다면, ULW는 **범용 작업에서 SOT 없이** 동작하는 집중 작업 모드입니다. 프롬프트에 `ulw`를 포함하면 활성화됩니다.
+
+### Autopilot과의 차이
+
+| 항목 | Autopilot | ULW |
+|------|-----------|-----|
+| **대상** | 워크플로우 단계 실행 | 범용 작업 |
+| **상태 관리** | SOT (`state.yaml`) | 스냅샷 IMMORTAL (SOT 불필요) |
+| **활성화** | SOT `autopilot.enabled: true` | 프롬프트에 `ulw` 포함 |
+| **비활성화** | SOT 변경 | 암묵적 (새 세션에서 `ulw` 없으면 비활성) |
+| **병렬 실행** | `(team)` 단계 지원 | 미지원 |
+| **Verification Gate** | L0-L2 4계층 | 해당 없음 (TaskList 기반 완료 확인) |
+
+### 활성화
+
+프롬프트에 `ulw`를 포함하면 자동으로 활성화됩니다:
+
+```
+ulw 이거 해줘
+ulw 리팩토링해줘
+```
+
+새 세션에서 `ulw` 없이 프롬프트를 입력하면 자동으로 비활성화됩니다 (암묵적 해제). 명시적 해제 명령은 불필요합니다.
+
+### 핵심 기능
+
+| 기능 | 설명 |
+|------|------|
+| **Sisyphus Mode** | 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도 |
+| **Auto Task Tracking** | 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증 |
+
+### 5가지 실행 규칙
+
+1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음
+2. **Auto Task Tracking** — 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증
+3. **Error Recovery** — 에러 발생 시 대안을 시도하고, 대안도 실패하면 사용자에게 보고
+4. **No Partial Completion** — "일부만 완료"는 미완료와 동일 — 전체 완료까지 계속
+5. **Progress Reporting** — 각 Task 완료 시 TaskUpdate로 상태 갱신
+
+### 런타임 강화 (Claude Code)
+
+Hook 시스템이 ULW의 5개 실행 규칙을 결정론적으로 강화합니다:
+
+| 시점 | 메커니즘 | 효과 |
+|------|---------|------|
+| 트랜스크립트 파싱 | `detect_ulw_mode()` — word-boundary 정규식 | 오탐 없이 `ulw` 키워드 감지 |
+| 매 응답 후 | 스냅샷에 ULW 상태 섹션 보존 (IMMORTAL) | 세션 경계에서 ULW 상태 유실 방지 |
+| 세션 시작/복원 | SessionStart가 ULW 실행 규칙 주입 | `clear`/`compact`/`resume` 시 규칙 재주입 (`startup` 제외 — 암묵적 해제) |
+| 매 응답 후 | `check_ulw_compliance()` — Compliance Guard | 5개 규칙 준수를 결정론적으로 검증, 위반 시 IMMORTAL 경고 |
+| 세션 종료 | Knowledge Archive에 `ulw_active: true` 태깅 | 크로스세션 RLM 쿼리 가능 |
+
+### Autopilot과의 공존
+
+Autopilot과 ULW가 동시에 활성화되면 **Autopilot이 우선**합니다. ULW는 Autopilot을 override하지 않습니다.
+
+> 다른 AI 도구에서는 ULW의 Hook 기반 강화가 없으므로, TaskCreate/TaskUpdate/TaskList를 수동으로 사용하여 ULW의 실행 규칙을 준수해야 합니다.
+
+상세: `CLAUDE.md` ULW Mode 섹션, `AGENTS.md §5.1.1`
+
+---
+
 ## 13. Verification Protocol (작업 검증)
 
 워크플로우 각 단계의 산출물이 **기능적 목표를 100% 달성했는지** 검증하는 프로토콜입니다.
