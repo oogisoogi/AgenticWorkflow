@@ -398,6 +398,41 @@
 - **대안**: (1) SOT 쓰기 보호 → 보류 (Hook API가 에이전트 역할을 구분하지 못함), (2) Anti-Skip Guard 강화 → 보류 (Stop 타이밍이 사후적이어서 예방 불가)
 - **차단 패턴**: git push --force(NOT --force-with-lease), git push -f, git reset --hard, git checkout ., git restore ., git clean -f, git branch -D, git branch --delete --force(양방향 순서), rm -rf / 또는 ~
 
+### ADR-032: PreToolUse TDD Guard — 테스트 파일 수정 차단
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: Claude는 TDD 시 테스트가 실패하면 구현 코드 대신 테스트 코드를 수정하려는 경향이 있다. 이는 TDD의 핵심 원칙("테스트는 불변, 구현만 수정")을 위반한다.
+- **결정**: `block_test_file_edit.py`를 PreToolUse Hook(matcher: `Edit|Write`)으로 등록한다. `.tdd-guard` 파일이 프로젝트 루트에 존재할 때만 활성화된다. 2계층 탐지(Tier 1: 디렉터리명 — test/tests/__tests__/spec/specs, Tier 2: 파일명 패턴 — test_*/\*_test.\*/\*.test.\*/\*.spec.\*/\*Test.\*/conftest.py)로 테스트 파일을 결정론적으로 식별하고, exit code 2 + stderr 피드백으로 Claude가 구현 코드를 수정하도록 유도한다.
+- **근거**:
+  - P1 할루시네이션 봉쇄 패턴 재사용 — 테스트 파일 탐지는 regex/string matching으로 100% 결정론적
+  - ADR-031(`block_destructive_commands.py`)과 동일한 아키텍처 — 독립 실행, `if test -f; then; fi` 패턴, Safety-first exit(0)
+  - `.tdd-guard` 토글은 SOT(`state.yaml`)와 독립 — TDD는 워크플로우 밖에서도 사용되므로 SOT 의존 부적합
+  - `REQUIRED_SCRIPTS`(D-7) 양쪽 동기화로 `setup_init.py`/`setup_maintenance.py` 인프라 검증 대상에 포함
+- **대안**:
+  - 항상 차단 (토글 없음) → 기각 (테스트 작성 시에도 차단되어 비실용적)
+  - SOT `tdd_mode: true`로 제어 → 기각 (SOT는 워크플로우 전용, TDD는 범용)
+  - PostToolUse에서 사후 경고 → 기각 (이미 파일이 수정된 후라 예방 불가)
+- **관련 커밋**: (pending)
+
+### ADR-033: Context Memory 최적화 — success_patterns + Next Step IMMORTAL + 모듈 레벨 regex
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: 전체 감사 결과 3가지 Context Memory 최적화 기회가 확인되었다. (1) Knowledge Archive가 error_patterns만 기록하고 성공 패턴은 누락, (2) "다음 단계" 섹션이 독립 IMMORTAL 마커 없이 부모 섹션에 암묵적 포함, (3) `_extract_decisions()`의 8개 regex + `_extract_next_step()`의 1개 regex + `_SYSTEM_CMD`가 매 호출마다 컴파일.
+- **결정**:
+  1. `_extract_success_patterns()` 함수 추가 — Edit/Write→성공적 Bash 시퀀스를 결정론적으로 추출하여 `success_patterns` 필드로 Knowledge Archive에 기록
+  2. "다음 단계 (Next Step)" 섹션을 독립 `## ` 헤더 + `<!-- IMMORTAL: -->` 마커로 승격 — Phase 7 hard truncate에서 명시적 보존 대상
+  3. 10개 regex 패턴을 모듈 레벨 상수로 이동 — 프로세스당 1회 컴파일
+- **근거**:
+  - success_patterns: `Grep "success_patterns" knowledge-index.jsonl`로 RLM cross-session 성공 패턴 탐색 가능. error_patterns의 대칭 — 실패에서 배우듯 성공에서도 배운다.
+  - Next Step IMMORTAL: 세션 복원 시 "다음에 무엇을 해야 하는지"는 "현재 무엇을 하고 있는지" 못지않게 중요한 인지적 연속성 앵커.
+  - 모듈 레벨 regex: Stop hook 30초 간격 실행에서 매번 10개 패턴을 재컴파일하는 것은 불필요한 오버헤드.
+- **대안**:
+  - success_patterns에 Read도 포함 → 기각 (Read는 검증 아닌 탐색이므로 "성공 패턴"으로서 신호 약함)
+  - Next Step을 별도 파일로 분리 → 기각 (over-engineering, 스냅샷 내 IMMORTAL 마커로 충분)
+- **관련 커밋**: (pending)
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -420,6 +455,8 @@
 | 2026-02-20 | `162a322`~`5634b0e` | ADR-011: Spoke 파일 정리 |
 | 2026-02-20 | `f76a1fd` | ADR-016, 024: E5 Guard, P1 할루시네이션 봉쇄 |
 | 2026-02-20 | (pending) | ADR-031: PreToolUse Safety Hook |
+| 2026-02-20 | (pending) | ADR-032: PreToolUse TDD Guard |
+| 2026-02-20 | (pending) | ADR-033: Context Memory 최적화 (success_patterns, Next Step IMMORTAL, regex) |
 
 ---
 

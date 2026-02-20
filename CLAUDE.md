@@ -98,16 +98,17 @@ AgenticWorkflow/
 │   ├── commands/                           ← Slash Commands
 │   │   ├── install.md                     (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
-│   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks + Safety Hook
+│   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks + Safety Hooks
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
-│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 6항목 검증))
+│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 6항목 검증), 모듈 레벨 regex 컴파일(9개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터 + 동적 RLM 쿼리 힌트)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
 │   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
 │   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
 │   │   ├── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
-│   │   └── block_destructive_commands.py  (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
+│   │   ├── block_destructive_commands.py  (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
+│   │   └── block_test_file_edit.py        (PreToolUse TDD Guard — 테스트 파일 수정 차단, .tdd-guard 토글, exit code 2 + Claude 자기 수정)
 │   ├── context-snapshots/                 ← 런타임 스냅샷 (gitignored)
 │   │   ├── latest.md                      (최신 스냅샷)
 │   │   ├── knowledge-index.jsonl          (세션 간 축적 인덱스 — RLM 프로그래밍적 탐색 대상)
@@ -138,6 +139,7 @@ AgenticWorkflow/
 | **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문, 디렉터리, PyYAML, SOT 쓰기 패턴 검증) |
 | **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 | **PreToolUse** (Bash) | `block_destructive_commands.py` | 위험 명령 실행 전 차단 (git push --force, git reset --hard, rm -rf / 등). exit code 2로 차단 + stderr 피드백으로 Claude 자기 수정 |
+| **PreToolUse** (Edit\|Write) | `block_test_file_edit.py` | TDD 모드(`.tdd-guard` 존재) 시 테스트 파일 수정 차단. Tier 1(디렉터리) + Tier 2(파일명) 2계층 탐지. exit code 2 + stderr 피드백으로 구현 코드 수정 유도 |
 | **SessionEnd** (`/clear`) | `save_context.py` | 전체 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
@@ -148,7 +150,7 @@ AgenticWorkflow/
 
 - 세션 시작 시 `[CONTEXT RECOVERY]` 메시지가 표시되면, 안내된 경로의 파일을 **반드시 Read tool로 읽어** 이전 맥락을 복원한다.
 - 스냅샷은 `.claude/context-snapshots/latest.md`에 저장된다.
-- **Knowledge Archive**: `knowledge-index.jsonl`은 세션 간 축적되는 구조화된 인덱스이다. Stop hook과 SessionEnd/PreCompact 모두에서 기록된다. 각 엔트리에는 completion_summary(도구 성공/실패), git_summary(변경 상태), session_duration_entries(세션 길이), phase(세션 전체 단계), phase_flow(다단계 전환 흐름, 예: `research → implementation`), primary_language(주요 파일 확장자), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑)가 포함된다. Grep tool로 프로그래밍적 탐색이 가능하다 (RLM 패턴).
+- **Knowledge Archive**: `knowledge-index.jsonl`은 세션 간 축적되는 구조화된 인덱스이다. Stop hook과 SessionEnd/PreCompact 모두에서 기록된다. 각 엔트리에는 completion_summary(도구 성공/실패), git_summary(변경 상태), session_duration_entries(세션 길이), phase(세션 전체 단계), phase_flow(다단계 전환 흐름, 예: `research → implementation`), primary_language(주요 파일 확장자), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), success_patterns(Edit/Write→Bash 성공 시퀀스 — cross-session 성공 패턴 학습), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑)가 포함된다. Grep tool로 프로그래밍적 탐색이 가능하다 (RLM 패턴).
 - **Resume Protocol**: 스냅샷에 포함된 "복원 지시" 섹션은 수정/참조 파일 목록과 세션 정보를 결정론적으로 제공한다. `[CONTEXT RECOVERY]` 출력에는 완료 상태(도구 성공/실패)와 Git 변경 상태도 표시된다. **동적 RLM 쿼리 힌트**: 수정 파일 경로에서 추출한 태그(`extract_path_tags()`)와 에러 정보를 기반으로 세션별 맞춤 Grep 쿼리 예시를 자동 생성한다.
 - Hook 스크립트는 SOT(`state.yaml`)를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수). SOT 파일 경로는 `sot_paths()` 헬퍼로 중앙 관리되며, `SOT_FILENAMES` 상수(`state.yaml`, `state.yml`, `state.json`)에서 파생된다.
 - **절삭 상수 중앙화**: `_context_lib.py`에 10개 절삭 상수(`EDIT_PREVIEW_CHARS=1000`, `ERROR_RESULT_CHARS=3000`, `MIN_OUTPUT_SIZE=100` 등)를 중앙 정의. Edit preview는 5줄×1000자로 편집 의도·맥락을 보존하고, 에러 메시지는 3000자로 stack trace 전체를 보존한다.
@@ -163,19 +165,20 @@ AgenticWorkflow/
 
 ### Hook 설정 위치
 
-- **Global** (`~/.claude/settings.json`): `context_guard.py` 통합 디스패처 4개 + 독립 Safety Hook 1개
+- **Global** (`~/.claude/settings.json`): `context_guard.py` 통합 디스패처 4개 + 독립 Safety Hook 2개
   - Stop → `context_guard.py --mode=stop` → `generate_context_summary.py`
   - PostToolUse → `context_guard.py --mode=post-tool` → `update_work_log.py` (matcher: `Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate`)
   - PreCompact → `context_guard.py --mode=pre-compact` → `save_context.py --trigger precompact`
   - SessionStart → `context_guard.py --mode=restore` → `restore_context.py`
   - **PreToolUse** → `block_destructive_commands.py` (matcher: `Bash`, 독립 실행 — `if test -f; then; fi` 패턴으로 exit code 2 보존)
+  - **PreToolUse** → `block_test_file_edit.py` (matcher: `Edit|Write`, 독립 실행 — `.tdd-guard` 토글 기반 TDD 테스트 파일 보호)
 - **Project** (`.claude/settings.json`): SessionEnd + Setup 이벤트
   - SessionEnd → `save_context.py --trigger sessionend`
   - Setup (init) → `setup_init.py` — 인프라 건강 검증 (`claude --init`)
   - Setup (maintenance) → `setup_maintenance.py` — 주기적 건강 검진 (`claude --maintenance`)
 
 > **Setup Hook의 context_guard.py 우회 근거**: Setup은 세션 시작 **전**에 실행되는 프로젝트 고유 인프라 검증이므로, Global 디스패처와 독립적으로 Project 설정에서 직접 실행한다. SOT에 접근하지 않는다.
-> **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`는 안전(safety) 관심사로, 컨텍스트 보존(context preservation)과는 다른 도메인이다. exit code 2 보존이 필수이므로, `|| true` 패턴을 사용하는 `context_guard.py`를 거치지 않고 `if test -f; then; fi` 패턴으로 직접 실행한다.
+> **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`(안전)와 `block_test_file_edit.py`(TDD 보호)는 컨텍스트 보존과는 다른 도메인이다. exit code 2 보존이 필수이므로, `|| true` 패턴을 사용하는 `context_guard.py`를 거치지 않고 `if test -f; then; fi` 패턴으로 직접 실행한다. `block_test_file_edit.py`는 `.tdd-guard` 파일 존재 시에만 활성화된다 (`touch .tdd-guard`로 TDD 모드 시작, `rm .tdd-guard`로 해제).
 > **WARNING — `|| true` 잠복 버그**: 기존 Global Hook 4개(`context_guard.py` 경유)는 `test -f ... && python3 ... || true` 패턴을 사용한다. `|| true`는 모든 non-zero exit code를 0으로 변환하므로, **exit code 2(차단 신호)도 삼킨다.** `context_guard.py` line 78의 exit code 2 패스스루 로직은 현재 dead code이다 (어떤 자식 스크립트도 exit 2를 반환하지 않음). 미래에 `context_guard.py` 자식 스크립트에 차단 기능을 추가할 경우, **반드시 해당 Hook 엔트리의 `|| true`를 `if test -f; then; fi` 패턴으로 교체**해야 한다.
 
 ## 스킬 사용 판별

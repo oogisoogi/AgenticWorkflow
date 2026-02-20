@@ -121,6 +121,51 @@ _EXT_TAGS = {
     ".rs": "rust", ".go": "golang", ".java": "java",
 }
 
+# --- Pre-compiled regex patterns (module-level — compiled once per process) ---
+# Used by _extract_next_step()
+_NEXT_STEP_RE = re.compile(
+    r'(?:다음으로|이제|그 다음|그 후|Next,?|Now |Then )'
+    r'\s*(.{10,500}?)(?:\.\s|\n\n|$)',
+    re.MULTILINE,
+)
+# Used by _extract_decisions()
+_DECISION_MARKER_RE = re.compile(r'<!--\s*DECISION:\s*(.+?)\s*-->', re.DOTALL)
+_DECISION_BOLD_RE = re.compile(
+    r'\*\*(?:Decision|결정|선택|채택|판단)\s*(?::|：)\*\*\s*(.+?)(?:\n|$)',
+    re.IGNORECASE,
+)
+_DECISION_INTENT_NOISE_RE = re.compile(
+    r'읽겠습니다|확인하겠습니다|시작하겠습니다|살펴보겠습니다|'
+    r'진행하겠습니다|분석하겠습니다|검토하겠습니다|파악하겠습니다|'
+    r'Let me read|Let me check|I\'ll start|I\'ll look',
+    re.IGNORECASE,
+)
+_DECISION_INTENT_RE = re.compile(
+    r'(?:^|\n)\s*[-*]?\s*(.{10,120}?(?:하겠습니다|로 결정|을 선택|를 채택|접근 방식|approach))',
+    re.MULTILINE,
+)
+_DECISION_RATIONALE_RE = re.compile(
+    r'(?:선택\s*이유|근거|Rationale|Reason(?:ing)?)\s*(?::|：)\s*(.+?)(?:\n|$)',
+    re.IGNORECASE,
+)
+_DECISION_COMPARISON_RE = re.compile(
+    r'(.{5,80}?)\s+(?:대신|보다는?|rather than|instead of|over)\s+(.{5,80}?)(?:\.|,|\n|$)',
+    re.IGNORECASE | re.MULTILINE,
+)
+_DECISION_TRADEOFF_RE = re.compile(
+    r'(?:trade-?off|장단점|pros?\s*(?:and|&)\s*cons?|단점은|downside)\s*(?::|：|은|는)?\s*(.+?)(?:\n|$)',
+    re.IGNORECASE,
+)
+_DECISION_CHOICE_RE = re.compile(
+    r'(?:chose|opted for|selected|decided to|went with|picked)\s+(.{10,150}?)(?:\.|,|\n|$)',
+    re.IGNORECASE,
+)
+# Used by generate_snapshot_md() — system command filter for "현재 작업" section
+_SYSTEM_CMD_RE = re.compile(
+    r'^\s*<command-name>|^\s*/(?:clear|help|compact|init|resume|review|login|logout|mcp|config)\b',
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 # =============================================================================
 # Transcript Parsing
@@ -1162,14 +1207,10 @@ def _extract_next_step(assistant_texts):
 
     # Search last 3 assistant responses (reverse order) for forward-looking patterns
     # CM-F: Expanded from 200→500 chars to preserve structured action plans
-    _NEXT_STEP_PATTERN = re.compile(
-        r'(?:다음으로|이제|그 다음|그 후|Next,?|Now |Then )'
-        r'\s*(.{10,500}?)(?:\.\s|\n\n|$)',
-        re.MULTILINE,
-    )
+    # Pattern: module-level _NEXT_STEP_RE (compiled once per process)
     for entry in reversed(assistant_texts[-3:]):
         content = entry.get("content", "")
-        match = _NEXT_STEP_PATTERN.search(content)
+        match = _NEXT_STEP_RE.search(content)
         if match:
             return match.group(0).strip()[:500]
     return None
@@ -1192,67 +1233,33 @@ def _extract_decisions(assistant_texts):
     Returns: list of decision strings (max 15).
     """
     decisions = []
-    # Pattern 1: HTML comment markers
-    marker_pattern = re.compile(r'<!--\s*DECISION:\s*(.+?)\s*-->', re.DOTALL)
-    # Pattern 2: Bold markers
-    bold_pattern = re.compile(
-        r'\*\*(?:Decision|결정|선택|채택|판단)\s*(?::|：)\*\*\s*(.+?)(?:\n|$)',
-        re.IGNORECASE
-    )
-    # Pattern 3: Implicit intent (Korean) — "~하겠습니다" preceded by context
-    # CM-2: Filter noise — routine action declarations are not design decisions
-    _INTENT_NOISE = re.compile(
-        r'읽겠습니다|확인하겠습니다|시작하겠습니다|살펴보겠습니다|'
-        r'진행하겠습니다|분석하겠습니다|검토하겠습니다|파악하겠습니다|'
-        r'Let me read|Let me check|I\'ll start|I\'ll look',
-        re.IGNORECASE,
-    )
-    # B-2: Non-greedy .{10,120}? to prevent capturing unrelated preceding text
-    intent_pattern = re.compile(
-        r'(?:^|\n)\s*[-*]?\s*(.{10,120}?(?:하겠습니다|로 결정|을 선택|를 채택|접근 방식|approach))',
-        re.MULTILINE
-    )
-    # Pattern 4: Rationale markers
-    rationale_pattern = re.compile(
-        r'(?:선택\s*이유|근거|Rationale|Reason(?:ing)?)\s*(?::|：)\s*(.+?)(?:\n|$)',
-        re.IGNORECASE
-    )
-    # CM-A + E-2: Comparison/selection patterns — captures "A instead of B" decisions
-    comparison_pattern = re.compile(
-        r'(.{5,80}?)\s+(?:대신|보다는?|rather than|instead of|over)\s+(.{5,80}?)(?:\.|,|\n|$)',
-        re.IGNORECASE | re.MULTILINE
-    )
-    # CM-A + E-2: Trade-off/architecture direction patterns
-    tradeoff_pattern = re.compile(
-        r'(?:trade-?off|장단점|pros?\s*(?:and|&)\s*cons?|단점은|downside)\s*(?::|：|은|는)?\s*(.+?)(?:\n|$)',
-        re.IGNORECASE
-    )
-    # CM-A + E-2: Explicit choice verb patterns (English)
-    choice_pattern = re.compile(
-        r'(?:chose|opted for|selected|decided to|went with|picked)\s+(.{10,150}?)(?:\.|,|\n|$)',
-        re.IGNORECASE
-    )
+    # All patterns are module-level pre-compiled (_DECISION_*_RE constants)
+    # Pattern 1: HTML comment markers (_DECISION_MARKER_RE)
+    # Pattern 2: Bold markers (_DECISION_BOLD_RE)
+    # Pattern 3: Implicit intent + noise filter (_DECISION_INTENT_RE, _DECISION_INTENT_NOISE_RE)
+    # Pattern 4: Rationale (_DECISION_RATIONALE_RE)
+    # Pattern 5-7: Comparison, trade-off, choice (_DECISION_COMPARISON_RE, _DECISION_TRADEOFF_RE, _DECISION_CHOICE_RE)
 
     for entry in assistant_texts:
         content = entry.get("content", "")
-        for match in marker_pattern.finditer(content):
+        for match in _DECISION_MARKER_RE.finditer(content):
             decisions.append(("[explicit] " + match.group(1).strip())[:300])
-        for match in bold_pattern.finditer(content):
+        for match in _DECISION_BOLD_RE.finditer(content):
             decisions.append(("[decision] " + match.group(1).strip())[:300])
-        for match in intent_pattern.finditer(content):
+        for match in _DECISION_INTENT_RE.finditer(content):
             matched_text = match.group(1).strip()
             # CM-2: Skip routine action declarations (noise)
-            if _INTENT_NOISE.search(matched_text):
+            if _DECISION_INTENT_NOISE_RE.search(matched_text):
                 continue
             decisions.append(("[intent] " + matched_text)[:300])
-        for match in rationale_pattern.finditer(content):
+        for match in _DECISION_RATIONALE_RE.finditer(content):
             decisions.append(("[rationale] " + match.group(1).strip())[:300])
         # CM-A + E-2: New high-signal decision patterns
-        for match in comparison_pattern.finditer(content):
+        for match in _DECISION_COMPARISON_RE.finditer(content):
             decisions.append(("[decision] " + match.group(0).strip())[:300])
-        for match in tradeoff_pattern.finditer(content):
+        for match in _DECISION_TRADEOFF_RE.finditer(content):
             decisions.append(("[rationale] " + match.group(0).strip())[:300])
-        for match in choice_pattern.finditer(content):
+        for match in _DECISION_CHOICE_RE.finditer(content):
             decisions.append(("[decision] " + match.group(0).strip())[:300])
 
     # Dedup while preserving order
@@ -1302,9 +1309,9 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
       - E4: Claude response priority selection + section promotion
 
     Section survival priority (truncation order):
-      1-9: IMMORTAL  (Header, Task, SOT, Autopilot*, ULW*, Team*, Decisions*, Resume, Completion State, Git)
-      10-13: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
-      14-16: SACRIFICABLE (Statistics, Commands, Work Log)
+      1-10: IMMORTAL  (Header, Task, Next Step*, SOT, Autopilot*, ULW*, Team*, Decisions*, Resume, Completion State, Git)
+      11-14: CRITICAL  (Modified Files, Referenced Files, User Messages, Claude Responses)
+      15-17: SACRIFICABLE (Statistics, Commands, Work Log)
       (* = conditional sections, only present when active)
     """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1347,16 +1354,13 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     sections.append("## 현재 작업 (Current Task)")
     sections.append("<!-- IMMORTAL: 사용자 작업 지시 — 세션 복원의 핵심 맥락 -->")
     # CM-C: Filter system commands (/clear, /help, etc.) — show real task, not commands
-    _SYSTEM_CMD = re.compile(
-        r'^\s*<command-name>|^\s*/(?:clear|help|compact|init|resume|review|login|logout|mcp|config)\b',
-        re.IGNORECASE | re.MULTILINE,
-    )
-    real_user_msgs = [m for m in user_messages if not _SYSTEM_CMD.search(m.get("content", ""))]
+    # Pattern: module-level _SYSTEM_CMD_RE (compiled once per process)
+    real_user_msgs = [m for m in user_messages if not _SYSTEM_CMD_RE.search(m.get("content", ""))]
     if real_user_msgs:
         first_msg = real_user_msgs[0]["content"]
         sections.append(_truncate(first_msg, 3000))
         # Last instruction from filtered (non-continuation) messages
-        real_filtered = [m for m in user_msgs_filtered if not _SYSTEM_CMD.search(m.get("content", ""))]
+        real_filtered = [m for m in user_msgs_filtered if not _SYSTEM_CMD_RE.search(m.get("content", ""))]
         if real_filtered and len(real_filtered) > 1:
             last_msg = real_filtered[-1]["content"]
             if last_msg != first_msg:
@@ -1368,12 +1372,16 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     else:
         sections.append("(사용자 메시지 없음)")
 
-    # CM-3: Next Step extraction — last assistant's forward-looking statement
+    sections.append("")
+
+    # Section 1.5: Next Step (IMMORTAL — cognitive resumption anchor)
+    # CM-3: Promoted to independent IMMORTAL section for Phase 7 hard truncate survival
     next_step = _extract_next_step(assistant_texts)
     if next_step:
+        sections.append("## 다음 단계 (Next Step)")
+        sections.append("<!-- IMMORTAL: 세션 복원 시 인지적 연속성의 핵심 — 다음 행동 지시 -->")
+        sections.append(next_step)
         sections.append("")
-        sections.append(f"**다음 단계 (Next Step):** {next_step}")
-    sections.append("")
 
     # Section 2: SOT State (deterministic file read)
     sections.append("## SOT 상태 (Workflow State)")
@@ -2126,7 +2134,7 @@ def _compress_snapshot(full_md, sections):
       Phase 7: Hard truncate only as absolute last resort
 
     Always preserved (IMMORTAL):
-      Header, Current Task, SOT, Autopilot State*, ULW State*,
+      Header, Current Task, Next Step*, SOT, Autopilot State*, ULW State*,
       Team State*, Design Decisions*, Resume Protocol,
       Deterministic Completion State, Git Changes (stat+commits)
       (* = conditional sections, only present when active)
@@ -2668,6 +2676,57 @@ def _classify_error_patterns(entries):
     return patterns[:5]
 
 
+def _extract_success_patterns(entries):
+    """Extract successful tool sequence patterns for cross-session learning.
+
+    Detects "Edit/Write → successful Bash" sequences — the canonical pattern
+    for code modification followed by validation (e.g., tests, builds).
+
+    P1 Compliance: Deterministic extraction from transcript entries.
+    Returns: list of {"sequence": str, "files": list, "bash_cmd": str} (max 5).
+    """
+    tool_uses = [e for e in entries if e["type"] == "tool_use"]
+    tool_results = [e for e in entries if e["type"] == "tool_result"]
+
+    # Build result lookup
+    result_by_id = {}
+    for tr in tool_results:
+        tid = tr.get("tool_use_id", "")
+        if tid:
+            result_by_id[tid] = tr.get("is_error", False)
+
+    patterns = []
+    # Sliding window: track consecutive Edit/Write, then look for successful Bash
+    edit_buffer = []  # (tool_name, file_path)
+
+    for tu in tool_uses:
+        name = tu.get("tool_name", "")
+        tid = tu.get("tool_use_id", "")
+        is_err = result_by_id.get(tid, False)
+
+        if name in ("Edit", "Write") and not is_err:
+            fp = tu.get("file_path", "")
+            edit_buffer.append((name, os.path.basename(fp) if fp else ""))
+        elif name == "Bash" and not is_err and edit_buffer:
+            # Successful Bash after Edit/Write sequence — capture pattern
+            cmd = tu.get("command", "")[:100]
+            seq_parts = [f"{t[0]}" for t in edit_buffer[-5:]]  # Last 5 edits
+            seq_parts.append("Bash")
+            files = sorted(set(t[1] for t in edit_buffer[-5:] if t[1]))
+            patterns.append({
+                "sequence": "→".join(seq_parts),
+                "files": files[:5],
+                "bash_cmd": cmd,
+            })
+            edit_buffer = []  # Reset buffer after capture
+        elif name not in ("Edit", "Write", "Read"):
+            # Non-Edit/Write/Read tool breaks the sequence (Read is transparent)
+            if name != "Bash":
+                edit_buffer = []
+
+    return patterns[:5]
+
+
 def _extract_pacs_from_sot(project_dir):
     """CM-1: Extract pACS min-score from SOT (read-only).
 
@@ -2863,6 +2922,11 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     error_patterns = _classify_error_patterns(entries)
     if error_patterns:
         facts["error_patterns"] = error_patterns
+
+    # 2.5. Success patterns — Edit/Write→Bash success sequences for cross-session learning
+    success_patterns = _extract_success_patterns(entries)
+    if success_patterns:
+        facts["success_patterns"] = success_patterns
 
     # 3. pACS min-score — SOT에서 추출 (있는 경우, read-only)
     pacs_min = _extract_pacs_from_sot(project_dir)
