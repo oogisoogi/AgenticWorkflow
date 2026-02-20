@@ -39,15 +39,11 @@ from _context_lib import (
     load_work_log,
     generate_snapshot_md,
     atomic_write,
-    replace_or_append_session_facts,
     cleanup_snapshots,
     should_skip_save,
     get_snapshot_dir,
-    estimate_tokens,
-    extract_session_facts,
-    cleanup_knowledge_index,
-    cleanup_session_archives,
-    E5_RICH_CONTENT_MARKER,
+    update_latest_with_guard,
+    archive_and_index_session,
 )
 
 
@@ -103,56 +99,17 @@ def main():
     filepath = os.path.join(snapshot_dir, filename)
     atomic_write(filepath, md_content)
 
-    # E5: Empty Snapshot Guard — don't overwrite good snapshot with empty one
-    # If new snapshot has 0 tool_use entries and existing has content, protect it
-    latest_path = os.path.join(snapshot_dir, "latest.md")
-    new_tool_count = sum(1 for e in entries if e.get("type") == "tool_use")
-    should_update_latest = True
-
-    if os.path.exists(latest_path) and new_tool_count == 0:
-        try:
-            with open(latest_path, "r", encoding="utf-8") as f:
-                existing_content = f.read()
-            if E5_RICH_CONTENT_MARKER in existing_content:
-                should_update_latest = False
-        except Exception:
-            pass
-
-    if should_update_latest:
-        atomic_write(latest_path, md_content)
+    # E5: Empty Snapshot Guard — update latest.md with rich content protection
+    update_latest_with_guard(snapshot_dir, md_content, entries)
 
     # Cleanup old snapshots (keep per-trigger limits)
     cleanup_snapshots(snapshot_dir)
 
-    # --- Knowledge Archive (Area 1: Cross-Session) ---
-    # Archive snapshot to sessions/ directory
-    sessions_dir = os.path.join(snapshot_dir, "sessions")
-    os.makedirs(sessions_dir, exist_ok=True)
-    archive_name = f"{datetime.now().strftime('%Y-%m-%dT%H%M')}_{session_id[:8]}.md"
-    archive_path = os.path.join(sessions_dir, archive_name)
-    try:
-        atomic_write(archive_path, md_content)
-    except Exception:
-        pass  # Non-blocking
-
-    # Extract session facts and append to knowledge-index.jsonl
-    try:
-        estimated_tokens, _ = estimate_tokens(transcript_path, entries)
-        facts = extract_session_facts(
-            session_id=session_id,
-            trigger=trigger,
-            project_dir=project_dir,
-            entries=entries,
-            token_estimate=estimated_tokens,
-        )
-        ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
-        replace_or_append_session_facts(ki_path, facts)
-    except Exception:
-        pass  # Non-blocking
-
-    # Cleanup archives and knowledge index (rotation)
-    cleanup_session_archives(snapshot_dir)
-    cleanup_knowledge_index(snapshot_dir)
+    # Knowledge Archive: archive + index + cleanup (consolidated)
+    archive_and_index_session(
+        snapshot_dir, md_content, session_id, trigger,
+        project_dir, entries, transcript_path,
+    )
 
     # C-6: Archive work log (keep last 10 entries) instead of full truncation
     work_log_path = os.path.join(snapshot_dir, "work_log.jsonl")

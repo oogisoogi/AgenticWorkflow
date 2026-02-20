@@ -62,9 +62,22 @@ DEFAULT_MAX_SNAPSHOTS = 3
 # Knowledge Archive limits (Area 1: Cross-Session Knowledge Archive)
 MAX_KNOWLEDGE_INDEX_ENTRIES = 200
 MAX_SESSION_ARCHIVES = 20
-# E5 Empty Snapshot Guard — rich content marker (used across all scripts)
-# If this section header changes in generate_snapshot_md(), update here too
+# E5 Empty Snapshot Guard — section header constants
+# These constants are the single definition for section headers used in both
+# generate_snapshot_md() and is_rich_snapshot(). Changing a constant here
+# automatically updates both the snapshot generator and the E5 Guard detector.
 E5_RICH_CONTENT_MARKER = "### 수정 중이던 파일"
+E5_COMPLETION_STATE_MARKER = "## 결정론적 완료 상태"
+E5_DESIGN_DECISIONS_MARKER = "## 주요 설계 결정"
+# A1: Multi-signal rich content markers for E5 Guard
+# is_rich_snapshot() checks `marker in content` (substring match).
+# Full headers in snapshot include English suffix, e.g.:
+#   "## 결정론적 완료 상태 (Deterministic Completion State)"
+E5_RICH_SIGNALS = [
+    E5_RICH_CONTENT_MARKER,         # "### 수정 중이던 파일"
+    E5_COMPLETION_STATE_MARKER,     # "## 결정론적 완료 상태"
+    E5_DESIGN_DECISIONS_MARKER,     # "## 주요 설계 결정"
+]
 
 # --- Truncation limits (Quality First — 절대 기준 1) ---
 # Edit preview: "왜" 그 편집을 했는지 의도 파악 가능한 길이
@@ -94,6 +107,19 @@ TOOL_ERROR_PATTERNS = [
     "Error:", "error:", "FAILED", "failed",
     "not found", "Permission denied", "No such file",
 ]
+
+# --- Path tag extraction constants (A3: language-independent search tags) ---
+_PATH_SKIP_NAMES = frozenset({
+    "src", "lib", "dist", "build", "node_modules", "venv", ".git",
+    "tests", "test", "__pycache__", ".claude", "scripts", "hooks",
+})
+_EXT_TAGS = {
+    ".py": "python", ".js": "javascript", ".ts": "typescript",
+    ".tsx": "react", ".jsx": "react", ".md": "markdown",
+    ".yaml": "yaml", ".yml": "yaml", ".json": "json",
+    ".sh": "shell", ".css": "css", ".html": "html",
+    ".rs": "rust", ".go": "golang", ".java": "java",
+}
 
 
 # =============================================================================
@@ -522,6 +548,94 @@ def validate_step_output(project_dir, step_number, outputs_map):
         return (False, f"Step {step_number}: output too small ({size} bytes, min {MIN_OUTPUT_SIZE}): {output_path}")
 
     return (True, f"Step {step_number}: OK — {output_path} ({size:,} bytes)")
+
+
+def validate_sot_schema(ap_state):
+    """SOT Schema Validation: structural integrity of autopilot state dict.
+
+    P1 Compliance: All checks are deterministic (type, range, format).
+    SOT Compliance: Read-only — validates in-memory dict, no file I/O.
+    No duplication: file existence is validate_step_output()'s responsibility.
+
+    Args:
+        ap_state: dict from read_autopilot_state(), or None
+
+    Returns: list of warning strings (empty list = all checks passed)
+    """
+    if not ap_state or not isinstance(ap_state, dict):
+        return []
+
+    warnings = []
+
+    # S1: current_step — must be int >= 0
+    cs = ap_state.get("current_step")
+    if cs is not None:
+        if not isinstance(cs, int):
+            warnings.append(
+                f"SOT schema: current_step is {type(cs).__name__}, expected int"
+            )
+        elif cs < 0:
+            warnings.append(f"SOT schema: current_step is {cs}, must be >= 0")
+
+    # S2: outputs — must be dict
+    outputs = ap_state.get("outputs")
+    if outputs is not None and not isinstance(outputs, dict):
+        warnings.append(
+            f"SOT schema: outputs is {type(outputs).__name__}, expected dict"
+        )
+
+    # S3: outputs keys — must follow step-N or step-N-ko format
+    if isinstance(outputs, dict):
+        for key in outputs:
+            if not isinstance(key, str) or not key.startswith("step-"):
+                warnings.append(f"SOT schema: invalid output key '{key}'")
+                continue
+            # Extract step number — allow step-N and step-N-ko (translation)
+            suffix = key[5:]  # after "step-"
+            parts = suffix.split("-", 1)
+            if not parts[0].isdigit():
+                warnings.append(
+                    f"SOT schema: output key '{key}' has non-numeric step number"
+                )
+
+    # S4: No output recorded for future steps (step number > current_step)
+    if isinstance(cs, int) and isinstance(outputs, dict):
+        for key in outputs:
+            if isinstance(key, str) and key.startswith("step-"):
+                suffix = key[5:]
+                parts = suffix.split("-", 1)
+                if parts[0].isdigit():
+                    step_num = int(parts[0])
+                    if step_num > cs:
+                        warnings.append(
+                            f"SOT schema: output '{key}' for future step "
+                            f"(current_step={cs})"
+                        )
+
+    # S5: workflow_status — must be recognized value
+    status = ap_state.get("workflow_status", "")
+    if status:
+        valid_statuses = {"running", "completed", "error", "paused"}
+        if status not in valid_statuses:
+            warnings.append(
+                f"SOT schema: unrecognized workflow_status '{status}'"
+            )
+
+    # S6: auto_approved_steps — items must be int, within plausible range
+    approved = ap_state.get("auto_approved_steps", [])
+    if isinstance(approved, list):
+        for item in approved:
+            if not isinstance(item, int):
+                warnings.append(
+                    f"SOT schema: auto_approved_steps contains non-int: {item}"
+                )
+            elif isinstance(cs, int) and item > cs:
+                warnings.append(
+                    f"SOT schema: auto_approved_steps contains future step "
+                    f"{item} (current_step={cs})"
+                )
+
+    return warnings
 
 
 # =============================================================================
@@ -1291,6 +1405,14 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                 sections.append(f"- **자동 승인된 단계**: {approved}")
             sections.append("")
 
+            # SOT schema validation (P1 — structural integrity)
+            schema_warnings = validate_sot_schema(ap_state)
+            if schema_warnings:
+                sections.append("### SOT 스키마 검증 (Schema Validation)")
+                for warning in schema_warnings:
+                    sections.append(f"  [WARN] {warning}")
+                sections.append("")
+
             # Per-step output validation (Anti-Skip Guard)
             outputs = ap_state.get("outputs", {})
             if outputs:
@@ -1387,7 +1509,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
 
     # Section 2.7: Design Decisions (C-1 — IMMORTAL, conditional)
     if decisions:
-        sections.append("## 주요 설계 결정 (Design Decisions)")
+        sections.append(f"{E5_DESIGN_DECISIONS_MARKER} (Design Decisions)")
         sections.append("<!-- IMMORTAL: 세션 복원 시 '왜' 그 결정을 했는지 보존 -->")
         sections.append("")
         for i, dec in enumerate(decisions, 1):
@@ -1447,7 +1569,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     sections.append("")
 
     # Section 4: Deterministic Completion State (E7 — hallucination prevention)
-    sections.append("## 결정론적 완료 상태 (Deterministic Completion State)")
+    sections.append(f"{E5_COMPLETION_STATE_MARKER} (Deterministic Completion State)")
     sections.append("<!-- Python 결정론적 생성 — Claude 해석 불필요, 직접 참조 -->")
     sections.append("")
     cs = completion_state
@@ -1978,6 +2100,19 @@ def _get_file_size(entries):
     return total
 
 
+def _append_compression_audit(content, audit):
+    """A5: Append compression audit trail as HTML comment.
+
+    P1 Compliance: Deterministic metadata only.
+    Format: single-line HTML comment (invisible in rendered MD, greppable).
+    """
+    if not audit:
+        return content
+    final_size = len(content)
+    trail = " ".join(audit)
+    return content + f"\n<!-- compression-audit: {trail} | final:{final_size}ch/{MAX_SNAPSHOT_CHARS}ch -->"
+
+
 def _compress_snapshot(full_md, sections):
     """Quality-focused compression (절대 기준 1: 품질 우선).
 
@@ -1999,45 +2134,72 @@ def _compress_snapshot(full_md, sections):
     High priority (CRITICAL):
       Modified Files, Referenced Files, User Messages, Claude Responses
     """
+    # A5: Compression audit trail
+    audit = []
+    original_size = sum(len(s) + 1 for s in sections)  # +1 for \n
+
     # Phase 1: Deduplicate — remove consecutive identical entries
     deduped_sections = _dedup_sections(sections)
     result = "\n".join(deduped_sections)
+    p1_removed = original_size - len(result)
+    if p1_removed > 0:
+        audit.append(f"P1-dedup:-{p1_removed}ch")
     if len(result) <= MAX_SNAPSHOT_CHARS:
-        return result
+        return _append_compression_audit(result, audit)
 
     # Phase 2: Compress commands (keep first 3 + last 5)
+    prev_size = len(result)
     compressed = _compress_section_entries(
         deduped_sections, "## 실행된 명령", keep_first=3, keep_last=5
     )
     result = "\n".join(compressed)
+    p2_removed = prev_size - len(result)
+    if p2_removed > 0:
+        audit.append(f"P2-cmds:-{p2_removed}ch")
     if len(result) <= MAX_SNAPSHOT_CHARS:
-        return result
+        return _append_compression_audit(result, audit)
 
     # Phase 3: Compress work log (keep last 10)
+    prev_size = len(result)
     compressed = _compress_section_entries(
         compressed, "## 작업 로그 요약", keep_first=0, keep_last=10
     )
     result = "\n".join(compressed)
+    p3_removed = prev_size - len(result)
+    if p3_removed > 0:
+        audit.append(f"P3-wlog:-{p3_removed}ch")
     if len(result) <= MAX_SNAPSHOT_CHARS:
-        return result
+        return _append_compression_audit(result, audit)
 
     # Phase 4: Remove statistics section entirely (regeneratable)
+    prev_size = len(result)
     compressed = _remove_section(compressed, "## 대화 통계")
     result = "\n".join(compressed)
+    p4_removed = prev_size - len(result)
+    if p4_removed > 0:
+        audit.append(f"P4-stats:-{p4_removed}ch")
     if len(result) <= MAX_SNAPSHOT_CHARS:
-        return result
+        return _append_compression_audit(result, audit)
 
     # Phase 5: Compress Git diff detail (keep stat + commits, drop full diff)
+    prev_size = len(result)
     compressed = _remove_section(compressed, "### Diff Detail")
     result = "\n".join(compressed)
+    p5_removed = prev_size - len(result)
+    if p5_removed > 0:
+        audit.append(f"P5-diff:-{p5_removed}ch")
     if len(result) <= MAX_SNAPSHOT_CHARS:
-        return result
+        return _append_compression_audit(result, audit)
 
     # Phase 6: Compress Claude responses (preserve conclusion — last 300 chars)
+    prev_size = len(result)
     compressed = _compress_responses(compressed)
     result = "\n".join(compressed)
+    p6_removed = prev_size - len(result)
+    if p6_removed > 0:
+        audit.append(f"P6-resp:-{p6_removed}ch")
     if len(result) <= MAX_SNAPSHOT_CHARS:
-        return result
+        return _append_compression_audit(result, audit)
 
     # Phase 7: IMMORTAL-aware hard truncate (absolute last resort)
     # CM-E: Preserve IMMORTAL sections, truncate non-IMMORTAL from bottom up
@@ -2055,16 +2217,19 @@ def _compress_snapshot(full_md, sections):
             other_lines.append(line)
 
     immortal_text = "\n".join(immortal_lines)
+    other_text = "\n".join(other_lines)
+    audit.append(f"P7-truncate:immortal={len(immortal_text)}ch,other={len(other_text)}ch")
     budget = MAX_SNAPSHOT_CHARS - len(immortal_text) - 100
     if budget > 0:
-        other_text = "\n".join(other_lines)
-        return immortal_text + "\n" + other_text[:budget] + \
+        truncated = immortal_text + "\n" + other_text[:budget] + \
             "\n\n(... 크기 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
+        return _append_compression_audit(truncated, audit)
     # Even IMMORTAL exceeds limit — truncate IMMORTAL itself (preserving start)
     # Reflection fix: Use immortal_text, not Phase 6 result, to avoid
     # cutting mixed content that defeats IMMORTAL-first purpose
-    return immortal_text[:MAX_SNAPSHOT_CHARS] + \
+    truncated = immortal_text[:MAX_SNAPSHOT_CHARS] + \
         "\n\n(... IMMORTAL 자체가 한계 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
+    return _append_compression_audit(truncated, audit)
 
 
 def _dedup_sections(sections):
@@ -2231,6 +2396,196 @@ def read_stdin_json():
 
 
 # =============================================================================
+# E5 Guard Helper (A1: Multi-Signal Rich Content Detection)
+# =============================================================================
+
+def is_rich_snapshot(content):
+    """Multi-signal rich content detection for E5 Empty Snapshot Guard.
+
+    P1 Compliance: Deterministic — size threshold + marker counting.
+    Returns True if snapshot is "rich" (should not be overwritten by empty one).
+
+    Signals (any 2 of the following):
+      1. Content length >= 3KB (aligned with E6 MIN_QUALITY_SIZE)
+      2-4. Presence of E5_RICH_SIGNALS markers
+    """
+    if not content:
+        return False
+
+    signal_count = 0
+
+    # Signal 1: Size threshold (aligned with E6 MIN_QUALITY_SIZE = 3000)
+    if len(content.encode("utf-8")) >= 3000:
+        signal_count += 1
+
+    # Signals 2-4: Section markers
+    for marker in E5_RICH_SIGNALS:
+        if marker in content:
+            signal_count += 1
+
+    return signal_count >= 2
+
+
+# =============================================================================
+# E5 Guard + Knowledge Archive — Consolidated Helpers
+# =============================================================================
+
+def update_latest_with_guard(snapshot_dir, md_content, entries):
+    """Atomically update latest.md with E5 Empty Snapshot Guard.
+
+    Returns True if latest.md was updated, False if existing rich snapshot
+    was protected from overwrite by an empty one.
+
+    P1 Compliance: Deterministic (tool_use count + is_rich_snapshot).
+    SOT Compliance: No SOT access.
+    """
+    latest_path = os.path.join(snapshot_dir, "latest.md")
+    new_tool_count = sum(1 for e in entries if e.get("type") == "tool_use")
+
+    if os.path.exists(latest_path) and new_tool_count == 0:
+        try:
+            with open(latest_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+            if is_rich_snapshot(existing_content):
+                return False
+        except Exception:
+            pass
+
+    atomic_write(latest_path, md_content)
+    return True
+
+
+def archive_and_index_session(
+    snapshot_dir, md_content, session_id, trigger,
+    project_dir, entries, transcript_path,
+):
+    """Archive snapshot + extract knowledge-index facts + cleanup.
+
+    Consolidates the 3-step archive pattern used by all save triggers:
+      1. Archive snapshot to sessions/ directory
+      2. Extract session facts → knowledge-index.jsonl
+      3. Rotate archives and index
+
+    P1 Compliance: All operations deterministic.
+    SOT Compliance: Read-only SOT access (via extract_session_facts).
+    Timestamp format: ISO-like %Y-%m-%dT%H%M%S (unified across all triggers).
+    """
+    # Step 1: Archive to sessions/ (isolated — failure does NOT block Step 2)
+    # RLM rationale: archive is backup; knowledge-index is the RLM-critical asset.
+    # If sessions/ mkdir or write fails, Step 2 must still record the session.
+    try:
+        sessions_dir = os.path.join(snapshot_dir, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%dT%H%M%S")
+        archive_name = f"{ts}_{session_id[:8]}.md"
+        archive_path = os.path.join(sessions_dir, archive_name)
+        atomic_write(archive_path, md_content)
+    except Exception:
+        pass  # Non-blocking — Step 2 (RLM-critical) proceeds independently
+
+    # Step 2: Extract session facts → knowledge-index.jsonl (RLM-critical)
+    try:
+        estimated_tokens, _ = estimate_tokens(transcript_path, entries)
+        facts = extract_session_facts(
+            session_id=session_id,
+            trigger=trigger,
+            project_dir=project_dir,
+            entries=entries,
+            token_estimate=estimated_tokens,
+        )
+        ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+        replace_or_append_session_facts(ki_path, facts)
+    except Exception:
+        pass  # Non-blocking
+
+    # Step 3: Rotate archives and index (each cleanup is internally protected)
+    cleanup_session_archives(snapshot_dir)
+    cleanup_knowledge_index(snapshot_dir)
+
+
+# =============================================================================
+# Path Tag Extraction (A3: Language-Independent Search Tags)
+# =============================================================================
+
+def extract_path_tags(file_paths):
+    """Extract language-independent search tags from file paths.
+
+    P1 Compliance: Deterministic string processing only.
+    Returns: sorted unique list of tag strings (max 20).
+
+    Tag sources:
+      - CamelCase splitting: "AuthService.py" → ["auth", "service"]
+      - snake_case splitting: "user_auth.py" → ["user", "auth"]
+      - Extension mapping: ".py" → "python"
+    """
+    tags = set()
+    for fp in file_paths:
+        if not fp:
+            continue
+        parts = Path(fp).parts
+        for part in parts:
+            name = Path(part).stem  # filename without extension
+            if name.startswith(".") or name in _PATH_SKIP_NAMES:
+                continue
+            # CamelCase splitting: "AuthService" → ["Auth", "Service"]
+            # Also handles: "getHTTPResponse" → ["get", "HTTP", "Response"]
+            subtokens = re.findall(r'[A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z]|$)', name)
+            for st in subtokens:
+                lower = st.lower()
+                if len(lower) >= 3:  # skip noise ("a", "db", "io")
+                    tags.add(lower)
+        # Extension tag
+        ext = os.path.splitext(fp)[1].lower()
+        if ext in _EXT_TAGS:
+            tags.add(_EXT_TAGS[ext])
+    return sorted(tags)[:20]
+
+
+# =============================================================================
+# Knowledge-Index Schema Validation (P1: Hallucination Prevention)
+# =============================================================================
+
+# RLM-critical keys that MUST exist in every knowledge-index entry.
+# If extract_session_facts() is modified and accidentally drops a key,
+# this validation fills safe defaults — writing incomplete data is better
+# than writing nothing (RLM visibility > field completeness).
+_KI_REQUIRED_DEFAULTS = {
+    "session_id": "",
+    "timestamp": "",
+    "user_task": "",
+    "modified_files": [],
+    "read_files": [],
+    "tools_used": {},
+    "final_status": "unknown",
+    "tags": [],
+    "phase": "",
+    "completion_summary": {},
+}
+
+
+def _validate_session_facts(facts):
+    """P1 Hallucination Prevention: Ensure RLM-critical keys exist before write.
+
+    Deterministic schema enforcement — fills missing keys with safe defaults.
+    Prevents malformed knowledge-index entries from breaking RLM queries like:
+      Grep "tags.*python" knowledge-index.jsonl
+      Grep "final_status.*success" knowledge-index.jsonl
+
+    Returns: facts dict with all required keys guaranteed present.
+    """
+    for key, default_val in _KI_REQUIRED_DEFAULTS.items():
+        if key not in facts:
+            # Create new mutable instances to avoid shared references
+            if isinstance(default_val, list):
+                facts[key] = []
+            elif isinstance(default_val, dict):
+                facts[key] = {}
+            else:
+                facts[key] = default_val
+    return facts
+
+
+# =============================================================================
 # Knowledge Archive (Area 1: Cross-Session Knowledge Archive)
 # =============================================================================
 
@@ -2238,7 +2593,8 @@ def _classify_error_patterns(entries):
     """CM-1: Classify error patterns from tool results for cross-session learning.
 
     P1 Compliance: Regex-based deterministic classification.
-    Returns: list of {"type": str, "tool": str, "file": str} dicts (max 5).
+    A2 Enhancement: File-aware, window-limited resolution matching.
+    Returns: list of {"type": str, "tool": str, "file": str, "resolution": dict|None} (max 5).
     """
     tool_results = [e for e in entries if e["type"] == "tool_result"]
     tool_uses = [e for e in entries if e["type"] == "tool_use"]
@@ -2265,6 +2621,11 @@ def _classify_error_patterns(entries):
         ("command_not_found", re.compile(r"command not found|not recognized|is not recognized", re.I)),
     ]
 
+    # A2: Build position map for resolution matching (file-aware, window-limited)
+    entry_id_to_pos = {}
+    for i, e in enumerate(entries):
+        entry_id_to_pos[id(e)] = i
+
     patterns = []
     for tr in tool_results:
         if not tr.get("is_error", False):
@@ -2276,10 +2637,32 @@ def _classify_error_patterns(entries):
             if regex.search(content):
                 error_type = etype
                 break
+
+        # A2: Resolution matching — find successful follow-up within 5 entries
+        resolution = None
+        error_file = os.path.basename(id_to_file.get(tid, ""))
+        err_pos = entry_id_to_pos.get(id(tr), -1)
+        if err_pos >= 0:
+            for next_e in entries[err_pos + 1 : err_pos + 6]:
+                if next_e.get("type") != "tool_result":
+                    continue
+                if next_e.get("is_error", False):
+                    continue
+                next_tid = next_e.get("tool_use_id", "")
+                next_tool = id_to_tool.get(next_tid, "")
+                next_file = os.path.basename(id_to_file.get(next_tid, ""))
+                # File-aware: same file must match (or error had no file context)
+                if next_tool in ("Edit", "Write", "Bash") and (
+                    not error_file or next_file == error_file
+                ):
+                    resolution = {"tool": next_tool, "file": next_file}
+                    break
+
         patterns.append({
             "type": error_type,
             "tool": id_to_tool.get(tid, ""),
-            "file": os.path.basename(id_to_file.get(tid, "")),
+            "file": error_file,
+            "resolution": resolution,
         })
 
     return patterns[:5]
@@ -2429,6 +2812,13 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
         "primary_language": primary_language,
         "tool_sequence": tool_sequence,  # CM-D + E-3: work pattern analysis
     }
+
+    # A4: Search tags — language-independent path-derived keywords for RLM probing
+    all_paths = modified_files + read_files
+    search_tags = extract_path_tags(all_paths)
+    if search_tags:
+        facts["tags"] = search_tags
+
     if last_instruction:
         facts["last_instruction"] = last_instruction
 
@@ -2508,6 +2898,9 @@ def replace_or_append_session_facts(ki_path, facts):
         import uuid
         session_id = f"auto-{uuid.uuid4().hex[:12]}"
         facts["session_id"] = session_id
+
+    # P1 Schema Validation: Ensure RLM-critical keys exist before write
+    facts = _validate_session_facts(facts)
 
     parent_dir = os.path.dirname(ki_path)
     os.makedirs(parent_dir, exist_ok=True)

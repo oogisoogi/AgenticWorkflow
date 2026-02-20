@@ -99,12 +99,12 @@ AgenticWorkflow/
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
-│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴, IMMORTAL-aware 압축)
+│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 6항목 검증))
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
-│   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터)
+│   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터 + 동적 RLM 쿼리 힌트)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
 │   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
-│   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증, --init 트리거)
+│   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
 │   │   └── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   ├── context-snapshots/                 ← 런타임 스냅샷 (gitignored)
 │   │   ├── latest.md                      (최신 스냅샷)
@@ -133,7 +133,7 @@ AgenticWorkflow/
 
 | Hook 이벤트 | 스크립트 | 동작 |
 |------------|---------|------|
-| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문, 디렉터리, PyYAML) |
+| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문, 디렉터리, PyYAML, SOT 쓰기 패턴 검증) |
 | **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 | **SessionEnd** (`/clear`) | `save_context.py` | 전체 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
@@ -145,14 +145,15 @@ AgenticWorkflow/
 
 - 세션 시작 시 `[CONTEXT RECOVERY]` 메시지가 표시되면, 안내된 경로의 파일을 **반드시 Read tool로 읽어** 이전 맥락을 복원한다.
 - 스냅샷은 `.claude/context-snapshots/latest.md`에 저장된다.
-- **Knowledge Archive**: `knowledge-index.jsonl`은 세션 간 축적되는 구조화된 인덱스이다. Stop hook과 SessionEnd/PreCompact 모두에서 기록된다. 각 엔트리에는 completion_summary(도구 성공/실패), git_summary(변경 상태), session_duration_entries(세션 길이), phase(세션 전체 단계), phase_flow(다단계 전환 흐름, 예: `research → implementation`), primary_language(주요 파일 확장자), error_patterns(Error Taxonomy 12패턴 분류), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown)가 포함된다. Grep tool로 프로그래밍적 탐색이 가능하다 (RLM 패턴).
-- **Resume Protocol**: 스냅샷에 포함된 "복원 지시" 섹션은 수정/참조 파일 목록과 세션 정보를 결정론적으로 제공한다. `[CONTEXT RECOVERY]` 출력에는 완료 상태(도구 성공/실패)와 Git 변경 상태도 표시된다.
+- **Knowledge Archive**: `knowledge-index.jsonl`은 세션 간 축적되는 구조화된 인덱스이다. Stop hook과 SessionEnd/PreCompact 모두에서 기록된다. 각 엔트리에는 completion_summary(도구 성공/실패), git_summary(변경 상태), session_duration_entries(세션 길이), phase(세션 전체 단계), phase_flow(다단계 전환 흐름, 예: `research → implementation`), primary_language(주요 파일 확장자), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑)가 포함된다. Grep tool로 프로그래밍적 탐색이 가능하다 (RLM 패턴).
+- **Resume Protocol**: 스냅샷에 포함된 "복원 지시" 섹션은 수정/참조 파일 목록과 세션 정보를 결정론적으로 제공한다. `[CONTEXT RECOVERY]` 출력에는 완료 상태(도구 성공/실패)와 Git 변경 상태도 표시된다. **동적 RLM 쿼리 힌트**: 수정 파일 경로에서 추출한 태그(`extract_path_tags()`)와 에러 정보를 기반으로 세션별 맞춤 Grep 쿼리 예시를 자동 생성한다.
 - Hook 스크립트는 SOT(`state.yaml`)를 **읽기 전용**으로만 접근한다 (절대 기준 2 준수). SOT 파일 경로는 `sot_paths()` 헬퍼로 중앙 관리되며, `SOT_FILENAMES` 상수(`state.yaml`, `state.yml`, `state.json`)에서 파생된다.
 - **절삭 상수 중앙화**: `_context_lib.py`에 10개 절삭 상수(`EDIT_PREVIEW_CHARS=1000`, `ERROR_RESULT_CHARS=3000`, `MIN_OUTPUT_SIZE=100` 등)를 중앙 정의. Edit preview는 5줄×1000자로 편집 의도·맥락을 보존하고, 에러 메시지는 3000자로 stack trace 전체를 보존한다.
 - **다단계 전환 감지**: `detect_phase_transitions()` 함수가 sliding window(20개 도구, 50% 오버랩)로 세션 내 단계 전환(research → planning → implementation 등)을 결정론적으로 감지한다. Knowledge Archive의 `phase_flow` 필드에 기록된다.
 - **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션(IMMORTAL 우선순위)은 품질 태그 기반으로 정렬된다 — `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 15개 슬롯을 채워, 일상적 의도 선언(`하겠습니다` 패턴)이 실제 설계 결정을 밀어내지 않는다. 비교·트레이드오프·선택 패턴도 추출한다.
-- **IMMORTAL-aware 압축**: 스냅샷 크기 초과 시 Phase 7 hard truncate에서 IMMORTAL 섹션을 우선 보존한다. 비-IMMORTAL 콘텐츠를 먼저 절삭하고, IMMORTAL 자체가 한계를 초과하는 극단적 경우에도 IMMORTAL 텍스트의 시작 부분을 보존한다.
-- **Error Taxonomy**: 도구 에러를 12개 패턴(file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found)으로 분류한다. Knowledge Archive의 error_patterns 필드에 기록되어, "unknown" 분류를 ~30%로 감소시킨다. False positive 방지를 위해 negative lookahead, 한정어 매칭 등을 적용한다.
+- **IMMORTAL-aware 압축**: 스냅샷 크기 초과 시 Phase 7 hard truncate에서 IMMORTAL 섹션을 우선 보존한다. 비-IMMORTAL 콘텐츠를 먼저 절삭하고, IMMORTAL 자체가 한계를 초과하는 극단적 경우에도 IMMORTAL 텍스트의 시작 부분을 보존한다. **압축 감사 추적**: 각 압축 Phase가 제거한 문자 수를 HTML 주석(`<!-- compression-audit: ... -->`)으로 스냅샷 끝에 기록한다 (Phase 1~7 단계별 delta + 최종 크기). 렌더링에 영향 없이 Grep으로 디버깅 가능.
+- **Error Taxonomy**: 도구 에러를 12개 패턴(file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found)으로 분류한다. Knowledge Archive의 error_patterns 필드에 기록되어, "unknown" 분류를 ~30%로 감소시킨다. False positive 방지를 위해 negative lookahead, 한정어 매칭 등을 적용한다. **Error→Resolution 매칭**: 에러 발생 후 5 entries 이내의 성공적 도구 호출을 file-aware 매칭으로 탐지하여 `resolution` 필드에 기록한다 (도구명 + 파일명). 매칭 실패 시 `null`. `Grep "resolution" knowledge-index.jsonl`로 해결 패턴을 cross-session 탐색 가능.
+- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지 (Tier 1: 비-SOT 스크립트의 SOT 참조 차단, Tier 2: SOT-aware 스크립트의 함수별 쓰기 패턴 검사). (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 6항목(current_step 타입·범위, outputs 타입·키 형식, 미래 단계 산출물 탐지, workflow_status 유효값, auto_approved_steps 정합성)으로 검증 — SessionStart와 Stop hook 양쪽에서 실행.
 - **시스템 명령 필터링**: 스냅샷의 "현재 작업" 섹션에서 `/clear`, `/help` 등 시스템 명령을 자동 필터링하여 실제 사용자 작업 의도만 캡처한다.
 - **Autopilot 런타임 강화**: Autopilot 활성 시 SessionStart가 실행 규칙을 컨텍스트에 주입하고, 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하며, Stop hook이 Decision Log 누락을 감지·보완한다. PostToolUse는 work_log에 autopilot_step 필드를 추가하여 단계 진행을 추적한다.
 - **ULW 모드 감지·보존**: `detect_ulw_mode()` 함수가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지한다. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 5개 실행 규칙을 컨텍스트에 주입한다. **암묵적 해제**: 새 세션(`source=startup`)에서는 이전 스냅샷에 ULW 상태가 있어도 규칙을 주입하지 않는다 — `clear`/`compact`/`resume` source만 ULW를 계승한다. `check_ulw_compliance()` 함수가 5개 실행 규칙의 준수를 결정론적으로 검증하여 스냅샷 IMMORTAL에 경고를 포함한다. Knowledge Archive에 `ulw_active: true`로 태깅되어 `Grep "ulw_active" knowledge-index.jsonl`로 RLM 쿼리 가능하다.

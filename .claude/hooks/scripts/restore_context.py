@@ -31,7 +31,7 @@ from datetime import datetime
 
 # Add script directory to path for shared library import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _context_lib import read_stdin_json, get_snapshot_dir, read_autopilot_state, validate_step_output, sot_paths
+from _context_lib import read_stdin_json, get_snapshot_dir, read_autopilot_state, validate_step_output, validate_sot_schema, sot_paths, extract_path_tags
 
 
 # Maximum age (seconds) for snapshot restoration per source type
@@ -175,6 +175,11 @@ def _extract_brief_summary(content):
             summary_parts.append(("git", line[:100]))
         elif current_section == "files" and (line.startswith("| `") or line.startswith("### `")):
             files_count += 1
+            # C1: Extract file path for dynamic RLM hints
+            if '`' in line:
+                backtick_parts = line.split('`')
+                if len(backtick_parts) >= 2 and backtick_parts[1]:
+                    summary_parts.append(("수정_파일_경로", backtick_parts[1]))
         elif current_section == "reads" and line.startswith("| `"):
             read_count += 1
         elif current_section == "stats" and line.startswith("- "):
@@ -292,6 +297,7 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             team_info = content
         elif label == "ulw":
             ulw_info = content
+        # "수정_파일_경로" labels are consumed below for dynamic RLM hints (C2)
 
     if task_info:
         output_lines.append(f"■ 현재 작업: {task_info}")
@@ -355,6 +361,14 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             output_lines.append(f'  - Grep "error_patterns" {ki_path} → 에러 패턴 포함 세션')
             output_lines.append(f'  - Grep "phase_flow.*implementation" {ki_path} → 구현 단계 세션')
             output_lines.append(f'  - Grep "ulw_active" {ki_path} → ULW 세션')
+            # C2: Dynamic RLM query hints (context-aware)
+            file_paths = [c for l, c in summary if l == "수정_파일_경로"]
+            if file_paths:
+                path_tags = extract_path_tags(file_paths)
+                for tag in path_tags[:2]:
+                    output_lines.append(f'  - Grep "tags.*{tag}" {ki_path} → {tag} 관련 세션')
+            if error_info:
+                output_lines.append(f'  - Grep "resolution" {ki_path} → 에러→해결 패턴 포함 세션')
         if os.path.isdir(sessions_dir):
             output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
 
@@ -382,6 +396,14 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
                 output_lines.append("  4. (hook) exit code 2: STILL BLOCKS — autopilot does NOT override")
                 output_lines.append("  5. BEFORE advancing: verify output EXISTS + NON-EMPTY → record in SOT")
                 output_lines.append("  6. (human) step 완료 시: autopilot-logs/step-N-decision.md 생성")
+
+                # SOT schema validation (P1 — structural integrity)
+                schema_warnings = validate_sot_schema(ap_state)
+                if schema_warnings:
+                    output_lines.append("")
+                    output_lines.append("■ SOT SCHEMA VALIDATION:")
+                    for warning in schema_warnings:
+                        output_lines.append(f"  [WARN] {warning}")
 
                 # Previous step output validation
                 outputs = ap_state.get("outputs", {})

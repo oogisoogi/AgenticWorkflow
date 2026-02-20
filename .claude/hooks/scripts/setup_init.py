@@ -25,6 +25,7 @@ import ast
 import importlib.util
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -88,6 +89,9 @@ def main():
 
     # 6. .gitignore check
     results.append(_check_gitignore(project_dir))
+
+    # 7. SOT write safety (P1 Hallucination Prevention — 절대 기준 2)
+    results.append(_check_sot_write_safety(scripts_dir))
 
     # Write log file
     log_path = os.path.join(project_dir, ".claude", "hooks", "setup.init.log")
@@ -229,6 +233,90 @@ def _check_sessions_dir(project_dir):
             WARNING, "FAIL", "sessions/",
             f"cannot create directory: {e}",
         )
+
+
+def _check_sot_write_safety(scripts_dir):
+    """P1 Hallucination Prevention: Detect SOT write patterns in hook scripts.
+
+    Defense-in-depth for 절대 기준 2 (SOT read-only for hooks).
+    Two-tier deterministic text matching — not full static analysis.
+
+    Tier 1: Non-SOT-aware scripts must not contain SOT filename strings at all.
+    Tier 2: SOT-aware scripts — co-occurrence of SOT references + write patterns
+            within the same function (AST function boundaries).
+
+    Catches ~70% of common SOT write violations. Remaining 30% (indirect
+    variable references) are covered by code review + user approval.
+    """
+    # D-7 intentional duplication — must match _context_lib.py:SOT_FILENAMES
+    SOT_FILENAMES = ("state.yaml", "state.yml", "state.json")
+    SOT_MARKERS = SOT_FILENAMES + ("sot_paths",)
+    # Scripts that legitimately reference SOT for read-only access
+    SOT_AWARE_SCRIPTS = {"_context_lib.py", "restore_context.py"}
+    WRITE_RE = re.compile(
+        r'open\s*\([^)]*["\'](?:w|a)'      # open(..., "w"...) or open(..., "a"...)
+        r'|atomic_write\s*\('               # atomic_write(...)
+        r'|yaml\.dump\s*\(',                # yaml.dump(...)
+    )
+
+    violations = []
+
+    for script_name in REQUIRED_SCRIPTS:
+        script_path = os.path.join(scripts_dir, script_name)
+        if not os.path.exists(script_path):
+            continue
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                source = f.read()
+        except Exception:
+            continue
+
+        if script_name in SOT_AWARE_SCRIPTS:
+            # Tier 2: Function-scoped co-occurrence check via AST
+            try:
+                tree = ast.parse(source, filename=script_name)
+                lines = source.split("\n")
+                for node in ast.walk(tree):
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    if not hasattr(node, "end_lineno"):
+                        continue  # Python < 3.8 graceful skip
+                    func_text = "\n".join(lines[node.lineno - 1:node.end_lineno])
+                    has_sot = any(m in func_text for m in SOT_MARKERS)
+                    has_write = bool(WRITE_RE.search(func_text))
+                    if has_sot and has_write:
+                        violations.append(
+                            f"{script_name}:{node.name}():{node.lineno}"
+                        )
+            except SyntaxError:
+                pass  # Syntax errors caught by _check_script
+        else:
+            # Tier 1: Non-SOT scripts must not reference SOT filenames
+            # Track triple-quote boundaries to skip docstring content
+            lines = source.split("\n")
+            in_docstring = False
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                for quote in ('"""', "'''"):
+                    if stripped.count(quote) % 2 == 1:
+                        in_docstring = not in_docstring
+                if in_docstring or stripped.startswith("#"):
+                    continue
+                for sot_name in SOT_FILENAMES:
+                    if sot_name in line:
+                        violations.append(
+                            f"{script_name}:{i+1} references '{sot_name}'"
+                        )
+
+    if violations:
+        return _result(
+            WARNING, "FAIL", "SOT write safety",
+            f"Potential SOT access violation: {'; '.join(violations[:3])}",
+        )
+    return _result(
+        INFO, "PASS", "SOT write safety",
+        "No SOT write patterns in hook scripts",
+    )
 
 
 def _check_gitignore(project_dir):

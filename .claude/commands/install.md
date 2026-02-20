@@ -34,6 +34,7 @@ description: "Hook 인프라 검증 결과 분석 및 문제 해결"
 | PyYAML 미설치 | `pip install pyyaml` 실행 제안 (사용자 확인 후) |
 | .gitignore 누락 | `.gitignore`에 `.claude/context-snapshots/` 추가 제안 |
 | sessions/ 생성 실패 | 상위 디렉터리 권한 확인 |
+| SOT write safety 경고 | Hook 스크립트에서 SOT 파일명+쓰기 패턴 공존 감지. 해당 스크립트:줄번호 확인 → SOT 읽기 전용 원칙(절대 기준 2) 위반 여부 분석 |
 
 **5단계 — 최종 보고:**
 구조화된 형식으로 결과를 보고하세요:
