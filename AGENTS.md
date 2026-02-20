@@ -191,6 +191,7 @@ AgenticWorkflow/
 ├── README.md          ← 프로젝트 소개
 ├── AGENTICWORKFLOW-USER-MANUAL.md              ← 사용자 매뉴얼
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
+├── DECISION-LOG.md          ← 프로젝트 설계 결정 로그 (ADR)
 ├── COPYRIGHT.md          ← 저작권
 ├── .claude/
 │   ├── settings.json          ← Hook 설정 (Setup + SessionEnd)

@@ -8,6 +8,7 @@
 
 위 파일은 이 프로젝트의 모든 절대 기준, 설계 원칙, 워크플로우 구조를 정의한다.
 상세 아키텍처는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`를 참조한다.
+설계 결정 이력은 `DECISION-LOG.md`를 참조한다.
 
 ## 절대 기준 (핵심 요약)
 

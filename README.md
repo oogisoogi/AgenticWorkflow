@@ -29,6 +29,7 @@ AgenticWorkflow/
 ├── AGENTS.md              # 모든 AI 에이전트 공통 지시서
 ├── AGENTICWORKFLOW-USER-MANUAL.md              # 사용자 매뉴얼
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  # 설계 철학 및 아키텍처 전체 조감도
+├── DECISION-LOG.md            # 프로젝트 설계 결정 로그 (ADR)
 ├── COPYRIGHT.md              # 저작권
 ├── .claude/
 │   ├── settings.json      # Hook 설정 (Setup + SessionEnd)
@@ -146,6 +147,7 @@ AgenticWorkflow/
 |------|------|------|
 | 1 | **README.md** (이 파일) | 프로젝트 개요 파악 |
 | 2 | [`AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`](AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md) | 설계 철학과 아키텍처 이해 |
+| 2.5 | [`DECISION-LOG.md`](DECISION-LOG.md) | 모든 설계 결정의 맥락과 근거 추적 |
 | 3 | [`AGENTICWORKFLOW-USER-MANUAL.md`](AGENTICWORKFLOW-USER-MANUAL.md) | 실제 사용법 학습 |
 | 4 | `AGENTS.md` / `CLAUDE.md` | 사용하는 AI 도구에 맞는 지시서 참조 |
 

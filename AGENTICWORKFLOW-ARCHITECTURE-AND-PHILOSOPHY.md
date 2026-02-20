@@ -1149,6 +1149,7 @@ Stop ─────────────→ Compliance Guard 검증       �
 ```mermaid
 graph TB
     ARCH["AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md<br/><b>WHY + HOW 전체 조감도</b><br/>설계 철학, 아키텍처, 패턴"]
+    ADR["DECISION-LOG.md<br/><b>설계 결정 기록</b><br/>ADR — 맥락, 근거, 대안"]
     AGENTS["AGENTS.md<br/><b>범용 원칙</b><br/>모델·도구 무관 공통 규칙"]
     CLAUDE["CLAUDE.md<br/><b>Claude Code 전용</b><br/>구현 매핑 + 스킬 라우팅"]
     MANUAL["AGENTICWORKFLOW-USER-MANUAL.md<br/><b>사용법</b><br/>Phase 1·2 조작 가이드"]
@@ -1156,11 +1157,13 @@ graph TB
 
     ARCH --> AGENTS
     ARCH --> CLAUDE
+    ARCH -.->|"결정 이력"| ADR
     AGENTS --> CLAUDE
     CLAUDE --> MANUAL
     README -.->|"참조"| MANUAL
 
     style ARCH fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px
+    style ADR fill:#e8f5e9,stroke:#388e3c
     style AGENTS fill:#fce4ec,stroke:#e91e63
     style CLAUDE fill:#e3f2fd,stroke:#1976d2
     style MANUAL fill:#fff3e0,stroke:#f57c00
@@ -1172,6 +1175,7 @@ graph TB
 | 파일 | 대상 독자 | 답하는 질문 | 참조 빈도 |
 |------|---------|-----------|----------|
 | **ARCHITECTURE** | 설계자, 신규 기여자 | "왜 이렇게 설계했는가?" | 초기 이해 시 |
+| **DECISION-LOG** | 설계자, 미래 의사결정자 | "언제, 왜 그 결정을 했는가?" | 결정 추적 시 |
 | **AGENTS.md** | 모든 AI 에이전트 | "모델·도구와 무관하게 따라야 할 규칙은?" | 매 세션 |
 | **CLAUDE.md** | Claude Code | "Claude Code 고유 기능으로 어떻게 구현하는가?" | 매 세션 |
 | **USER-MANUAL** | 사용자 (사람) | "이 도구를 어떻게 쓰는가?" | 필요 시 |

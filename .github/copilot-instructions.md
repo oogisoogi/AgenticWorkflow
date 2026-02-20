@@ -7,6 +7,7 @@
 이 프로젝트의 모든 절대 기준, 설계 원칙, 워크플로우 구조는 `AGENTS.md`에 정의되어 있다.
 Copilot CLI는 `AGENTS.md`를 자동으로 인식하므로, 해당 파일의 모든 규칙이 자동 적용된다.
 상세 아키텍처는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`를 참조한다.
+설계 결정 이력은 `DECISION-LOG.md`를 참조한다.
 
 ## 절대 기준 (핵심 요약)
 
