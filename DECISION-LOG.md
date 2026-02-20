@@ -388,6 +388,16 @@
 - **대안**: 각 함수에 인라인 → 기각 (값 불일치 위험, 튜닝 시 누락)
 - **관련 커밋**: `2c91985` feat: Context Preservation 품질 강화
 
+### ADR-031: PreToolUse Safety Hook — 위험 명령 차단
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: Claude Code의 6개 차단 가능 Hook 이벤트 중 PreToolUse만 미구현. 위험한 Git/파일 명령(git push --force, git reset --hard, rm -rf / 등)이 AI 판단에만 의존하여 실행될 수 있었다.
+- **결정**: `block_destructive_commands.py`를 PreToolUse Hook(matcher: Bash)으로 등록. 10개 패턴(9개 정규식 + 1개 절차적 rm 검사)으로 위험 명령을 결정론적으로 탐지하고, exit code 2로 차단 + stderr 피드백으로 Claude 자기 수정을 유도한다.
+- **근거**: P1 할루시네이션 봉쇄 — 위험 명령 탐지는 정규식으로 100% 결정론적. AI 판단 개입 없음. `context_guard.py`를 거치지 않는 독립 실행 — `|| true` 패턴이 exit code 2를 삼키는 문제 회피를 위해 `if test -f; then; fi` 패턴 사용.
+- **대안**: (1) SOT 쓰기 보호 → 보류 (Hook API가 에이전트 역할을 구분하지 못함), (2) Anti-Skip Guard 강화 → 보류 (Stop 타이밍이 사후적이어서 예방 불가)
+- **차단 패턴**: git push --force(NOT --force-with-lease), git push -f, git reset --hard, git checkout ., git restore ., git clean -f, git branch -D, git branch --delete --force(양방향 순서), rm -rf / 또는 ~
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -409,6 +419,7 @@
 | 2026-02-20 | `c7324f1` | ADR-023: ULW Mode |
 | 2026-02-20 | `162a322`~`5634b0e` | ADR-011: Spoke 파일 정리 |
 | 2026-02-20 | `f76a1fd` | ADR-016, 024: E5 Guard, P1 할루시네이션 봉쇄 |
+| 2026-02-20 | (pending) | ADR-031: PreToolUse Safety Hook |
 
 ---
 

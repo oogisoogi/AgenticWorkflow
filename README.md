@@ -34,7 +34,7 @@ AgenticWorkflow/
 ├── .claude/
 │   ├── settings.json      # Hook 설정 (Setup + SessionEnd)
 │   ├── commands/           # Slash Commands (/install, /maintenance)
-│   ├── hooks/scripts/     # Context Preservation System (6개 파일: 디스패처 + 공유 라이브러리 + 4개 핸들러) + Setup Hooks (2개)
+│   ├── hooks/scripts/     # Context Preservation System (6개 파일) + Setup Hooks (2개) + Safety Hook (1개)
 │   ├── context-snapshots/ # 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/ # 워크플로우 설계·생성 스킬
@@ -65,6 +65,7 @@ AgenticWorkflow/
 | `_context_lib.py` | (공유 라이브러리) | 파싱, 생성, SOT 캡처, 토큰 추정, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화(10개), sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴 분류+Resolution 매칭, IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts), SOT 스키마 검증(validate_sot_schema) |
 | `setup_init.py` | Setup (`--init`) | 세션 시작 전 인프라 건강 검증 (Python, PyYAML, 스크립트 구문, 디렉터리) + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄) |
 | `setup_maintenance.py` | Setup (`--maintenance`) | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
+| `block_destructive_commands.py` | PreToolUse (Bash) | 위험 명령 실행 전 차단 (git push --force, git reset --hard, rm -rf / 등). exit code 2 + stderr 피드백 (P1 할루시네이션 봉쇄) |
 
 ## Autopilot Mode
 

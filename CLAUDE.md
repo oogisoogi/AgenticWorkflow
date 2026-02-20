@@ -98,7 +98,7 @@ AgenticWorkflow/
 │   ├── commands/                           ← Slash Commands
 │   │   ├── install.md                     (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
-│   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks
+│   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks + Safety Hook
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
 │   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 6항목 검증))
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
@@ -106,7 +106,8 @@ AgenticWorkflow/
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
 │   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
 │   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
-│   │   └── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
+│   │   ├── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
+│   │   └── block_destructive_commands.py  (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
 │   ├── context-snapshots/                 ← 런타임 스냅샷 (gitignored)
 │   │   ├── latest.md                      (최신 스냅샷)
 │   │   ├── knowledge-index.jsonl          (세션 간 축적 인덱스 — RLM 프로그래밍적 탐색 대상)
@@ -136,6 +137,7 @@ AgenticWorkflow/
 |------------|---------|------|
 | **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문, 디렉터리, PyYAML, SOT 쓰기 패턴 검증) |
 | **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
+| **PreToolUse** (Bash) | `block_destructive_commands.py` | 위험 명령 실행 전 차단 (git push --force, git reset --hard, rm -rf / 등). exit code 2로 차단 + stderr 피드백으로 Claude 자기 수정 |
 | **SessionEnd** (`/clear`) | `save_context.py` | 전체 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
@@ -161,17 +163,20 @@ AgenticWorkflow/
 
 ### Hook 설정 위치
 
-- **Global** (`~/.claude/settings.json`): `context_guard.py` 통합 디스패처를 통해 4개 Hook 실행
+- **Global** (`~/.claude/settings.json`): `context_guard.py` 통합 디스패처 4개 + 독립 Safety Hook 1개
   - Stop → `context_guard.py --mode=stop` → `generate_context_summary.py`
   - PostToolUse → `context_guard.py --mode=post-tool` → `update_work_log.py` (matcher: `Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate`)
   - PreCompact → `context_guard.py --mode=pre-compact` → `save_context.py --trigger precompact`
   - SessionStart → `context_guard.py --mode=restore` → `restore_context.py`
+  - **PreToolUse** → `block_destructive_commands.py` (matcher: `Bash`, 독립 실행 — `if test -f; then; fi` 패턴으로 exit code 2 보존)
 - **Project** (`.claude/settings.json`): SessionEnd + Setup 이벤트
   - SessionEnd → `save_context.py --trigger sessionend`
   - Setup (init) → `setup_init.py` — 인프라 건강 검증 (`claude --init`)
   - Setup (maintenance) → `setup_maintenance.py` — 주기적 건강 검진 (`claude --maintenance`)
 
 > **Setup Hook의 context_guard.py 우회 근거**: Setup은 세션 시작 **전**에 실행되는 프로젝트 고유 인프라 검증이므로, Global 디스패처와 독립적으로 Project 설정에서 직접 실행한다. SOT에 접근하지 않는다.
+> **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`는 안전(safety) 관심사로, 컨텍스트 보존(context preservation)과는 다른 도메인이다. exit code 2 보존이 필수이므로, `|| true` 패턴을 사용하는 `context_guard.py`를 거치지 않고 `if test -f; then; fi` 패턴으로 직접 실행한다.
+> **WARNING — `|| true` 잠복 버그**: 기존 Global Hook 4개(`context_guard.py` 경유)는 `test -f ... && python3 ... || true` 패턴을 사용한다. `|| true`는 모든 non-zero exit code를 0으로 변환하므로, **exit code 2(차단 신호)도 삼킨다.** `context_guard.py` line 78의 exit code 2 패스스루 로직은 현재 dead code이다 (어떤 자식 스크립트도 exit 2를 반환하지 않음). 미래에 `context_guard.py` 자식 스크립트에 차단 기능을 추가할 경우, **반드시 해당 Hook 엔트리의 `|| true`를 `if test -f; then; fi` 패턴으로 교체**해야 한다.
 
 ## 스킬 사용 판별
 

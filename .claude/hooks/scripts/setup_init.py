@@ -34,11 +34,12 @@ from datetime import datetime
 # Constants
 # =============================================================================
 
-# Hook scripts that must exist and have valid Python syntax (6 scripts)
+# Hook scripts that must exist and have valid Python syntax (7 scripts)
 # D-7: Intentionally duplicated in setup_maintenance.py — setup scripts are
 # independent from _context_lib.py by design (no import dependency).
 REQUIRED_SCRIPTS = [
     "_context_lib.py",
+    "block_destructive_commands.py",
     "context_guard.py",
     "generate_context_summary.py",
     "restore_context.py",
@@ -73,7 +74,7 @@ def main():
     # 2. PyYAML availability (importlib.util.find_spec — NOT import)
     results.append(_check_pyyaml())
 
-    # 3. Hook scripts existence + syntax validation (6 scripts)
+    # 3. Hook scripts existence + syntax validation (7 scripts)
     scripts_dir = os.path.join(project_dir, ".claude", "hooks", "scripts")
     for script_name in REQUIRED_SCRIPTS:
         result = _check_script(scripts_dir, script_name)

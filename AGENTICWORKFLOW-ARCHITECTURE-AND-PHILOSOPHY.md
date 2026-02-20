@@ -199,8 +199,8 @@ graph TB
             DW["doctoral-writing<br/>SKILL.md + 5 refs"]
         end
 
-        subgraph "Context Preservation"
-            CPS["hooks/scripts/<br/>8개 Python 스크립트<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭)"]
+        subgraph "Context Preservation + Safety"
+            CPS["hooks/scripts/<br/>9개 Python 스크립트<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭<br/>+ PreToolUse 위험 명령 차단)"]
             CSS["context-snapshots/<br/>런타임 스냅샷"]
         end
 
@@ -475,7 +475,7 @@ graph LR
 
 주황색 노드는 **차단 가능(blocking)** 이벤트 — exit code 2로 동작을 차단하고 피드백을 전달할 수 있다.
 
-> **Context Preservation System**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook을 사용하여 컨텍스트 보존 시스템을 운용한다. `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 상세는 `.claude/hooks/scripts/` 참조.
+> **Context Preservation System + Safety Hook**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook으로 컨텍스트 보존 시스템을 운용하고, PreToolUse 1개 hook으로 위험 명령 차단(Safety Hook)을 수행한다 (총 6개 hook 이벤트). `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 위험한 Bash 명령(git push --force, git reset --hard 등)은 PreToolUse에서 정규식 기반으로 결정론적 차단된다. 상세는 `.claude/hooks/scripts/` 참조.
 
 **Hook 3가지 타입:**
 
@@ -631,7 +631,7 @@ RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말�
 | IMMORTAL-aware 압축 | 스냅샷 크기 초과 시 IMMORTAL 섹션 우선 보존, 비-IMMORTAL 콘텐츠 먼저 절삭. **압축 감사 추적**: Phase 1~7 delta를 HTML 주석으로 기록 | 세션 경계에서 핵심 맥락 유실 방지 + 디버깅 가능 |
 | Resume Protocol | 스냅샷 내 결정론적 복원 지시 섹션. **동적 RLM 쿼리 힌트**: `extract_path_tags()`로 경로 태그 추출 → 세션별 맞춤 Grep 예시 자동 생성 | 복원 품질의 바닥선(floor) 보장 |
 | 경로 태그 추출 | `extract_path_tags()` — CamelCase/snake_case 분리 + 확장자 매핑(`_EXT_TAGS`)으로 언어 독립적 검색 태그 생성 | Knowledge Archive의 `tags` 필드 + RLM 쿼리 힌트의 기반 |
-| P1 할루시네이션 봉쇄 | KI 스키마 검증(`_validate_session_facts`), 부분 실패 격리(`archive_and_index_session`), SOT 쓰기 패턴 검증(AST 기반), SOT 스키마 검증(`validate_sot_schema` — 6항목) | 반복 정확 작업을 코드로 강제 |
+| P1 할루시네이션 봉쇄 | KI 스키마 검증(`_validate_session_facts`), 부분 실패 격리(`archive_and_index_session`), SOT 쓰기 패턴 검증(AST 기반), SOT 스키마 검증(`validate_sot_schema` — 6항목), **위험 명령 차단**(`block_destructive_commands.py` — PreToolUse, 8개 정규식 패턴) | 반복 정확 작업을 코드로 강제 |
 
 **스크립트 아키텍처와 데이터 흐름:**
 
@@ -643,10 +643,15 @@ graph TB
         PTU["PostToolUse<br/>도구 실행 후"]
         ST["Stop<br/>응답 완료"]
         SS["SessionStart<br/>세션 시작"]
+        PRTU["PreToolUse<br/>도구 실행 전 (Bash)"]
     end
 
     subgraph "디스패처"
         CG["context_guard.py<br/>Global Hook 통합 진입점"]
+    end
+
+    subgraph "Safety"
+        BDC["block_destructive_commands.py<br/>위험 명령 차단 (P1)<br/>독립 실행 — exit code 2 보존"]
     end
 
     subgraph "스크립트"
@@ -671,6 +676,7 @@ graph TB
     PTU --> CG
     ST --> CG
     SS --> CG
+    PRTU --> BDC
     CG -->|pre-compact| SAVE
     CG -->|post-tool| UWL
     CG -->|stop| GCS
@@ -698,6 +704,8 @@ graph TB
     style SNAP fill:#fff3cd,stroke:#ffc107,stroke-width:2px
     style KI fill:#e8daef,stroke:#8e44ad,stroke-width:2px
     style SESS fill:#e8daef,stroke:#8e44ad,stroke-width:2px
+    style BDC fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    style PRTU fill:#f8d7da,stroke:#dc3545,stroke-width:2px
 ```
 
 **SOT 준수 (절대 기준 2):**
