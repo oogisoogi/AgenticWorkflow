@@ -285,6 +285,7 @@ runtime_directories:
   # 조건부 — 기능 활성 시
   autopilot-logs/:           # step-N-decision.md (Autopilot 자동 승인 결정 로그)
   pacs-logs/:                # step-N-pacs.md (pACS 자체 신뢰 평가 결과)
+  review-logs/:              # step-N-review.md (Adversarial Review — Enhanced L2 결과)
   translations/:             # glossary.yaml + *.ko.md (@translator 번역 산출물)
 ```
 
@@ -383,6 +384,7 @@ pacs_logging:
 | `@translator` | 번역 서브에이전트 — `Translation` 필드에서 호출 |
 | `/command-name` | Slash command 실행 |
 | `[skill-name]` | Skill 참조 |
+| `Review: @reviewer \| @fact-checker \| none` | 단계별 적대적 검토 적용 여부 (Enhanced L2 — AGENTS.md §5.5) |
 | `Translation: ... \| none` | 단계별 번역 적용 여부 (텍스트 산출물만 대상) |
 
 ## 예시: 블로그 컨텐츠 생성 워크플로우

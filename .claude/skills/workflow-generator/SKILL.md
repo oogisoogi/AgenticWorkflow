@@ -211,6 +211,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 - 담당 에이전트 (@agent)
 - 데이터 전처리 (Pre-processing) — 정확도 향상을 위한 노이즈 제거 (P1)
 - 산출물 (Output)
+- 적대적 검토 (Review) — `@reviewer`, `@fact-checker`, 또는 `none` (AGENTS.md §5.5)
 - 번역 (Translation) — `@translator` 또는 `none` (텍스트 산출물만 대상)
 - 후처리 (Post-processing) — 다음 단계 품질 보장을 위한 정제 (P1)
 
@@ -270,8 +271,14 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
      - **기능적 목표**: 작업 목표 달성 → "경쟁사 3곳 이상의 가격 데이터", "모든 API endpoint 구현"
      - **데이터 정합성**: 데이터 정확성 → "모든 URL 유효, placeholder 없음", "수치 데이터 출처 명시"
      - **파이프라인 연결**: 다음 단계 입력 호환 → "Step N이 필요로 하는 필드 포함", "출력 형식이 Step N+1 입력과 일치"
-7. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
-8. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
+7. 각 단계에 **Review 필드** 설정 (AGENTS.md §5.5 — 선택적):
+   - 연구/분석 산출물 (사실 검증 필요) → `@fact-checker`
+   - 코드/기술 산출물 (로직/완전성 검증 필요) → `@reviewer`
+   - 고위험 단계 (양쪽 모두) → `@reviewer + @fact-checker`
+   - 저위험 또는 중간 단계 → `none` (L1.5까지만)
+   - **실행 순서**: Review PASS → Translation (Review FAIL 상태에서 번역 금지)
+8. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
+9. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
    - **Context Injection 패턴 선택** (각 에이전트 단계별):
      - 입력 < 50KB → Pattern A (Full Delegation — 파일 경로 전달)
      - 입력 50-200KB + 부분 관련 → Pattern B (Filtered — Pre-processing 스크립트로 정제 후 전달)
@@ -283,12 +290,12 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
      - `active_team` 스키마: name, status, tasks_completed/pending, completed_summaries
      - SOT 갱신 4시점: TeamCreate 직후 → Teammate 완료 시 → 전체 완료 시 → TeamDelete 직후
      - 상세: `references/workflow-template.md §Agent Team 사용 시 SOT 스키마`
-9. **English-First 실행 원칙 적용** (AGENTS.md §5.2):
+10. **English-First 실행 원칙 적용** (AGENTS.md §5.2):
    - 모든 에이전트 Task 설명과 프롬프트는 **영어**로 작성 (AI 성능 극대화 — 절대 기준 1)
    - 사용자 대화(워크플로우 설계)는 한국어, 에이전트 실행은 영어
    - `@translator` 서브에이전트가 영어→한국어 번역 담당 (Translation 필드로 명시)
-10. workflow.md 파일 생성
-10. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
+11. workflow.md 파일 생성
+12. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
     - "이 단계가 최종 품질에 기여하는가?" — 품질에 무관한 단계만 제거
     - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
     - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가

@@ -785,6 +785,161 @@ Translation pACS = min(Ft, Ct, Nt). 행동 트리거는 동일 (GREEN/YELLOW/RED
 
 > **설계 결정**: pACS를 Verification 없이 단독 사용하는 것은 금지한다. 완전성 검증(L1) 없이 신뢰도 평가(L1.5)만 하면, "다 빠뜨렸지만 확신은 높다"는 모순적 상태가 가능해진다.
 
+### 5.5 Adversarial Review (Enhanced L2 — 적대적 검토)
+
+기존 L2 Calibration을 대체하는 강화된 품질 검증 계층. Generator-Critic 패턴으로 산출물을 독립적으로 검토한다.
+
+#### 품질 계층 아키텍처
+
+```
+L0   Anti-Skip Guard (Hook — deterministic)
+L1   Verification Gate (Agent self-check)
+L1.5 pACS Self-Rating (Agent confidence)
+L2   Adversarial Review (Enhanced L2) ← 이 섹션
+       ├── Content critical analysis (LLM — @reviewer / @fact-checker)
+       ├── Independent pACS scoring (LLM → Python validates)
+       └── P1 deterministic validation (Python — validate_review.py)
+```
+
+#### 에이전트 정의
+
+| 에이전트 | 도구 | 역할 | 모델 |
+|---------|------|------|------|
+| `@reviewer` | Read, Glob, Grep (읽기 전용) | 코드/산출물의 비판적 분석 — 결함, 논리 허점, 완전성 검토 | opus |
+| `@fact-checker` | Read, Glob, Grep, WebSearch, WebFetch | 사실 검증 — 독립 소스 대비 claim-by-claim 확인 | opus |
+
+- **도구 분리 근거 (P2)**: `@reviewer`는 코드/문서의 내부 논리를 검토하므로 읽기만 필요. `@fact-checker`는 외부 사실 검증이 필요하므로 웹 접근이 필요. 최소 권한 원칙.
+- **Sub-agent 선택 근거**: 단일 리뷰어 = Sub-agent (동기적 피드백 루프). 리뷰 결과를 즉시 반영해야 하므로 Agent Team 비동기 패턴보다 효율적.
+
+#### 실행 프로토콜
+
+1. Generator가 산출물 생성 → L0/L1/L1.5 통과
+2. Orchestrator가 `Review:` 필드에 지정된 에이전트를 Sub-agent로 호출
+3. 리뷰 에이전트가 검토 보고서 생성 (stdout으로 반환)
+4. Orchestrator가 `review-logs/step-N-review.md`에 보고서 저장
+5. P1 검증: `python3 .claude/hooks/scripts/validate_review.py --step N --project-dir .`
+6. Verdict 기반 진행:
+
+```
+PASS → Translation (있는 경우) → SOT update → 다음 단계
+FAIL → Rework (최대 2회) → Re-review
+       ↓ 2회 초과
+       사용자 에스컬레이션
+```
+
+#### Review 필드 문법
+
+워크플로우에서 각 단계에 `Review:` 속성으로 지정:
+
+```markdown
+### Step 3: Analysis Report (agent)
+- Agent: @analyst
+- Review: @reviewer          ← 코드/산출물 리뷰
+- Translation: @translator
+- Verification:
+  - [ ] ...
+```
+
+| Review 값 | 동작 |
+|-----------|------|
+| `@reviewer` | 코드/산출물 비판적 분석 |
+| `@fact-checker` | 사실 검증 (외부 소스 대비) |
+| `@reviewer + @fact-checker` | 양쪽 모두 실행 (고위험 단계) |
+| `none` 또는 미지정 | 리뷰 건너뜀 (L1.5까지만) |
+
+#### Rubber-stamp 방지 (4계층 방어)
+
+| 방어 계층 | 메커니즘 |
+|----------|---------|
+| 1. Adversarial Persona | 에이전트 정의에 "critic, not validator" 정체성 내장 |
+| 2. Pre-mortem | 분석 전 3가지 실패 가설 작성 필수 — 확인 편향 방지 |
+| 3. Minimum 1 Issue | P1 검증이 이슈 0건 리뷰를 자동 거부 (R5 체크) |
+| 4. Independent pACS | 리뷰어 독립 채점 → Generator와 비교 (Delta ≥ 15 → 중재) |
+
+#### P1 할루시네이션 봉쇄
+
+리뷰 시스템에서 100% 정확해야 하는 5가지 작업을 Python 코드로 강제:
+
+| 검증 | 함수 | 위치 |
+|------|------|------|
+| R1: 리뷰 파일 존재 | `validate_review_output()` | `_context_lib.py` |
+| R2: 최소 크기 (100 bytes) | `validate_review_output()` | `_context_lib.py` |
+| R3: 필수 섹션 4개 존재 | `validate_review_output()` | `_context_lib.py` |
+| R4: PASS/FAIL 명시적 추출 | `parse_review_verdict()` | `_context_lib.py` |
+| R5: 이슈 테이블 ≥ 1행 | `validate_review_output()` | `_context_lib.py` |
+| pACS Delta 계산 | `calculate_pacs_delta()` | `_context_lib.py` |
+| Review→Translation 순서 | `validate_review_sequence()` | `_context_lib.py` |
+
+독립 실행 스크립트: `python3 .claude/hooks/scripts/validate_review.py --step N --project-dir .`
+출력: JSON `{"valid": true, "verdict": "PASS", "critical_count": 0, ...}`
+
+#### 이슈 심각도 분류
+
+| 심각도 | 정의 | Verdict 영향 |
+|--------|------|-------------|
+| **Critical** | 사실 오류, 필수 콘텐츠 누락, 논리 결함, 보안 취약점 | → FAIL |
+| **Warning** | 불완전한 커버리지, 약한 논증, 스타일 불일치, 경미한 부정확 | → PASS (기록) |
+| **Suggestion** | 개선 기회, 대안 접근법, 가독성 향상 | → PASS (선택적) |
+
+#### 리뷰 보고서 형식
+
+`review-logs/step-N-review.md`에 기록:
+
+```markdown
+# Adversarial Review — Step {N}: {Step Name}
+Reviewer: @{reviewer|fact-checker}
+
+## Pre-mortem (MANDATORY — before analysis)
+1. **Most likely critical flaw**: [...]
+2. **Most likely factual error**: [...]
+3. **Most likely logical weakness**: [...]
+
+## Issues Found
+| # | Severity | Location | Problem | Suggested Fix |
+|---|----------|----------|---------|---------------|
+| 1 | Critical | file:line | [...] | [...] |
+
+## Independent pACS (Reviewer's Assessment)
+| Dimension | Score | Rationale |
+|-----------|-------|-----------|
+| F | {0-100} | [...] |
+| C | {0-100} | [...] |
+| L | {0-100} | [...] |
+
+Reviewer pACS = min(F,C,L) = {score}
+Generator pACS = {score}
+Delta = |Reviewer - Generator| = {N}
+
+## Verdict: {PASS|FAIL}
+```
+
+#### Autopilot에서의 Adversarial Review
+
+- Review PASS → 자동 진행 (Translation 포함)
+- Review FAIL → 자동 재작업 (최대 2회, 초과 시 사용자 에스컬레이션)
+- pACS Delta ≥ 15 → Decision Log에 기록 + 재조정 권고
+- Review Decision Log: `autopilot-logs/step-N-decision.md`에 리뷰 결과 포함
+
+#### 실행 순서 제약
+
+```
+Task → L0 → L1 → L1.5 → Review(L2) → PASS → Translation → SOT update
+```
+
+- Translation은 Review PASS 후에만 실행 (P1 `validate_review_sequence()` 강제)
+- Review FAIL 상태에서 Translation 실행 금지
+- Review가 미지정(`none`)인 단계는 L1.5 후 바로 Translation 가능
+
+#### 하위 호환성
+
+| 상황 | 동작 |
+|------|------|
+| 워크플로우에 `Review:` 미지정 | 기존 L0+L1+L1.5만으로 진행 |
+| `review-logs/` 미존재 | 정상 동작 — P1 함수가 graceful 실패 |
+| `@reviewer`/`@fact-checker` 에이전트 미정의 | Sub-agent 호출 실패 시 사용자 에스컬레이션 |
+
+> **설계 결정**: Adversarial Review를 기존 L2 Calibration의 Enhanced 버전으로 위치시킨다. L2 Calibration의 "교차 검증"을 "적대적 검토"로 강화하되, 기존 L0/L1/L1.5 계층은 전혀 변경하지 않는다. `Review:` 필드가 없는 단계는 이전과 동일하게 동작한다.
+
 ---
 
 ## 6. 스킬 체계

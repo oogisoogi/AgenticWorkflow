@@ -158,7 +158,7 @@ Sub-agent와 달리 각 팀원이 완전히 독립된 컨텍스트를 가짐.
 - **Members**:
   - `@researcher` (sonnet): 자료 수집
   - `@writer` (opus): 콘텐츠 작성
-  - `@fact-checker` (haiku): 사실 검증
+  - `@fact-checker` (opus): 사실 검증
 - **Shared Tasks**: `~/.claude/tasks/content-pipeline/`
 - **Coordination**: Team Lead가 TaskCreate로 할당, 완료 시 자동 통보
 ```
@@ -876,6 +876,42 @@ def execute_workflow_step(step, sot):
         write_verification_log(step.number, verify_result, retry_count)
         # Verification Log: verification-logs/step-N-verify.md
 
+    # 6b. pACS Self-Rating (AGENTS.md §5.4)
+    # ... (기존 pACS 로직 — 생략)
+
+    # 6c. Adversarial Review — Enhanced L2 (AGENTS.md §5.5)
+    if step.review_agent:  # Review: @reviewer | @fact-checker | none
+        review_output = invoke_subagent(step.review_agent, {
+            "artifact": step.output_path,
+            "context": step.context_files,
+            "generator_pacs": pacs_score,
+        })
+        write_file(f"review-logs/step-{step.number}-review.md", review_output)
+
+        # P1 Validation (deterministic — validate_review.py)
+        validation = run_bash(f"python3 .claude/hooks/scripts/validate_review.py "
+                              f"--step {step.number} --project-dir .")
+        if not validation.valid:
+            escalate_to_user(step, validation.warnings)
+            return  # BLOCKED
+
+        if validation.verdict == "FAIL":
+            retry_count = 0
+            while validation.verdict == "FAIL" and retry_count < MAX_VERIFICATION_RETRIES:
+                remediate(step.output, review_output.critical_issues)
+                write_file(step.output_path, step.output)
+                review_output = invoke_subagent(step.review_agent, {...})
+                write_file(f"review-logs/step-{step.number}-review.md", review_output)
+                validation = run_bash(f"python3 validate_review.py --step {step.number}")
+                retry_count += 1
+            if validation.verdict == "FAIL":
+                escalate_to_user(step, "Review FAIL after max retries")
+                return  # BLOCKED
+
+    # 6d. Translation (Review PASS 후에만 — AGENTS.md §5.5 순서 제약)
+    if step.translation_agent and (not step.review_agent or validation.verdict == "PASS"):
+        invoke_subagent(step.translation_agent, step.output_path)
+
     # 7. Update SOT (순차적으로만 +1 증가)
     sot.outputs[f"step-{step.number}"] = step.output_path
     sot.current_step += 1  # NEVER increment by more than 1
@@ -886,6 +922,12 @@ def execute_workflow_step(step, sot):
 - **하위 호환**: `verification_criteria`가 `None`이면 Gate를 건너뛰어 기존 동작 유지
 - **부분 재실행**: 전체 재작업이 아닌, 실패한 기준에 해당하는 부분만 보완
 - **SOT 영향 없음**: 검증 상태는 `verification-logs/`에 기록. SOT 구조 변경 불필요 — `current_step` 진행이 이미 검증 완료를 의미
+
+**Adversarial Review 설계 원칙:**
+- **배치**: pACS(#6b) 이후, Translation(#6d) 이전 — 리뷰 통과 후에만 번역 실행
+- **하위 호환**: `step.review_agent`가 `None`이면 Review를 건너뛰어 기존 동작 유지
+- **P1 검증**: `validate_review.py`가 리뷰 보고서의 구조적 무결성을 결정론적으로 검증
+- **Rework 루프**: Review FAIL 시 Critical 이슈만 보완 후 재리뷰 (최대 2회)
 
 ### Anti-Abbreviation Rule
 
@@ -933,8 +975,8 @@ Autopilot의 설계 의도를 런타임에서 강화하는 하이브리드(Hook 
 | 계층 | 메커니즘 | 역할 |
 |------|---------|------|
 | **Hook** | `restore_context.py` | SessionStart 시 AUTOPILOT EXECUTION RULES 주입 |
-| **Hook** | `generate_context_summary.py` | Stop 시 Decision Log 누락 자동 보완 |
-| **Hook** | `_context_lib.py` | 스냅샷에 Autopilot 상태 섹션 보존 (IMMORTAL) |
+| **Hook** | `generate_context_summary.py` | Stop 시 Decision Log 누락 자동 보완 + Review 누락 감지 |
+| **Hook** | `_context_lib.py` | 스냅샷에 Autopilot 상태 섹션 보존 (IMMORTAL) + Review P1 검증 함수 |
 | **Hook** | `update_work_log.py` | work_log에 autopilot 단계 추적 필드 |
 | **프롬프트** | `CLAUDE.md` | Autopilot Execution Checklist (MANDATORY) |
 | **프롬프트** | 이 파일 | Anti-Skip Execution Protocol + Verification Gate 의사코드 |

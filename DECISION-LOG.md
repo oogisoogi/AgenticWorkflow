@@ -433,6 +433,53 @@
   - Next Step을 별도 파일로 분리 → 기각 (over-engineering, 스냅샷 내 IMMORTAL 마커로 충분)
 - **관련 커밋**: (pending)
 
+### ADR-034: Adversarial Review — Enhanced L2 품질 계층 + P1 할루시네이션 봉쇄
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: Generator-Critic 패턴(적대적 에이전트)을 도입하여 환각을 줄이고 산출물 품질을 높이고자 했다. 기존 L2 Calibration은 "선택적 교차 검증"으로서 구체적 구현이 없었다. 연구·개발 작업 모두에서 독립적 비판적 검토가 필요했다. 3차례의 심층 성찰(Critical Reflection)을 거쳐 설계를 확정했다.
+- **결정**:
+  1. 기존 L2 Calibration을 **Adversarial Review (Enhanced L2)**로 대체 — `@reviewer`(코드/산출물 분석, 읽기 전용)와 `@fact-checker`(사실 검증, 웹 접근) 두 전문 에이전트 신설
+  2. `Review:` 필드를 워크플로우 단계 속성으로 추가 (기존 `Translation:` 패턴과 동일)
+  3. P1 결정론적 검증 4개 함수를 `_context_lib.py`에 추가: `validate_review_output()` (R1-R5 5개 체크), `parse_review_verdict()` (regex 기반 이슈 추출), `calculate_pacs_delta()` (Generator-Reviewer 점수 산술 비교), `validate_review_sequence()` (Review→Translation 순서 타임스탬프 검증)
+  4. Rubber-stamp 방지 4계층: 적대적 페르소나 + Pre-mortem 필수 + 최소 1개 이슈 (P1 R5) + 독립 pACS 채점
+  5. 실행 순서: L0 → L1 → L1.5 → Review(L2) → PASS → Translation
+  6. Stop hook에 Review 누락 감지 안전망 추가 (`_check_missing_reviews()`)
+- **근거**:
+  - **Enhanced L2 위치**: 기존 L2가 이미 "교차 검증"이므로 적대적 검토는 이를 엄격하게 구현한 것. 새 L3를 만드는 것보다 기존 계층을 강화하는 것이 아키텍처 복잡도를 낮춘다.
+  - **2개 에이전트 분리 (P2)**: 코드 논리 분석(Read-only)과 사실 검증(WebSearch)은 필요 도구가 완전히 다르다. 최소 권한 원칙에 의해 분리.
+  - **Sub-agent 선택**: 리뷰 결과를 즉시 반영하는 동기적 피드백 루프가 필요하므로 Agent Team 비동기 패턴보다 Sub-agent가 품질 극대화에 유리.
+  - **P1 필요성**: 리뷰 보고서 존재/구조/verdict/이슈 수/pACS delta 검증은 100% 정확해야 하는 반복 작업으로, LLM에 맡기면 hallucination 위험. Python regex/filesystem/arithmetic으로 강제.
+- **대안**:
+  - 단일 `@critic` 에이전트 → 기각 (코드 분석과 사실 검증의 도구 프로파일이 다름)
+  - 새 `(adversarial)` 단계 유형 → 기각 (`Review:` 속성이 기존 `Translation:` 패턴과 일관적이며 하위 호환)
+  - L3 신설 → 기각 (기존 L2를 강화하는 것이 더 간결)
+  - Reviewer가 직접 파일을 수정 → 기각 (읽기 전용이어야 Generator와의 역할 분리 유지)
+- **관련 커밋**: (pending)
+
+### ADR-035: 종합 감사 — SOT 스키마 확장 + Quality Gate IMMORTAL + Error→Resolution 표면화
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: 코드베이스 전체에 대한 종합 감사에서 6가지 미구현·미최적화 영역이 발견되었다. (1) pacs/active_team SOT 스키마 미검증, (2) Quality Gate 상태의 세션 경계 유실, (3) 이전 세션 에러 해결 경험의 수동 Grep 의존, (4) 런타임 디렉터리 부재 시 silent failure, (5) 다단계 전환 정보의 스냅샷 헤더 미반영, (6) CLAUDE.md 문서와 구현의 불일치. 이 중 (2)와 (3)은 Context Memory 품질 최적화 관점에서 특히 중요했다.
+- **결정**:
+  1. `validate_sot_schema()` 확장: S7(pacs 구조 — dimensions F/C/L 0-100, current_step_score, weak_dimension) + S8(active_team — name, status 유효값) 검증 추가 → 6항목 → 8항목
+  2. `_extract_quality_gate_state()` 신설: pacs-logs/, review-logs/, verification-logs/에서 최신 단계의 품질 게이트 결과를 추출하여 IMMORTAL 스냅샷 섹션으로 보존
+  3. `_extract_recent_error_resolutions()` 신설(restore_context.py): Knowledge Archive에서 최근 에러→해결 패턴을 읽어 SessionStart 출력에 최대 3개 자동 표시
+  4. `_check_runtime_dirs()` 신설(setup_init.py): SOT 존재 시 verification-logs/, pacs-logs/, review-logs/, autopilot-logs/ 자동 생성
+  5. 스냅샷 헤더에 Phase Transition 흐름 표시: 다단계 세션에서 `Phase flow: research(12) → implementation(25)` 형식
+  6. CLAUDE.md 전체 동기화: 프로젝트 트리, 동작 원리 테이블, Claude 활용 방법 3개 레벨 일관성 확보
+- **근거**:
+  - **Quality Gate IMMORTAL**: compact/clear 후 Verification Gate/pACS/Review 진행 상태가 유실되면 다음 단계 진입 시 잘못된 판단 위험 → IMMORTAL로 보존하여 세션 경계에서의 품질 게이트 연속성 보장 (절대 기준 1)
+  - **Error→Resolution 표면화**: 수동 Grep 의존 시 이전 세션의 해결 경험이 활용되지 않음 → SessionStart에서 자동 표시하여 동일 에러 재발 시 즉시 해결 가능 (RLM 패턴의 프로액티브 활용)
+  - **SOT 스키마 확장**: pacs와 active_team은 Autopilot 실행의 핵심 상태이나 스키마 검증이 없어 hallucination에 취약 → P1 결정론적 검증으로 봉쇄
+  - **런타임 디렉터리**: 디렉터리 부재 시 파일 쓰기가 조용히 실패하여 Verification/pACS/Review 로그가 유실됨 → Setup 시 사전 생성
+- **대안**:
+  - Quality Gate 상태를 SOT에 저장 → 기각 (Hook은 SOT 쓰기 금지 — 절대 기준 2)
+  - Error→Resolution을 스냅샷 본문에 포함 → 기각 (스냅샷 크기 증가, SessionStart 출력이 더 즉각적)
+  - 런타임 디렉터리를 각 Hook에서 개별 생성 → 기각 (Setup에서 한 번 검증이 더 효율적이고 결정론적)
+- **관련 커밋**: (pending)
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -457,6 +504,8 @@
 | 2026-02-20 | (pending) | ADR-031: PreToolUse Safety Hook |
 | 2026-02-20 | (pending) | ADR-032: PreToolUse TDD Guard |
 | 2026-02-20 | (pending) | ADR-033: Context Memory 최적화 (success_patterns, Next Step IMMORTAL, regex) |
+| 2026-02-20 | (pending) | ADR-034: Adversarial Review — Enhanced L2 + P1 할루시네이션 봉쇄 |
+| 2026-02-20 | (pending) | ADR-035: 종합 감사 — SOT 스키마 확장 + Quality Gate IMMORTAL + Error→Resolution 표면화 |
 
 ---
 

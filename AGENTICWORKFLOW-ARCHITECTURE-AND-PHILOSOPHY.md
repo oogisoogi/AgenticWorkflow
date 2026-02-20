@@ -1028,7 +1028,7 @@ graph LR
 graph TB
     TL["Team Lead"] --> R["@researcher<br/>[TaskCompleted hook: 출처 검증]"]
     TL --> W["@writer<br/>[TaskCompleted hook: 품질 검증]"]
-    TL --> FC["@fact-checker<br/>[SubagentStop hook: 결과 병합]"]
+    TL --> FC["@fact-checker<br/>[SubagentStop hook: 결과 병합]<br/><i>※ 범용 팀 패턴 예시. 실제 @fact-checker는 Enhanced L2 Adversarial Agent</i>"]
     R --> ALL["모두 완료"]
     W --> ALL
     FC --> ALL

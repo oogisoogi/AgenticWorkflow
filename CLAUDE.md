@@ -94,18 +94,21 @@ AgenticWorkflow/
 ├── .claude/
 │   ├── settings.json                      ← Hook 설정 (Setup + SessionEnd)
 │   ├── agents/                             ← Sub-agent 정의
-│   │   └── translator.md                  (영→한 번역 전문 에이전트 — glossary 기반 용어 일관성)
+│   │   ├── translator.md                  (영→한 번역 전문 에이전트 — glossary 기반 용어 일관성)
+│   │   ├── reviewer.md                    (적대적 코드/산출물 리뷰어 — Enhanced L2 품질 계층, 읽기 전용)
+│   │   └── fact-checker.md                (적대적 사실 검증 에이전트 — 독립 소스 대비 claim-by-claim 확인)
 │   ├── commands/                           ← Slash Commands
 │   │   ├── install.md                     (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks + Safety Hooks
 │   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
-│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 6항목 검증), 모듈 레벨 regex 컴파일(9개 패턴 — 프로세스당 1회))
+│   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 구조(S7a-S7e: dimensions·score·weak_dimension·history·pre_mortem_flag) + S8 active_team 구조(S8a-S8e: name·status·tasks_completed·tasks_pending·completed_summaries)), Quality Gate 상태 추출(_extract_quality_gate_state — pacs/review/verification 로그에서 최신 단계 품질 게이트 상태를 IMMORTAL 스냅샷에 보존), Adversarial Review P1 검증(validate_review_output+parse_review_verdict+calculate_pacs_delta+validate_review_sequence — Enhanced L2 결정론적 검증), 모듈 레벨 regex 컴파일(9개+8개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
-│   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터 + 동적 RLM 쿼리 힌트)
+│   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터 + 동적 RLM 쿼리 힌트 + Error→Resolution 자동 표면화)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
-│   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
-│   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
+│   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망 + Adversarial Review 누락 감지)
+│   │   ├── validate_review.py             (Adversarial Review P1 검증 독립 스크립트 — JSON 출력, Hook 아님 — Orchestrator가 수동 호출)
+│   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄) + 런타임 디렉터리 자동 생성(SOT 존재 시), --init 트리거)
 │   │   ├── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   │   ├── block_destructive_commands.py  (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
 │   │   └── block_test_file_edit.py        (PreToolUse TDD Guard — 테스트 파일 수정 차단, .tdd-guard 토글, exit code 2 + Claude 자기 수정)
@@ -136,13 +139,13 @@ AgenticWorkflow/
 
 | Hook 이벤트 | 스크립트 | 동작 |
 |------------|---------|------|
-| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문, 디렉터리, PyYAML, SOT 쓰기 패턴 검증) |
+| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문(9개), 디렉터리, PyYAML, SOT 쓰기 패턴 검증, 런타임 디렉터리 자동 생성(5개)) |
 | **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 | **PreToolUse** (Bash) | `block_destructive_commands.py` | 위험 명령 실행 전 차단 (git push --force, git reset --hard, rm -rf / 등). exit code 2로 차단 + stderr 피드백으로 Claude 자기 수정 |
 | **PreToolUse** (Edit\|Write) | `block_test_file_edit.py` | TDD 모드(`.tdd-guard` 존재) 시 테스트 파일 수정 차단. Tier 1(디렉터리) + Tier 2(파일명) 2계층 탐지. exit code 2 + stderr 피드백으로 구현 코드 수정 유도 |
 | **SessionEnd** (`/clear`) | `save_context.py` | 전체 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
-| **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 |
+| **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 + Error→Resolution 자동 표면화 |
 | **PostToolUse** | `update_work_log.py` | 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate) 작업 로그 누적. 토큰 75% 초과 시 proactive 저장 |
 | **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) + Autopilot Decision Log 안전망 + ULW 상태 IMMORTAL 보존 |
 
@@ -158,7 +161,11 @@ AgenticWorkflow/
 - **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션(IMMORTAL 우선순위)은 품질 태그 기반으로 정렬된다 — `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 15개 슬롯을 채워, 일상적 의도 선언(`하겠습니다` 패턴)이 실제 설계 결정을 밀어내지 않는다. 비교·트레이드오프·선택 패턴도 추출한다.
 - **IMMORTAL-aware 압축**: 스냅샷 크기 초과 시 Phase 7 hard truncate에서 IMMORTAL 섹션을 우선 보존한다. 비-IMMORTAL 콘텐츠를 먼저 절삭하고, IMMORTAL 자체가 한계를 초과하는 극단적 경우에도 IMMORTAL 텍스트의 시작 부분을 보존한다. **압축 감사 추적**: 각 압축 Phase가 제거한 문자 수를 HTML 주석(`<!-- compression-audit: ... -->`)으로 스냅샷 끝에 기록한다 (Phase 1~7 단계별 delta + 최종 크기). 렌더링에 영향 없이 Grep으로 디버깅 가능.
 - **Error Taxonomy**: 도구 에러를 12개 패턴(file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found)으로 분류한다. Knowledge Archive의 error_patterns 필드에 기록되어, "unknown" 분류를 ~30%로 감소시킨다. False positive 방지를 위해 negative lookahead, 한정어 매칭 등을 적용한다. **Error→Resolution 매칭**: 에러 발생 후 5 entries 이내의 성공적 도구 호출을 file-aware 매칭으로 탐지하여 `resolution` 필드에 기록한다 (도구명 + 파일명). 매칭 실패 시 `null`. `Grep "resolution" knowledge-index.jsonl`로 해결 패턴을 cross-session 탐색 가능.
-- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지 (Tier 1: 비-SOT 스크립트의 SOT 참조 차단, Tier 2: SOT-aware 스크립트의 함수별 쓰기 패턴 검사). (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 6항목(current_step 타입·범위, outputs 타입·키 형식, 미래 단계 산출물 탐지, workflow_status 유효값, auto_approved_steps 정합성)으로 검증 — SessionStart와 Stop hook 양쪽에서 실행.
+- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지 (Tier 1: 비-SOT 스크립트의 SOT 참조 차단, Tier 2: SOT-aware 스크립트의 함수별 쓰기 패턴 검사). (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 8항목(S1-S6: current_step 타입·범위, outputs 타입·키 형식, 미래 단계 산출물 탐지, workflow_status 유효값, auto_approved_steps 정합성 + S7: pacs 5개 필드 검증(S7a dimensions F/C/L 0-100, S7b current_step_score 0-100, S7c weak_dimension F/C/L, S7d history dict→{score, weak}, S7e pre_mortem_flag string) + S8: active_team 5개 필드 검증(S8a name string, S8b status partial|all_completed, S8c tasks_completed list, S8d tasks_pending list, S8e completed_summaries dict→dict))으로 검증 — SessionStart와 Stop hook 양쪽에서 실행. (5) **Adversarial Review P1 검증**: `validate_review_output()`이 리뷰 보고서의 구조적 무결성(파일 존재 R1, 최소 크기 R2, 필수 섹션 4개 R3, PASS/FAIL 명시적 추출 R4, 이슈 테이블 ≥ 1행 R5)을 결정론적으로 검증. `parse_review_verdict()`가 regex로 이슈 심각도(Critical/Warning/Suggestion) 카운트 추출. `calculate_pacs_delta()`가 Generator-Reviewer pACS 차이(Delta ≥ 15 → 재조정 필요)를 산술 연산. `validate_review_sequence()`가 Review PASS → Translation 순서를 파일 타임스탬프로 강제. 독립 실행 스크립트: `validate_review.py`.
+- **Quality Gate 상태 IMMORTAL 보존**: `_extract_quality_gate_state()` 함수가 `pacs-logs/`, `review-logs/`, `verification-logs/`에서 최신 단계의 품질 게이트 결과(pACS 점수·약점 차원, Review verdict·이슈 카운트, Verification PASS/FAIL)를 추출하여 스냅샷에 IMMORTAL 섹션으로 보존한다. 세션 경계(compact/clear)에서 Verification Gate/pACS/Adversarial Review 재개 맥락이 유실되지 않는다.
+- **Phase Transition 스냅샷 헤더**: 다단계 전환이 감지된 세션에서는 스냅샷 헤더에 단일 phase 대신 `Phase flow: research(12) → implementation(25)` 형식의 전환 흐름을 표시한다. 각 단계의 도구 호출 수가 괄호 안에 포함되어 세션 복원 시 작업 흐름 맥락을 즉시 파악할 수 있다.
+- **Error→Resolution 자동 표면화**: `restore_context.py`의 `_extract_recent_error_resolutions()` 함수가 Knowledge Archive의 최근 세션에서 error_patterns(type + resolution)을 읽어 SessionStart 출력에 최대 3개의 에러→해결 패턴을 직접 표시한다. 수동 Grep 없이 이전 세션의 에러 해결 경험을 즉시 활용할 수 있다.
+- **런타임 디렉터리 자동 생성**: `setup_init.py`의 `_check_runtime_dirs()` 함수가 SOT 파일 존재 시 `verification-logs/`, `pacs-logs/`, `review-logs/`, `autopilot-logs/`, `translations/` 5개 디렉터리를 자동 생성한다. 워크플로우 실행 중 디렉터리 부재로 인한 silent failure를 방지한다.
 - **시스템 명령 필터링**: 스냅샷의 "현재 작업" 섹션에서 `/clear`, `/help` 등 시스템 명령을 자동 필터링하여 실제 사용자 작업 의도만 캡처한다.
 - **Autopilot 런타임 강화**: Autopilot 활성 시 SessionStart가 실행 규칙을 컨텍스트에 주입하고, 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하며, Stop hook이 Decision Log 누락을 감지·보완한다. PostToolUse는 work_log에 autopilot_step 필드를 추가하여 단계 진행을 추적한다.
 - **ULW 모드 감지·보존**: `detect_ulw_mode()` 함수가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지한다. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 5개 실행 규칙을 컨텍스트에 주입한다. **암묵적 해제**: 새 세션(`source=startup`)에서는 이전 스냅샷에 ULW 상태가 있어도 규칙을 주입하지 않는다 — `clear`/`compact`/`resume` source만 ULW를 계승한다. `check_ulw_compliance()` 함수가 5개 실행 규칙의 준수를 결정론적으로 검증하여 스냅샷 IMMORTAL에 경고를 포함한다. Knowledge Archive에 `ulw_active: true`로 태깅되어 `Grep "ulw_active" knowledge-index.jsonl`로 RLM 쿼리 가능하다.
@@ -293,6 +300,17 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] `TeamDelete` 직후 → SOT `active_team` → `completed_teams` 이동
 - [ ] Teammate 산출물에 판단 근거(Decision Rationale) + 교차 참조 단서(Cross-Reference Cues) 포함 확인
 
+#### 단계 완료 후 (Adversarial Review — `Review: @reviewer|@fact-checker`인 단계만)
+- [ ] `Review:` 필드에 지정된 에이전트를 Sub-agent로 호출
+- [ ] 리뷰 보고서를 `review-logs/step-N-review.md`에 저장
+- [ ] P1 검증 실행: `python3 .claude/hooks/scripts/validate_review.py --step N --project-dir .`
+- [ ] P1 검증 결과 `valid: true` 확인 (R1-R5 모두 통과)
+- [ ] Verdict 확인:
+  - [ ] PASS → 다음 단계 진행 (Translation 포함)
+  - [ ] FAIL → Critical 이슈 기반 재작업 (최대 2회, 초과 시 사용자 에스컬레이션)
+- [ ] pACS Delta ≥ 15 시 → Decision Log에 기록 + 재조정 사유 문서화
+- [ ] Review FAIL 상태에서 Translation 실행 금지
+
 #### 단계 완료 후 (번역 — `Translation: @translator`인 단계만)
 - [ ] `@translator` 서브에이전트 호출 (`translations/glossary.yaml` 참조 포함)
 - [ ] 번역 파일(`*.ko.md`) 디스크에 존재 확인
@@ -314,6 +332,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - Pre-mortem Protocol 생략하고 pACS 점수만 부여 금지 — 약점 인식이 점수의 전제
 - pACS를 Verification Gate 없이 단독 수행 금지 — L1 통과가 L1.5의 전제
 - pACS 점수를 전부 90+ 부여 금지 — Pre-mortem에서 식별한 약점과 점수 정합성 필수
+- Review FAIL 상태에서 Translation 실행 금지 — Review PASS가 Translation의 전제
+- Review 이슈 0건으로 PASS 처리 금지 — P1 검증이 자동 거부 (R5 체크)
+- Reviewer pACS를 Generator pACS 참조 후 채점 금지 — 독립 채점이 필수
 
 ## ULW (Ultrawork) Mode
 

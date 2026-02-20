@@ -34,7 +34,7 @@ from datetime import datetime
 # Constants
 # =============================================================================
 
-# Hook scripts that must exist and have valid Python syntax (8 scripts)
+# Hook scripts that must exist and have valid Python syntax (9 scripts)
 # D-7: Intentionally duplicated in setup_maintenance.py — setup scripts are
 # independent from _context_lib.py by design (no import dependency).
 REQUIRED_SCRIPTS = [
@@ -46,6 +46,7 @@ REQUIRED_SCRIPTS = [
     "restore_context.py",
     "save_context.py",
     "update_work_log.py",
+    "validate_review.py",
 ]
 
 # Severity levels
@@ -94,6 +95,9 @@ def main():
 
     # 7. SOT write safety (P1 Hallucination Prevention — 절대 기준 2)
     results.append(_check_sot_write_safety(scripts_dir))
+
+    # 8. Runtime log directories (conditional — only when SOT exists)
+    results.extend(_check_runtime_dirs(project_dir))
 
     # Write log file
     log_path = os.path.join(project_dir, ".claude", "hooks", "setup.init.log")
@@ -235,6 +239,58 @@ def _check_sessions_dir(project_dir):
             WARNING, "FAIL", "sessions/",
             f"cannot create directory: {e}",
         )
+
+
+def _check_runtime_dirs(project_dir):
+    """Check workflow runtime log directories exist when SOT is present.
+
+    Only activates when a SOT file (state.yaml/state.yml/state.json) exists,
+    indicating an active workflow. Creates directories if missing.
+
+    SOT Compliance: Checks SOT existence only (no content read).
+    Directories created are NOT SOT — they are log infrastructure.
+    """
+    SOT_FILENAMES = ("state.yaml", "state.yml", "state.json")
+    claude_dir = os.path.join(project_dir, ".claude")
+
+    # Fast path: no SOT → no runtime dirs needed
+    sot_exists = any(
+        os.path.exists(os.path.join(claude_dir, fn))
+        for fn in SOT_FILENAMES
+    )
+    if not sot_exists:
+        return []
+
+    results = []
+    runtime_dirs = [
+        "verification-logs",
+        "pacs-logs",
+        "review-logs",
+        "autopilot-logs",
+        "translations",
+    ]
+
+    for dirname in runtime_dirs:
+        dirpath = os.path.join(project_dir, dirname)
+        if os.path.isdir(dirpath):
+            results.append(
+                _result(INFO, "PASS", f"{dirname}/", "directory exists")
+            )
+        else:
+            try:
+                os.makedirs(dirpath, exist_ok=True)
+                results.append(
+                    _result(INFO, "PASS", f"{dirname}/", "directory created")
+                )
+            except Exception as e:
+                results.append(
+                    _result(
+                        WARNING, "FAIL", f"{dirname}/",
+                        f"cannot create directory: {e}",
+                    )
+                )
+
+    return results
 
 
 def _check_sot_write_safety(scripts_dir):

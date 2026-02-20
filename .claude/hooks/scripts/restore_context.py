@@ -369,6 +369,16 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
                     output_lines.append(f'  - Grep "tags.*{tag}" {ki_path} → {tag} 관련 세션')
             if error_info:
                 output_lines.append(f'  - Grep "resolution" {ki_path} → 에러→해결 패턴 포함 세션')
+
+            # P1-1: Proactive Error→Resolution surfacing
+            # Surface recent error patterns + resolutions directly (no manual Grep)
+            error_resolutions = _extract_recent_error_resolutions(recent)
+            if error_resolutions:
+                output_lines.append("")
+                output_lines.append("■ 최근 에러→해결 패턴 (자동 표면화):")
+                for er in error_resolutions[:3]:
+                    output_lines.append(f"  - {er}")
+
         if os.path.isdir(sessions_dir):
             output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
 
@@ -467,6 +477,45 @@ def _get_recent_sessions(ki_path, n=3):
         return entries[-n:] if entries else []
     except Exception:
         return []
+
+
+def _extract_recent_error_resolutions(recent_sessions):
+    """P1-1: Extract error→resolution pairs from recent Knowledge Archive sessions.
+
+    Proactively surfaces past error patterns and their resolutions at
+    SessionStart, eliminating the need for manual Grep queries.
+
+    P1 Compliance: Deterministic extraction from structured JSON data.
+    Returns: list of human-readable strings (max 3).
+    """
+    results = []
+    for session in reversed(recent_sessions):
+        error_patterns = session.get("error_patterns", [])
+        if not isinstance(error_patterns, list):
+            continue
+        for ep in error_patterns:
+            if not isinstance(ep, dict):
+                continue
+            etype = ep.get("type", "unknown")
+            tool = ep.get("tool", "?")
+            efile = ep.get("file", "")
+            resolution = ep.get("resolution")
+            if isinstance(resolution, dict) and resolution:
+                res_tool = resolution.get("tool", "?")
+                res_file = resolution.get("file", "")
+                loc = f" in {efile}" if efile else ""
+                res_loc = f" on {res_file}" if res_file else ""
+                results.append(
+                    f"{etype}{loc} ({tool}) → 해결: {res_tool}{res_loc}"
+                )
+            elif etype != "unknown":
+                loc = f" in {efile}" if efile else ""
+                results.append(
+                    f"{etype}{loc} ({tool}) → 해결: 미확인"
+                )
+        if len(results) >= 3:
+            break
+    return results[:3]
 
 
 def _find_best_snapshot(snapshot_dir, latest_path):

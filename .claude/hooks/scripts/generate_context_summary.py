@@ -23,6 +23,7 @@ Architecture:
 """
 
 import os
+import re
 import sys
 import json
 from datetime import datetime
@@ -125,6 +126,14 @@ def main():
     except Exception:
         pass  # Non-blocking — never fail the hook
 
+    # --- Adversarial Review safety net ---
+    # Detect steps with pACS logs but missing review reports.
+    # Non-blocking: only logs warning, does not fail the hook.
+    try:
+        _check_missing_reviews(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
     # Cleanup old snapshots
     cleanup_snapshots(snapshot_dir)
 
@@ -224,6 +233,40 @@ def _generate_decision_log_if_needed(project_dir, entries):
                 f.write(log_content)
         except Exception:
             pass  # Non-blocking
+
+
+def _check_missing_reviews(project_dir):
+    """Detect steps with pACS logs but no corresponding review reports.
+
+    Safety net: If a step has pacs-logs/step-N-pacs.md but no
+    review-logs/step-N-review.md, log a warning to stderr.
+    This catches cases where the Adversarial Review was skipped
+    for a step that has Review: specified in the workflow.
+
+    P1 Compliance: File existence check (deterministic).
+    SOT Compliance: Read-only.
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    pacs_dir = os.path.join(project_dir, "pacs-logs")
+    review_dir = os.path.join(project_dir, "review-logs")
+
+    if not os.path.isdir(pacs_dir):
+        return
+
+    step_pattern = re.compile(r"^step-(\d+)-pacs\.md$")
+
+    for fname in os.listdir(pacs_dir):
+        match = step_pattern.match(fname)
+        if not match:
+            continue
+        step_num = match.group(1)
+        review_file = os.path.join(review_dir, f"step-{step_num}-review.md")
+        if not os.path.exists(review_file):
+            print(
+                f"[Review Safety Net] Step {step_num}: pACS log exists but "
+                f"no review report found at review-logs/step-{step_num}-review.md",
+                file=sys.stderr,
+            )
 
 
 if __name__ == "__main__":

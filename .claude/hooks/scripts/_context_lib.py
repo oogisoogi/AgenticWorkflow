@@ -680,6 +680,151 @@ def validate_sot_schema(ap_state):
                     f"{item} (current_step={cs})"
                 )
 
+    # S7: pacs — must be dict with valid structure (if present)
+    pacs = ap_state.get("pacs")
+    if pacs is not None:
+        if not isinstance(pacs, dict):
+            warnings.append(
+                f"SOT schema: pacs is {type(pacs).__name__}, expected dict"
+            )
+        else:
+            # S7a: dimensions — dict with F, C, L keys (int 0-100)
+            dims = pacs.get("dimensions")
+            if dims is not None:
+                if not isinstance(dims, dict):
+                    warnings.append("SOT schema: pacs.dimensions must be dict")
+                else:
+                    for dim_key in ("F", "C", "L"):
+                        dim_val = dims.get(dim_key)
+                        if dim_val is not None:
+                            if not isinstance(dim_val, (int, float)):
+                                warnings.append(
+                                    f"SOT schema: pacs.dimensions.{dim_key} is "
+                                    f"{type(dim_val).__name__}, expected int"
+                                )
+                            elif not (0 <= dim_val <= 100):
+                                warnings.append(
+                                    f"SOT schema: pacs.dimensions.{dim_key} = "
+                                    f"{dim_val}, must be 0-100"
+                                )
+            # S7b: current_step_score — int 0-100
+            score = pacs.get("current_step_score")
+            if score is not None:
+                if not isinstance(score, (int, float)):
+                    warnings.append(
+                        f"SOT schema: pacs.current_step_score is "
+                        f"{type(score).__name__}, expected int"
+                    )
+                elif not (0 <= score <= 100):
+                    warnings.append(
+                        f"SOT schema: pacs.current_step_score = {score}, "
+                        f"must be 0-100"
+                    )
+            # S7c: weak_dimension — must be one of F, C, L
+            weak = pacs.get("weak_dimension")
+            if weak is not None and weak not in ("F", "C", "L"):
+                warnings.append(
+                    f"SOT schema: pacs.weak_dimension = '{weak}', "
+                    f"must be one of F, C, L"
+                )
+            # S7d: history — must be dict of step-keys → {score, weak}
+            # Schema: claude-code-patterns.md §SOT pacs 필드 스키마
+            #   history:
+            #     step-1: {score: 85, weak: "C"}
+            history = pacs.get("history")
+            if history is not None:
+                if not isinstance(history, dict):
+                    warnings.append(
+                        f"SOT schema: pacs.history is "
+                        f"{type(history).__name__}, expected dict"
+                    )
+                else:
+                    for hkey, hval in history.items():
+                        if not isinstance(hval, dict):
+                            warnings.append(
+                                f"SOT schema: pacs.history.{hkey} is "
+                                f"{type(hval).__name__}, expected dict"
+                            )
+                            continue
+                        hscore = hval.get("score")
+                        if hscore is not None:
+                            if not isinstance(hscore, (int, float)):
+                                warnings.append(
+                                    f"SOT schema: pacs.history.{hkey}.score "
+                                    f"is {type(hscore).__name__}, expected int"
+                                )
+                            elif not (0 <= hscore <= 100):
+                                warnings.append(
+                                    f"SOT schema: pacs.history.{hkey}.score "
+                                    f"= {hscore}, must be 0-100"
+                                )
+                        hweak = hval.get("weak")
+                        if hweak is not None and hweak not in ("F", "C", "L"):
+                            warnings.append(
+                                f"SOT schema: pacs.history.{hkey}.weak "
+                                f"= '{hweak}', must be F, C, or L"
+                            )
+            # S7e: pre_mortem_flag — must be string (if present)
+            pmf = pacs.get("pre_mortem_flag")
+            if pmf is not None and not isinstance(pmf, str):
+                warnings.append(
+                    f"SOT schema: pacs.pre_mortem_flag is "
+                    f"{type(pmf).__name__}, expected string"
+                )
+
+    # S8: active_team — must be dict with required fields (if present)
+    active_team = ap_state.get("active_team")
+    if active_team is not None:
+        if not isinstance(active_team, dict):
+            warnings.append(
+                f"SOT schema: active_team is {type(active_team).__name__}, "
+                f"expected dict"
+            )
+        else:
+            # S8a: name — must be non-empty string
+            team_name = active_team.get("name")
+            if team_name is not None and not isinstance(team_name, str):
+                warnings.append("SOT schema: active_team.name must be string")
+            # S8b: status — must be recognized value
+            # Schema: claude-code-patterns.md §SOT 갱신 프로토콜
+            #   "partial" (팀 작업 진행 중) | "all_completed" (모든 Task 완료)
+            team_status = active_team.get("status")
+            valid_team_statuses = {"partial", "all_completed"}
+            if team_status and team_status not in valid_team_statuses:
+                warnings.append(
+                    f"SOT schema: active_team.status '{team_status}' "
+                    f"unrecognized (expected: partial | all_completed)"
+                )
+            # S8c: tasks_completed — must be list (if present)
+            tc = active_team.get("tasks_completed")
+            if tc is not None and not isinstance(tc, list):
+                warnings.append(
+                    f"SOT schema: active_team.tasks_completed is "
+                    f"{type(tc).__name__}, expected list"
+                )
+            # S8d: tasks_pending — must be list (if present)
+            tp = active_team.get("tasks_pending")
+            if tp is not None and not isinstance(tp, list):
+                warnings.append(
+                    f"SOT schema: active_team.tasks_pending is "
+                    f"{type(tp).__name__}, expected list"
+                )
+            # S8e: completed_summaries — must be dict (if present)
+            cs_summaries = active_team.get("completed_summaries")
+            if cs_summaries is not None:
+                if not isinstance(cs_summaries, dict):
+                    warnings.append(
+                        f"SOT schema: active_team.completed_summaries is "
+                        f"{type(cs_summaries).__name__}, expected dict"
+                    )
+                else:
+                    for task_id, info in cs_summaries.items():
+                        if not isinstance(info, dict):
+                            warnings.append(
+                                f"SOT schema: active_team.completed_summaries"
+                                f".{task_id} must be dict"
+                            )
+
     return warnings
 
 
@@ -1333,6 +1478,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     completion_state = extract_completion_state(entries, project_dir)
     git_state = capture_git_state(project_dir)
     conversation_phase = detect_conversation_phase(tool_uses)  # C-5
+    phase_transitions = detect_phase_transitions(tool_uses)  # P1-3: multi-phase flow
     diff_stats = _get_per_file_diff_stats(project_dir)  # C-4
     decisions = _extract_decisions(assistant_texts)  # C-1
 
@@ -1341,12 +1487,18 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
 
     # ━━━ SURVIVAL PRIORITY 1: IMMORTAL ━━━
 
-    # Header
+    # Header (P1-3: include phase flow if multi-phase detected)
     sections.append(f"# Context Recovery — Session {session_id}")
     sections.append(f"> Saved: {now} | Trigger: {trigger}")
     sections.append(f"> Project: {project_dir}")
     sections.append(f"> Total entries: {len(entries)} | User msgs: {len(user_messages)} | Tool uses: {len(tool_uses)}")
-    sections.append(f"> Phase: {conversation_phase}")  # C-5: conversation phase detection
+    if len(phase_transitions) > 1:
+        phase_flow = " → ".join(
+            f"{t[0]}({t[2]-t[1]})" for t in phase_transitions
+        )
+        sections.append(f"> Phase flow: {phase_flow}")
+    else:
+        sections.append(f"> Phase: {conversation_phase}")
     sections.append("")
 
     # Section 1: Current Task (first + last user message — verbatim)
@@ -1437,6 +1589,21 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                 sections.append("")
     except Exception:
         pass  # Non-blocking — autopilot section is supplementary
+
+    # Section 2.55: Quality Gate State (IMMORTAL — conditional, only when gate logs exist)
+    # Preserves Verification/pACS/Review state for session recovery during retry/rework
+    try:
+        gate_lines = _extract_quality_gate_state(project_dir)
+        if gate_lines:
+            sections.append("## 품질 게이트 상태 (Quality Gate State)")
+            sections.append(
+                "<!-- IMMORTAL: 세션 복원 시 Verification/pACS/Review 재개 맥락 -->"
+            )
+            sections.append("")
+            sections.extend(gate_lines)
+            sections.append("")
+    except Exception:
+        pass  # Non-blocking — quality gate section is supplementary
 
     # Section 2.6: Active Team State (IMMORTAL — conditional, only when team active)
     try:
@@ -3072,3 +3239,569 @@ def cleanup_session_archives(snapshot_dir):
                 pass
     except Exception:
         pass
+
+
+# =============================================================================
+# Quality Gate State Extraction (Context Memory Optimization)
+# =============================================================================
+
+
+def _extract_quality_gate_state(project_dir):
+    """Extract latest Quality Gate state for IMMORTAL snapshot preservation.
+
+    Scans pacs-logs/, review-logs/, verification-logs/ for the most recent
+    step's quality gate results. Provides session recovery context when
+    a session dies during Verification retry, pACS RED rework, or Review FAIL.
+
+    P1 Compliance: Filesystem + regex only.
+    SOT Compliance: Read-only access to log directories.
+
+    Returns: list of markdown lines (empty if no gate logs exist).
+    """
+    lines = []
+
+    # Find the highest step number across all gate log directories
+    max_step = 0
+    gate_dirs = {
+        "pacs": os.path.join(project_dir, "pacs-logs"),
+        "review": os.path.join(project_dir, "review-logs"),
+        "verify": os.path.join(project_dir, "verification-logs"),
+    }
+    _step_re = re.compile(r"step-(\d+)")
+
+    for gate_type, gate_dir in gate_dirs.items():
+        if not os.path.isdir(gate_dir):
+            continue
+        try:
+            for fname in os.listdir(gate_dir):
+                m = _step_re.search(fname)
+                if m:
+                    step = int(m.group(1))
+                    if step > max_step:
+                        max_step = step
+        except OSError:
+            continue
+
+    if max_step == 0:
+        return lines
+
+    lines.append(f"최신 검증 단계: **Step {max_step}**")
+
+    # pACS score for the latest step
+    pacs_path = os.path.join(
+        project_dir, "pacs-logs", f"step-{max_step}-pacs.md"
+    )
+    if os.path.exists(pacs_path):
+        try:
+            with open(pacs_path, "r", encoding="utf-8") as f:
+                pacs_content = f.read(2000)
+            if not pacs_content.strip():
+                raise ValueError("empty pACS file")
+            # Extract pACS score
+            pacs_match = re.search(
+                r"pACS\s*=.*?=\s*(\d{1,3})|pACS\s*=\s*(\d{1,3})",
+                pacs_content, re.IGNORECASE,
+            )
+            if pacs_match:
+                score = pacs_match.group(1) or pacs_match.group(2)
+                lines.append(f"- **pACS**: {score}")
+            # Extract weak dimension
+            weak_match = re.search(
+                r"(?:weak|약점)\s*(?:dimension|차원)\s*[:=]\s*([FCL])",
+                pacs_content, re.IGNORECASE,
+            )
+            if weak_match:
+                lines.append(f"- **약점 차원**: {weak_match.group(1)}")
+            # Extract pre-mortem first line
+            pm_match = re.search(
+                r"(?:Pre-mortem|사전 부검).*?\n(.*?)(?:\n|$)",
+                pacs_content, re.IGNORECASE,
+            )
+            if pm_match:
+                pm_line = pm_match.group(1).strip()[:200]
+                if pm_line:
+                    lines.append(f"- **Pre-mortem**: {pm_line}")
+        except Exception:
+            pass
+
+    # Review verdict for the latest step
+    review_path = os.path.join(
+        project_dir, "review-logs", f"step-{max_step}-review.md"
+    )
+    if os.path.exists(review_path):
+        review_data = parse_review_verdict(review_path)
+        verdict = review_data.get("verdict", "N/A")
+        critical = review_data.get("critical_count", 0)
+        warning = review_data.get("warning_count", 0)
+        reviewer_pacs = review_data.get("reviewer_pacs")
+        lines.append(
+            f"- **Review**: {verdict} "
+            f"(Critical: {critical}, Warning: {warning})"
+        )
+        if reviewer_pacs:
+            lines.append(f"- **Reviewer pACS**: {reviewer_pacs}")
+
+    # Verification status for the latest step
+    verify_path = os.path.join(
+        project_dir, "verification-logs", f"step-{max_step}-verify.md"
+    )
+    if os.path.exists(verify_path):
+        try:
+            with open(verify_path, "r", encoding="utf-8") as f:
+                verify_content = f.read(2000)
+            pass_count = len(re.findall(
+                r"\bPASS\b", verify_content, re.IGNORECASE
+            ))
+            fail_count = len(re.findall(
+                r"\bFAIL\b", verify_content, re.IGNORECASE
+            ))
+            lines.append(
+                f"- **Verification**: PASS {pass_count}건, FAIL {fail_count}건"
+            )
+        except Exception:
+            pass
+
+    return lines
+
+
+# =============================================================================
+# Adversarial Review Validation (P1: Hallucination Prevention — Enhanced L2)
+# =============================================================================
+# These functions provide deterministic validation for the Adversarial Review
+# system. All checks are regex/filesystem/arithmetic — zero LLM interpretation.
+# SOT Compliance: Read-only access to review-logs/ and pacs-logs/.
+
+# Required sections in a review report (regex patterns for section headers)
+_REVIEW_REQUIRED_SECTIONS = [
+    re.compile(r"^#+\s*Pre-mortem", re.MULTILINE | re.IGNORECASE),
+    re.compile(r"^#+\s*Issues\s+Found", re.MULTILINE | re.IGNORECASE),
+    re.compile(r"^#+\s*Independent\s+pACS", re.MULTILINE | re.IGNORECASE),
+    re.compile(r"^#+\s*Verdict", re.MULTILINE | re.IGNORECASE),
+]
+
+# Verdict extraction: "## Verdict: PASS" or "## Verdict: FAIL"
+_REVIEW_VERDICT_RE = re.compile(
+    r"^#+\s*Verdict\s*:\s*[*_~`]*\s*(PASS|FAIL)(?:\b|[*_~`])",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# Issues table row: "| N | Severity | ..." — at least 4 pipe-separated cells
+_REVIEW_ISSUE_ROW_RE = re.compile(
+    r"^\|\s*\d+\s*\|", re.MULTILINE
+)
+
+# Severity extraction from issues table rows
+_REVIEW_CRITICAL_RE = re.compile(r"\bCritical\b", re.IGNORECASE)
+_REVIEW_WARNING_RE = re.compile(r"\bWarning\b", re.IGNORECASE)
+_REVIEW_SUGGESTION_RE = re.compile(r"\bSuggestion\b", re.IGNORECASE)
+
+# pACS score extraction: "F | 85 |" or "Reviewer pACS = min(F,C,L) = 72"
+_REVIEW_PACS_DIM_RE = re.compile(
+    r"^\|\s*([FCL])\s*\|\s*(\d{1,3})\s*\|", re.MULTILINE
+)
+_REVIEW_PACS_FINAL_RE = re.compile(
+    r"Reviewer\s+pACS\s*=.*?=\s*(\d{1,3})", re.IGNORECASE
+)
+_REVIEW_GENERATOR_PACS_RE = re.compile(
+    r"Generator\s+pACS\s*=\s*(\d{1,3})", re.IGNORECASE
+)
+
+
+def validate_review_output(project_dir, step_number):
+    """Anti-Skip Guard for Adversarial Review outputs.
+
+    P1 Compliance: All 5 checks are deterministic (filesystem + regex).
+    SOT Compliance: Read-only access to review-logs/.
+
+    Checks:
+      R1: review-logs/step-{N}-review.md exists
+      R2: File size >= MIN_OUTPUT_SIZE (100 bytes)
+      R3: All 4 required sections present (Pre-mortem, Issues, pACS, Verdict)
+      R4: Verdict is explicitly PASS or FAIL
+      R5: Issues table has >= 1 data row (rubber-stamp prevention)
+
+    Args:
+        project_dir: Project root directory path
+        step_number: Step number (int) to validate
+
+    Returns:
+        tuple: (is_valid: bool, verdict: str|None, issues_count: int,
+                warnings: list[str])
+        - is_valid: True only if all R1-R5 pass
+        - verdict: "PASS" or "FAIL" or None if not extractable
+        - issues_count: Number of issue rows found
+        - warnings: List of human-readable failure reasons
+    """
+    warnings = []
+    review_path = os.path.join(
+        project_dir, "review-logs", f"step-{step_number}-review.md"
+    )
+
+    # R1: File existence
+    if not os.path.exists(review_path):
+        warnings.append(
+            f"R1 FAIL: review-logs/step-{step_number}-review.md not found"
+        )
+        return (False, None, 0, warnings)
+
+    # R2: Minimum size
+    try:
+        size = os.path.getsize(review_path)
+    except OSError:
+        warnings.append(f"R2 FAIL: Cannot read file size: {review_path}")
+        return (False, None, 0, warnings)
+
+    if size < MIN_OUTPUT_SIZE:
+        warnings.append(
+            f"R2 FAIL: Review too small ({size} bytes, min {MIN_OUTPUT_SIZE})"
+        )
+        return (False, None, 0, warnings)
+
+    # Read content for R3-R5
+    try:
+        with open(review_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        warnings.append(f"R2 FAIL: Cannot read file: {e}")
+        return (False, None, 0, warnings)
+
+    # R3: Required sections
+    for i, pattern in enumerate(_REVIEW_REQUIRED_SECTIONS):
+        section_names = ["Pre-mortem", "Issues Found", "Independent pACS", "Verdict"]
+        if not pattern.search(content):
+            warnings.append(f"R3 FAIL: Missing required section: {section_names[i]}")
+
+    # R4: Verdict extraction
+    verdict_match = _REVIEW_VERDICT_RE.search(content)
+    verdict = verdict_match.group(1).upper() if verdict_match else None
+    if verdict is None:
+        warnings.append("R4 FAIL: No explicit PASS/FAIL verdict found")
+
+    # R5: Issues table rows (rubber-stamp prevention)
+    issue_rows = _REVIEW_ISSUE_ROW_RE.findall(content)
+    issues_count = len(issue_rows)
+    if issues_count < 1:
+        warnings.append("R5 FAIL: No issues found in table (minimum 1 required)")
+
+    is_valid = len(warnings) == 0
+    return (is_valid, verdict, issues_count, warnings)
+
+
+def parse_review_verdict(review_path):
+    """Extract PASS/FAIL verdict and issue severity counts from review report.
+
+    P1 Compliance: Regex-based extraction only, no LLM interpretation.
+    Useful for Orchestrator to make deterministic proceed/rework decisions.
+
+    Args:
+        review_path: Absolute path to review-logs/step-N-review.md
+
+    Returns:
+        dict with keys:
+        - verdict: "PASS" | "FAIL" | None
+        - critical_count: int (number of Critical issues)
+        - warning_count: int (number of Warning issues)
+        - suggestion_count: int (number of Suggestion issues)
+        - reviewer_pacs: int | None (reviewer's pACS score)
+        - pacs_dimensions: dict | None ({"F": int, "C": int, "L": int})
+    """
+    result = {
+        "verdict": None,
+        "critical_count": 0,
+        "warning_count": 0,
+        "suggestion_count": 0,
+        "reviewer_pacs": None,
+        "pacs_dimensions": None,
+    }
+
+    if not os.path.exists(review_path):
+        return result
+
+    try:
+        with open(review_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError):
+        return result
+
+    # Verdict
+    verdict_match = _REVIEW_VERDICT_RE.search(content)
+    if verdict_match:
+        result["verdict"] = verdict_match.group(1).upper()
+
+    # Issue severity counts from table rows
+    issue_rows = _REVIEW_ISSUE_ROW_RE.findall(content)
+    # Each row is like "| 1 | Critical | file:line | Problem | Fix |"
+    # We need to check each full row line for severity
+    for row_start in _REVIEW_ISSUE_ROW_RE.finditer(content):
+        # Get the full line containing this row
+        line_start = content.rfind("\n", 0, row_start.start()) + 1
+        line_end = content.find("\n", row_start.start())
+        if line_end == -1:
+            line_end = len(content)
+        line = content[line_start:line_end]
+
+        if _REVIEW_CRITICAL_RE.search(line):
+            result["critical_count"] += 1
+        elif _REVIEW_WARNING_RE.search(line):
+            result["warning_count"] += 1
+        elif _REVIEW_SUGGESTION_RE.search(line):
+            result["suggestion_count"] += 1
+
+    # Reviewer pACS dimensions
+    dims = {}
+    for dim_match in _REVIEW_PACS_DIM_RE.finditer(content):
+        dim_name = dim_match.group(1).upper()
+        dim_score = int(dim_match.group(2))
+        if 0 <= dim_score <= 100:
+            dims[dim_name] = dim_score
+
+    if len(dims) == 3 and all(k in dims for k in ("F", "C", "L")):
+        result["pacs_dimensions"] = dims
+
+    # Reviewer pACS final score
+    pacs_match = _REVIEW_PACS_FINAL_RE.search(content)
+    if pacs_match:
+        score = int(pacs_match.group(1))
+        if 0 <= score <= 100:
+            result["reviewer_pacs"] = score
+    elif result["pacs_dimensions"]:
+        # Fallback: calculate from dimensions (min of F, C, L)
+        result["reviewer_pacs"] = min(result["pacs_dimensions"].values())
+
+    return result
+
+
+def calculate_pacs_delta(project_dir, step_number):
+    """Calculate |generator_pACS - reviewer_pACS| for reconciliation detection.
+
+    P1 Compliance: Pure arithmetic — no LLM interpretation.
+    Reads from pacs-logs/step-N-pacs.md (generator) and
+    review-logs/step-N-review.md (reviewer).
+
+    A delta >= 15 indicates potential miscalibration and may require
+    reconciliation (either generator inflated or reviewer too harsh).
+
+    Args:
+        project_dir: Project root directory path
+        step_number: Step number (int)
+
+    Returns:
+        dict with keys:
+        - generator_score: int | None
+        - reviewer_score: int | None
+        - delta: int | None (absolute difference, None if either score missing)
+        - needs_reconciliation: bool (True if delta >= 15)
+    """
+    result = {
+        "generator_score": None,
+        "reviewer_score": None,
+        "delta": None,
+        "needs_reconciliation": False,
+    }
+
+    # Extract generator pACS from pacs-logs/step-N-pacs.md
+    generator_path = os.path.join(
+        project_dir, "pacs-logs", f"step-{step_number}-pacs.md"
+    )
+    if os.path.exists(generator_path):
+        try:
+            with open(generator_path, "r", encoding="utf-8") as f:
+                gen_content = f.read()
+            # Pattern: "pACS = min(F, C, L) = 85" or "pACS = 85"
+            gen_match = re.search(
+                r"pACS\s*=.*?=\s*(\d{1,3})|pACS\s*=\s*(\d{1,3})",
+                gen_content, re.IGNORECASE
+            )
+            if gen_match:
+                score_str = gen_match.group(1) or gen_match.group(2)
+                score = int(score_str)
+                if 0 <= score <= 100:
+                    result["generator_score"] = score
+        except (IOError, UnicodeDecodeError, ValueError):
+            pass
+
+    # Extract reviewer pACS from review report
+    review_path = os.path.join(
+        project_dir, "review-logs", f"step-{step_number}-review.md"
+    )
+    review_data = parse_review_verdict(review_path)
+    result["reviewer_score"] = review_data.get("reviewer_pacs")
+
+    # Calculate delta
+    if result["generator_score"] is not None and result["reviewer_score"] is not None:
+        result["delta"] = abs(result["generator_score"] - result["reviewer_score"])
+        result["needs_reconciliation"] = result["delta"] >= 15
+
+    return result
+
+
+def _read_sot_outputs(project_dir):
+    """Read SOT file and return outputs dict. Read-only.
+
+    P1 Compliance: Deterministic file read + parse.
+    SOT Compliance: Read-only access.
+
+    Returns:
+        dict: outputs section from SOT, or {} on any failure.
+    """
+    for sot_file in sot_paths(project_dir):
+        if not os.path.exists(sot_file):
+            continue
+        try:
+            with open(sot_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            if sot_file.endswith(".json"):
+                import json
+                data = json.loads(content)
+            else:
+                try:
+                    import yaml
+                    data = yaml.safe_load(content)
+                except ImportError:
+                    continue
+            if isinstance(data, dict):
+                outputs = data.get("outputs", {})
+                return outputs if isinstance(outputs, dict) else {}
+        except Exception:
+            continue
+    return {}
+
+
+def _find_translation_files_for_step(project_dir, step_number):
+    """Discover translation files for a step via 3-tier fallback.
+
+    Tier 1: SOT outputs.step-{N}-ko (explicit ko path from SOT)
+    Tier 2: translations/ directory (legacy compatibility)
+    Tier 3: Sibling *.ko.md next to SOT outputs.step-{N} (same-dir convention
+             per translator.md: "output file must be in the same directory
+             as the English original")
+
+    P1 Compliance: Filesystem operations only.
+    SOT Compliance: Read-only access via _read_sot_outputs().
+
+    Returns:
+        list: Existing translation file paths (deduplicated by realpath).
+    """
+    found = []
+    seen = set()
+
+    def _add(path):
+        rp = os.path.realpath(path)
+        if rp not in seen and os.path.exists(path):
+            seen.add(rp)
+            found.append(path)
+
+    # --- Tier 1 & 3: Read SOT once ---
+    outputs = _read_sot_outputs(project_dir)
+    if outputs:
+        # Tier 1: Explicit ko path from SOT outputs
+        ko_key = f"step-{step_number}-ko"
+        ko_val = outputs.get(ko_key)
+        if ko_val:
+            ko_path = (
+                ko_val if os.path.isabs(ko_val)
+                else os.path.join(project_dir, ko_val)
+            )
+            _add(ko_path)
+
+        # Tier 3: Sibling .ko.md next to original output file
+        orig_key = f"step-{step_number}"
+        orig_val = outputs.get(orig_key)
+        if orig_val:
+            orig_path = (
+                orig_val if os.path.isabs(orig_val)
+                else os.path.join(project_dir, orig_val)
+            )
+            base, ext = os.path.splitext(orig_path)
+            sibling = f"{base}.ko{ext}" if ext else f"{orig_path}.ko.md"
+            _add(sibling)
+
+    # --- Tier 2: translations/ directory (legacy) ---
+    translations_dir = os.path.join(project_dir, "translations")
+    if os.path.isdir(translations_dir):
+        prefix = f"step-{step_number}"
+        try:
+            for fname in os.listdir(translations_dir):
+                if fname.startswith(prefix) and fname.endswith(".ko.md"):
+                    _add(os.path.join(translations_dir, fname))
+        except OSError:
+            pass
+
+    return found
+
+
+def validate_review_sequence(project_dir, step_number):
+    """Verify that review PASS preceded translation start.
+
+    P1 Compliance: File timestamp comparison — deterministic.
+    Prevents translating flawed output (review FAIL → no translation).
+
+    Translation file discovery uses 3-tier fallback:
+      Tier 1: SOT outputs.step-{N}-ko (explicit path)
+      Tier 2: translations/ directory (legacy)
+      Tier 3: Sibling *.ko.md next to original (translator.md convention)
+
+    Checks:
+      1. review-logs/step-{N}-review.md exists with PASS verdict
+      2. If translation (*.ko.md) exists for this step, review file must be older
+
+    Args:
+        project_dir: Project root directory path
+        step_number: Step number (int)
+
+    Returns:
+        tuple: (is_valid: bool, warning: str | None)
+        - is_valid: True if sequence is correct or no translation exists
+        - warning: Human-readable issue description, None if valid
+    """
+    review_path = os.path.join(
+        project_dir, "review-logs", f"step-{step_number}-review.md"
+    )
+
+    # 3-tier translation file discovery
+    translation_files = _find_translation_files_for_step(project_dir, step_number)
+
+    # No translation files → sequence is trivially valid
+    if not translation_files:
+        return (True, None)
+
+    # Translation exists but no review → violation
+    if not os.path.exists(review_path):
+        return (
+            False,
+            f"Step {step_number}: Translation exists but no review report found. "
+            f"Review must PASS before translation.",
+        )
+
+    # Check review verdict
+    review_data = parse_review_verdict(review_path)
+    if review_data["verdict"] != "PASS":
+        return (
+            False,
+            f"Step {step_number}: Translation exists but review verdict is "
+            f"{review_data['verdict'] or 'UNKNOWN'} (must be PASS).",
+        )
+
+    # Timestamp check: review must be older than (or same as) translation
+    try:
+        review_mtime = os.path.getmtime(review_path)
+    except OSError:
+        return (
+            False,
+            f"Step {step_number}: Cannot read review file timestamp.",
+        )
+
+    for tf in translation_files:
+        try:
+            trans_mtime = os.path.getmtime(tf)
+            if trans_mtime < review_mtime:
+                return (
+                    False,
+                    f"Step {step_number}: Translation {os.path.basename(tf)} "
+                    f"(mtime {trans_mtime:.0f}) is older than review "
+                    f"(mtime {review_mtime:.0f}). Translation may precede review.",
+                )
+        except OSError:
+            continue
+
+    return (True, None)
