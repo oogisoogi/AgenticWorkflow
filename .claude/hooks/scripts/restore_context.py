@@ -31,7 +31,11 @@ from datetime import datetime
 
 # Add script directory to path for shared library import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _context_lib import read_stdin_json, get_snapshot_dir, read_autopilot_state, validate_step_output, validate_sot_schema, sot_paths, extract_path_tags
+from _context_lib import (
+    read_stdin_json, get_snapshot_dir, read_autopilot_state,
+    validate_step_output, validate_sot_schema, sot_paths,
+    extract_path_tags, aggregate_risk_scores, atomic_write,
+)
 
 
 # Maximum age (seconds) for snapshot restoration per source type
@@ -98,6 +102,10 @@ def main():
     # Verify SOT consistency
     sot_warning = _verify_sot_consistency(snapshot_content, project_dir)
 
+    # Predictive Debugging: Aggregate risk scores from Knowledge Archive
+    # Runs once per SessionStart — writes cache for PreToolUse hook
+    risk_data = _generate_risk_scores_cache(project_dir, snapshot_dir)
+
     # Build RLM-style recovery output (pointer + summary)
     recovery_output = _build_recovery_output(
         source=source,
@@ -108,6 +116,7 @@ def main():
         fallback_note=fallback_note,
         project_dir=project_dir,
         snapshot_content=snapshot_content,
+        risk_data=risk_data,
     )
 
     # Output to stdout — Claude receives this as session context
@@ -249,7 +258,7 @@ def _verify_sot_consistency(snapshot_content, project_dir):
     return None
 
 
-def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note="", project_dir=None, snapshot_content=""):
+def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_age, fallback_note="", project_dir=None, snapshot_content="", risk_data=None):
     """Build the RLM-style recovery output for SessionStart injection."""
     age_str = _format_age(snapshot_age)
 
@@ -448,6 +457,30 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
         output_lines.append("  4. No Partial Completion — '일부만 완료'는 미완료와 동일, 전체 완료까지 계속")
         output_lines.append("  5. Progress Reporting — 각 Task 완료 시 TaskUpdate로 상태 갱신")
 
+    # Predictive Debugging: Surface high-risk files
+    if risk_data and isinstance(risk_data, dict):
+        top_risk = risk_data.get("top_risk_files", [])
+        files_map = risk_data.get("files", {})
+        data_sessions = risk_data.get("data_sessions", 0)
+        if top_risk and data_sessions >= 5:
+            output_lines.append("")
+            output_lines.append("■ PREDICTIVE DEBUGGING — 고위험 파일 (과거 에러 이력 기반):")
+            for rf in top_risk[:5]:
+                fdata = files_map.get(rf, {})
+                score = fdata.get("risk_score", 0)
+                ec = fdata.get("error_count", 0)
+                types = fdata.get("error_types", {})
+                types_str = ", ".join(
+                    f"{k}:{v}" for k, v in sorted(
+                        types.items(), key=lambda x: x[1], reverse=True
+                    )[:3]
+                )
+                rr = fdata.get("resolution_rate", 0)
+                output_lines.append(
+                    f"  ⚠ {rf} — score:{score:.1f}, errors:{ec} ({types_str}), "
+                    f"resolution:{rr:.0%}"
+                )
+
     # Instruction for Claude
     output_lines.extend([
         "",
@@ -575,6 +608,29 @@ def _format_age(seconds):
         return f"{int(seconds / 3600)}시간"
     else:
         return f"{int(seconds / 86400)}일"
+
+
+def _generate_risk_scores_cache(project_dir, snapshot_dir):
+    """Generate risk-scores.json cache for PreToolUse hook.
+
+    Called once per SessionStart. Writes cache to context-snapshots/.
+    Non-blocking: returns empty dict on any error.
+
+    P1 Compliance: Delegates to aggregate_risk_scores() which is
+    deterministic arithmetic. Cache write uses atomic_write().
+    """
+    try:
+        ki_path = os.path.join(snapshot_dir, "knowledge-index.jsonl")
+        risk_data = aggregate_risk_scores(ki_path, project_dir)
+
+        # Write cache for predictive_debug_guard.py
+        cache_path = os.path.join(snapshot_dir, "risk-scores.json")
+        cache_json = json.dumps(risk_data, ensure_ascii=False, indent=2)
+        atomic_write(cache_path, cache_json)
+
+        return risk_data
+    except Exception:
+        return {}
 
 
 if __name__ == "__main__":

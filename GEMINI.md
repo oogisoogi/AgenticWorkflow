@@ -54,6 +54,7 @@
 | pACS (자체 신뢰 평가) | Verification Gate 통과 후 에이전트가 F/C/L 3차원 자기 평가. Pre-mortem Protocol 필수. min-score 원칙. GREEN(≥70): 자동 진행, YELLOW(50-69): 플래그 후 진행, RED(<50): 재작업. `AGENTS.md §5.4` 참조 |
 | Adversarial Review (Enhanced L2) | 기존 L2 Calibration을 대체하는 강화된 품질 검증. `@reviewer`(코드/산출물 비판적 분석, 읽기 전용) + `@fact-checker`(외부 사실 검증, 웹 접근). P1 검증(`validate_review.py`)으로 리뷰 품질 보장. `AGENTS.md §5.5` 참조 |
 | Translation Protocol | 영어 산출물 → 한국어 번역. `@translator` 서브에이전트가 `glossary.yaml` 기반 용어 일관성 유지. P1 검증(`validate_translation.py` T1-T9 + `validate_verification.py` V1a-V1c)으로 번역·검증 품질 보장. Review PASS가 Translation의 전제. `AGENTS.md §5.2` 참조 |
+| Predictive Debugging (L-1) | 에러 이력 기반 위험 파일 사전 경고. `predictive_debug_guard.py`(PreToolUse 경고 전용) + `aggregate_risk_scores()`(SessionStart P1 집계) + `validate_risk_scores()`(RS1-RS6 검증). `risk-scores.json` 캐시. `_context_lib.py` + `CLAUDE.md` 참조 |
 
 ## 컨텍스트 보존
 
@@ -63,7 +64,7 @@ Gemini CLI에는 Claude Code의 자동 Hook 기반 컨텍스트 보존 시스템
 - **세션 로그**: Gemini CLI의 `/memory` 기능으로 핵심 사항 기억
 - **SOT 기반 복원**: `state.yaml`에 워크플로우 진행 상태를 기록하여 새 세션에서 복원
 
-> Claude Code의 Context Preservation System은 Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), success_patterns(Edit/Write→Bash 성공 시퀀스), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그), session_duration_entries(세션 길이) 메타데이터를 자동 기록하고, 스냅샷의 설계 결정은 품질 태그 우선순위(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 정렬하여 노이즈를 제거한다. Quality Gate 상태(Verification/pACS 점수·약점)가 IMMORTAL 우선순위로 보존되어 세션 경계에서 유실되지 않는다. 스냅샷 압축 시 IMMORTAL 섹션을 우선 보존하며(압축 감사 추적 포함), 모든 파일 쓰기에 atomic write(temp → rename) 패턴을 적용한다. P1 할루시네이션 봉쇄로 KI 스키마 검증, 부분 실패 격리, SOT 쓰기 패턴 검증, SOT 스키마 검증(8항목 — S1-S6 기본 + S7 pacs 5필드 + S8 active_team 5필드), Adversarial Review P1 검증(R1-R5 구조 + pACS Delta), Translation P1 검증(T1-T9 번역 품질 + glossary 신선도), Verification Log P1 검증(V1a-V1c 구조적 무결성)이 결정론적으로 수행된다. SessionStart에서 Error→Resolution 매칭 결과가 자동 표면화되어 반복 에러 방지에 활용된다. Gemini에서는 이 정보를 수동으로 기록하거나, 세션 종료 시 상태를 `state.yaml`에 요약하는 방식으로 대응한다.
+> Claude Code의 Context Preservation System은 Knowledge Archive에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), success_patterns(Edit/Write→Bash 성공 시퀀스), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그), session_duration_entries(세션 길이) 메타데이터를 자동 기록하고, 스냅샷의 설계 결정은 품질 태그 우선순위(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 정렬하여 노이즈를 제거한다. Quality Gate 상태(Verification/pACS 점수·약점)가 IMMORTAL 우선순위로 보존되어 세션 경계에서 유실되지 않는다. 스냅샷 압축 시 IMMORTAL 섹션을 우선 보존하며(압축 감사 추적 포함), 모든 파일 쓰기에 atomic write(temp → rename) 패턴을 적용한다. P1 할루시네이션 봉쇄로 KI 스키마 검증, 부분 실패 격리, SOT 쓰기 패턴 검증, SOT 스키마 검증(8항목 — S1-S6 기본 + S7 pacs 5필드 + S8 active_team 5필드), Adversarial Review P1 검증(R1-R5 구조 + pACS Delta), Translation P1 검증(T1-T9 번역 품질 + glossary 신선도), Verification Log P1 검증(V1a-V1c 구조적 무결성), pACS P1 검증(PA1-PA6 pACS 로그 구조 무결성), L0 Anti-Skip Guard(L0a-L0c 산출물 파일 검증)이 결정론적으로 수행된다. SessionStart에서 Error→Resolution 매칭 결과가 자동 표면화되어 반복 에러 방지에 활용된다. Gemini에서는 이 정보를 수동으로 기록하거나, 세션 종료 시 상태를 `state.yaml`에 요약하는 방식으로 대응한다.
 
 ## 설계 원칙
 

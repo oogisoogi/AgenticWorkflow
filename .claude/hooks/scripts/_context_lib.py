@@ -121,6 +121,38 @@ _EXT_TAGS = {
     ".rs": "rust", ".go": "golang", ".java": "java",
 }
 
+# --- Predictive Debugging: Risk Score Constants (P1 — module-level) ---
+# Used by aggregate_risk_scores() and validate_risk_scores()
+# Weights per error type: higher = more indicative of fragile code
+# D-7: Keys MUST match ERROR_TAXONOMY in _classify_error_patterns() (~line 2812)
+#      + "unknown" for unclassified errors. Mismatch → fallback weight 0.7 applied.
+_RISK_WEIGHTS = {
+    "edit_mismatch": 2.0,   # File structure instability (frequent edit failures)
+    "dependency": 2.5,       # High ripple effect
+    "type_error": 1.5,       # Type complexity
+    "syntax": 1.0,           # Repetitive — complex file indicator
+    "value_error": 1.0,
+    "git_error": 1.0,
+    "timeout": 0.5,          # Often environmental, not code
+    "file_not_found": 0.5,   # Usually one-time
+    "permission": 0.5,
+    "connection": 0.3,       # Network — may not be code issue
+    "memory": 0.3,
+    "command_not_found": 0.3,
+    "unknown": 0.7,          # ~30% of errors — ignoring loses significant data
+}
+# Recency decay: (max_days, weight_multiplier)
+# More recent errors are more relevant to current code state
+_RECENCY_DECAY_DAYS = [
+    (30, 1.0),              # 0-30 days: full weight
+    (90, 0.5),              # 31-90 days: half weight
+    (float("inf"), 0.25),   # 91+ days: quarter weight
+]
+# Minimum risk score to trigger PreToolUse warning
+_RISK_SCORE_THRESHOLD = 3.0
+# Minimum sessions in knowledge-index before activation (cold start guard)
+_RISK_MIN_SESSIONS = 5
+
 # --- Pre-compiled regex patterns (module-level — compiled once per process) ---
 # Used by _extract_next_step()
 _NEXT_STEP_RE = re.compile(
@@ -556,43 +588,6 @@ def read_autopilot_state(project_dir):
             state["outputs"][m.group(1)] = m.group(2).strip()
 
     return state
-
-
-def validate_step_output(project_dir, step_number, outputs_map):
-    """Anti-Skip Guard: validate that a step's output exists and has meaningful content.
-
-    Deterministic validation (P1 compliant):
-      - File existence check (os.path.exists)
-      - Minimum size check (os.path.getsize >= MIN_OUTPUT_SIZE)
-
-    Returns: (is_valid, reason_string)
-    """
-    key = f"step-{step_number}"
-
-    if key not in outputs_map:
-        return (False, f"Step {step_number}: output path not recorded in SOT outputs")
-
-    output_path = outputs_map[key]
-
-    # Resolve relative paths against project_dir
-    if not os.path.isabs(output_path):
-        output_path = os.path.join(project_dir, output_path)
-
-    if not os.path.exists(output_path):
-        return (False, f"Step {step_number}: output file not found: {output_path}")
-
-    try:
-        size = os.path.getsize(output_path)
-    except OSError:
-        return (False, f"Step {step_number}: cannot read output file: {output_path}")
-
-    if size == 0:
-        return (False, f"Step {step_number}: output file is empty: {output_path}")
-
-    if size < MIN_OUTPUT_SIZE:
-        return (False, f"Step {step_number}: output too small ({size} bytes, min {MIN_OUTPUT_SIZE}): {output_path}")
-
-    return (True, f"Step {step_number}: OK — {output_path} ({size:,} bytes)")
 
 
 def validate_sot_schema(ap_state):
@@ -1350,10 +1345,11 @@ def _extract_next_step(assistant_texts):
     if not assistant_texts:
         return None
 
-    # Search last 3 assistant responses (reverse order) for forward-looking patterns
+    # FIX-M4: Search last 5 assistant responses (expanded from 3) for forward-looking patterns
+    # In long sessions (100+ turns), actual next-step may not be in last 3 responses
     # CM-F: Expanded from 200→500 chars to preserve structured action plans
     # Pattern: module-level _NEXT_STEP_RE (compiled once per process)
-    for entry in reversed(assistant_texts[-3:]):
+    for entry in reversed(assistant_texts[-5:]):
         content = entry.get("content", "")
         match = _NEXT_STEP_RE.search(content)
         if match:
@@ -1375,7 +1371,7 @@ def _extract_decisions(assistant_texts):
     4. Rationale patterns: "이유:", "근거:", "Rationale:", "because"
 
     P1 Compliance: Regex-based deterministic extraction.
-    Returns: list of decision strings (max 15).
+    Returns: list of decision strings (max 20).
     """
     decisions = []
     # All patterns are module-level pre-compiled (_DECISION_*_RE constants)
@@ -1415,8 +1411,9 @@ def _extract_decisions(assistant_texts):
             seen.add(d)
             unique.append(d)
 
-    # CM-2: Stratified slot allocation — [intent] capped at 3 slots (noise reduction)
-    # Remaining 12 slots guaranteed for high-signal decisions ([explicit]/[decision]/[rationale])
+    # CM-2 + FIX-M1: Stratified slot allocation — 20 slots total
+    # High-signal: [explicit] up to 5, [decision] up to 7, [rationale] up to 5
+    # Overflow: [intent] fills remaining slots (noise-reduced via filter)
     _DECISION_PRIORITY = {"[explicit]": 0, "[decision]": 1, "[rationale]": 2, "[intent]": 3}
     # B-3: Safer tag extraction — use find() on prefix only to avoid false matches
     # from ']' characters in the decision content itself
@@ -1428,11 +1425,15 @@ def _extract_decisions(assistant_texts):
         return ""
     unique.sort(key=lambda d: _DECISION_PRIORITY.get(_get_decision_tag(d), 4))
 
-    # Separate high-signal from intent, cap intent at 3
+    # FIX-M1: Expanded from 15→20 slots with proportional allocation
+    # High-signal slots (up to 15): [explicit] + [decision] + [rationale]
+    # Overflow slots (up to 5): [intent] fills remaining capacity
     high_signal = [d for d in unique if not d.startswith("[intent]")]
     intent_only = [d for d in unique if d.startswith("[intent]")]
-    result = high_signal[:12] + intent_only[:3]
-    return result[:15]
+    high_count = min(len(high_signal), 15)
+    intent_budget = 20 - high_count  # Intent gets whatever high-signal doesn't use
+    result = high_signal[:high_count] + intent_only[:intent_budget]
+    return result[:20]
 
 
 # =============================================================================
@@ -1581,10 +1582,13 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                     int(k.replace("step-", "")) for k in outputs.keys()
                     if k.startswith("step-")
                 ):
-                    is_valid, reason = validate_step_output(
-                        project_dir, step_num, outputs
+                    # FIX-R1+R3: Pass ap_state (flat dict with "outputs" key)
+                    # and handle list return type from unified validate_step_output
+                    is_valid, l0_warnings = validate_step_output(
+                        project_dir, step_num, ap_state
                     )
                     mark = "[OK]" if is_valid else "[FAIL]"
+                    reason = l0_warnings[0] if l0_warnings else f"Step {step_num}: OK"
                     sections.append(f"  {mark} {reason}")
                 sections.append("")
     except Exception:
@@ -2378,13 +2382,20 @@ def _compress_snapshot(full_md, sections):
 
     # Phase 7: IMMORTAL-aware hard truncate (absolute last resort)
     # CM-E: Preserve IMMORTAL sections, truncate non-IMMORTAL from bottom up
+    # FIX-C1: Marker-first boundary detection — each IMMORTAL marker re-enters
+    # IMMORTAL mode even after a non-IMMORTAL section interrupted.
+    # Old bug: single flag flipped to False on non-IMMORTAL "## " header,
+    # then subsequent IMMORTAL sections were misclassified as non-IMMORTAL.
     immortal_lines = []
     other_lines = []
     in_immortal_section = False
     for line in compressed:
+        # IMMORTAL marker always (re-)enters IMMORTAL mode
         if "<!-- IMMORTAL:" in line:
             in_immortal_section = True
-        if line.startswith("## ") and "IMMORTAL" not in line and in_immortal_section:
+        # Non-IMMORTAL section header exits IMMORTAL mode
+        # Must check AFTER marker check so marker on same line wins
+        elif line.startswith("## ") and "IMMORTAL" not in line:
             in_immortal_section = False
         if in_immortal_section or line.startswith("# Context Recovery"):
             immortal_lines.append(line)
@@ -2402,8 +2413,16 @@ def _compress_snapshot(full_md, sections):
     # Even IMMORTAL exceeds limit — truncate IMMORTAL itself (preserving start)
     # Reflection fix: Use immortal_text, not Phase 6 result, to avoid
     # cutting mixed content that defeats IMMORTAL-first purpose
-    truncated = immortal_text[:MAX_SNAPSHOT_CHARS] + \
-        "\n\n(... IMMORTAL 자체가 한계 초과로 잘림 — 전체 내역은 sessions/ 아카이브 참조)"
+    # FIX-C1: Add truncation notice so restored session knows context was cut
+    truncation_notice = (
+        "\n\n<!-- IMMORTAL: 압축 알림 — 세션 복원 시 핵심 맥락 -->\n"
+        "## ⚠ 스냅샷 압축 알림\n"
+        "이 스냅샷은 Phase 7 hard truncate를 거쳤습니다. "
+        "일부 비-IMMORTAL 섹션(수정 파일 목록, 작업 로그, Claude 응답 등)이 "
+        "제거되었을 수 있습니다. 전체 내역은 `sessions/` 아카이브를 참조하세요.\n"
+    )
+    truncated = immortal_text[:MAX_SNAPSHOT_CHARS - len(truncation_notice) - 100] + \
+        truncation_notice
     return _append_compression_audit(truncated, audit)
 
 
@@ -2779,6 +2798,8 @@ def _classify_error_patterns(entries):
     id_to_file = {tu.get("tool_use_id", ""): tu.get("file_path", "") for tu in tool_uses}
 
     # CM-B + E-1: Expanded error taxonomy — reduces "unknown" classification from ~80% to ~30%
+    # D-7: Type names MUST match _RISK_WEIGHTS keys (~line 127). Adding a new type here
+    #       without a corresponding _RISK_WEIGHTS entry → fallback weight 0.7 applied.
     ERROR_TAXONOMY = [
         ("file_not_found", re.compile(r"No such file|FileNotFoundError|ENOENT|not found", re.I)),
         ("permission", re.compile(r"Permission denied|EACCES|PermissionError|EPERM", re.I)),
@@ -2915,6 +2936,38 @@ def _extract_pacs_from_sot(project_dir):
                         pacs = wf.get("pacs", {})
                         if isinstance(pacs, dict) and "min_score" in pacs:
                             return pacs["min_score"]
+    except Exception:
+        pass
+    return None
+
+
+def _extract_team_summaries(project_dir):
+    """FIX-H1: Extract active_team.completed_summaries from SOT (read-only).
+
+    Preserves team coordination history in knowledge-index.jsonl,
+    surviving snapshot rotation and Phase 6-7 compression.
+
+    P1 Compliance: Deterministic YAML extraction.
+    SOT Compliance: Read-only access.
+    FIX-R4: Removed .json filter — yaml.safe_load() can parse JSON (JSON ⊂ YAML).
+    Returns: dict or None.
+    """
+    if not project_dir:
+        return None
+    try:
+        import yaml
+        for sp in sot_paths(project_dir):
+            if os.path.exists(sp):
+                with open(sp, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f.read())
+                if isinstance(data, dict):
+                    wf = data.get("workflow", {})
+                    if isinstance(wf, dict):
+                        active_team = wf.get("active_team", {})
+                        if isinstance(active_team, dict):
+                            summaries = active_team.get("completed_summaries", {})
+                            if summaries:
+                                return summaries
     except Exception:
         pass
     return None
@@ -3104,6 +3157,13 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     ulw_state = detect_ulw_mode(entries)
     if ulw_state:
         facts["ulw_active"] = True
+
+    # 5. FIX-H1: Team work summaries — archive to KI for RLM persistence
+    # completed_summaries in snapshot IMMORTAL can be lost during Phase 6-7 compression.
+    # Archiving to KI ensures cross-session team coordination history survives.
+    team_summaries = _extract_team_summaries(project_dir)
+    if team_summaries:
+        facts["team_summaries"] = team_summaries
 
     return facts
 
@@ -4187,6 +4247,203 @@ def verify_pacs_arithmetic(pacs_log_path):
     return (True, None)
 
 
+def validate_pacs_output(project_dir, step_number, pacs_type="general"):
+    """PA1-PA5: pACS log structural integrity + arithmetic validation.
+
+    P1 Compliance: All validation is deterministic (regex + arithmetic).
+    SOT Compliance: Read-only — no file writes.
+
+    Checks:
+      PA1: pACS log file exists
+      PA2: Minimum file size (≥ 50 bytes — pACS logs are concise)
+      PA3: Dimension scores present (F/C/L or Ft/Ct/Nt, each 0-100)
+      PA4: Pre-mortem section present (mandatory before scoring)
+      PA5: pACS = min(dimensions) arithmetic correctness (delegates to verify_pacs_arithmetic)
+
+    Optional:
+      PA6: Color zone validation — score vs declared zone (RED/YELLOW/GREEN)
+
+    Args:
+        project_dir: Absolute path to project root
+        step_number: Workflow step number
+        pacs_type: "general" | "translation" | "review"
+                   Determines expected file name pattern
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+    """
+    warnings = []
+
+    # Determine file path based on type
+    if pacs_type == "translation":
+        pacs_filename = f"step-{step_number}-translation-pacs.md"
+    elif pacs_type == "review":
+        pacs_filename = f"step-{step_number}-review-pacs.md"
+    else:
+        pacs_filename = f"step-{step_number}-pacs.md"
+
+    pacs_path = os.path.join(project_dir, "pacs-logs", pacs_filename)
+
+    # PA1: File exists
+    if not os.path.exists(pacs_path):
+        return (False, [f"PA1 FAIL: pACS log not found: {pacs_filename}"])
+
+    try:
+        with open(pacs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        return (False, [f"PA1 FAIL: Cannot read {pacs_filename}: {e}"])
+
+    # PA2: Minimum size
+    if len(content.strip()) < 50:
+        warnings.append(f"PA2 FAIL: {pacs_filename} too small ({len(content)} bytes, min 50)")
+
+    # PA3: Dimension scores present (0-100 range)
+    dims_found = {}
+    for match in _PACS_DIM_UNIVERSAL_RE.finditer(content):
+        dim_name = match.group(1)
+        dim_score = int(match.group(2))
+        if 0 <= dim_score <= 100:
+            dims_found[dim_name] = dim_score
+
+    if len(dims_found) < 3:
+        warnings.append(
+            f"PA3 FAIL: Expected ≥ 3 dimension scores, found {len(dims_found)}: "
+            f"{', '.join(f'{k}={v}' for k, v in dims_found.items()) or 'none'}"
+        )
+    else:
+        # PA6 (optional): Color zone validation
+        reported_pacs = None
+        min_match = _PACS_WITH_MIN_RE.search(content)
+        if min_match:
+            reported_pacs = int(min_match.group(1))
+        else:
+            simple_matches = _PACS_SIMPLE_RE.findall(content)
+            if len(simple_matches) == 1:
+                reported_pacs = int(simple_matches[0])
+
+        if reported_pacs is not None:
+            # Check zone consistency
+            content_upper = content.upper()
+            if reported_pacs < 50 and "GREEN" in content_upper:
+                warnings.append(
+                    f"PA6 WARN: pACS={reported_pacs} (RED zone) but GREEN declared"
+                )
+            elif reported_pacs >= 70 and "RED" in content_upper:
+                warnings.append(
+                    f"PA6 WARN: pACS={reported_pacs} (GREEN zone) but RED declared"
+                )
+
+    # PA4: Pre-mortem section present
+    _pre_mortem_patterns = [
+        "pre-mortem", "Pre-mortem", "Pre-Mortem", "PRE-MORTEM",
+        "사전 부검", "pre mortem", "프리모템",
+        "what could go wrong", "약점", "weakness", "risk",
+    ]
+    has_pre_mortem = any(p in content for p in _pre_mortem_patterns)
+    if not has_pre_mortem:
+        warnings.append(
+            "PA4 FAIL: Pre-mortem section not found — mandatory before pACS scoring"
+        )
+
+    # PA5: Arithmetic correctness (delegates to verify_pacs_arithmetic)
+    arith_valid, arith_warning = verify_pacs_arithmetic(pacs_path)
+    if not arith_valid and arith_warning:
+        warnings.append(arith_warning)
+
+    # Determine overall validity
+    has_fail = any("FAIL" in w for w in warnings)
+    return (not has_fail, warnings)
+
+
+def validate_step_output(project_dir, step_number, sot_data=None):
+    """L0 Anti-Skip Guard: Validate step output file exists and meets minimum size.
+
+    P1 Compliance: Deterministic file system checks only.
+    SOT Compliance: Read-only — no file writes.
+
+    Called by Orchestrator before advancing current_step.
+    This is the code implementation of L0 Anti-Skip Guard,
+    previously only a design-level checklist item.
+
+    Checks:
+      L0a: Output file exists (path from SOT outputs.step-N)
+      L0b: File size ≥ MIN_OUTPUT_SIZE (100 bytes)
+      L0c: File is not all whitespace
+
+    Args:
+        project_dir: Absolute path to project root
+        step_number: Workflow step number to validate
+        sot_data: Parsed SOT dict or read_autopilot_state() result (optional).
+                  If None, reads SOT from disk.
+                  Supports three data shapes:
+                    1. read_autopilot_state() result: {"outputs": {"step-1": "path"}, ...}
+                    2. Raw SOT (AGENTS.md schema): {"workflow": {"outputs": {"step-1": "path"}}}
+                    3. Raw SOT (flat schema): {"outputs": {"step-1": "path"}}
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+    """
+    warnings = []
+
+    # Load SOT if not provided
+    if sot_data is None:
+        for sot_path in sot_paths(project_dir):
+            if os.path.exists(sot_path):
+                try:
+                    import yaml
+                    with open(sot_path, "r", encoding="utf-8") as f:
+                        sot_data = yaml.safe_load(f) or {}
+                    break
+                except Exception:
+                    pass
+        if sot_data is None:
+            return (False, ["L0 FAIL: SOT file not found — cannot determine output path"])
+
+    # FIX-R2: Extract outputs — handle both flat and nested SOT schemas
+    # Shape 1 (read_autopilot_state / flat): {"outputs": {"step-1": "path"}}
+    # Shape 2 (raw YAML nested): {"workflow": {"outputs": {"step-1": "path"}}}
+    outputs = sot_data.get("outputs", {})
+    if not outputs and isinstance(sot_data.get("workflow"), dict):
+        outputs = sot_data["workflow"].get("outputs", {})
+    step_key = f"step-{step_number}"
+    output_path_raw = outputs.get(step_key)
+
+    if not output_path_raw:
+        return (False, [f"L0a FAIL: No output path in SOT outputs.{step_key}"])
+
+    # Resolve relative path
+    output_path = os.path.join(project_dir, output_path_raw)
+
+    # L0a: File exists
+    if not os.path.exists(output_path):
+        return (False, [f"L0a FAIL: Output file not found: {output_path_raw}"])
+
+    # L0b: Minimum size
+    try:
+        file_size = os.path.getsize(output_path)
+    except OSError as e:
+        return (False, [f"L0a FAIL: Cannot stat output file: {e}"])
+
+    if file_size < MIN_OUTPUT_SIZE:
+        warnings.append(
+            f"L0b FAIL: Output file too small ({file_size} bytes, min {MIN_OUTPUT_SIZE}): "
+            f"{output_path_raw}"
+        )
+
+    # L0c: Not all whitespace
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            content = f.read(MIN_OUTPUT_SIZE + 10)
+        if not content.strip():
+            warnings.append(f"L0c FAIL: Output file is empty/whitespace-only: {output_path_raw}")
+    except (IOError, UnicodeDecodeError):
+        pass  # Binary files are OK (e.g., images)
+
+    has_fail = any("FAIL" in w for w in warnings)
+    return (not has_fail, warnings)
+
+
 def validate_verification_log(project_dir, step_number):
     """V1: Verification log structural integrity (V1a-V1c).
 
@@ -4284,3 +4541,347 @@ def validate_verification_log(project_dir, step_number):
 
     is_valid = len(warnings) == 0
     return (is_valid, warnings)
+
+
+# =============================================================================
+# Predictive Debugging: Risk Score Aggregation (P1 — Deterministic)
+# =============================================================================
+
+def aggregate_risk_scores(ki_path, project_dir):
+    """Aggregate per-file risk scores from knowledge-index.jsonl.
+
+    P1 Compliance: All operations are deterministic arithmetic.
+    No semantic inference — pure counting, weighting, and decay.
+
+    Called by: restore_context.py at SessionStart (once per session).
+    Output: dict suitable for JSON serialization to risk-scores.json.
+
+    Data flow:
+      knowledge-index.jsonl → read entries → extract error_patterns
+      → per-file error counting → weight application → recency decay
+      → resolution rate calculation → validate → return
+    """
+    # Read all knowledge-index entries
+    entries = []
+    if not ki_path or not os.path.exists(ki_path):
+        return _empty_risk_data(project_dir)
+
+    try:
+        with open(ki_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except Exception:
+        return _empty_risk_data(project_dir)
+
+    if len(entries) < _RISK_MIN_SESSIONS:
+        return _empty_risk_data(project_dir, data_sessions=len(entries))
+
+    # Per-file error accumulation
+    # Key: relative path → {error_types: {type: count}, total_weighted: float,
+    #                        resolved_count: int, total_count: int, last_error_date: str}
+    file_risks = {}
+    now_ts = time.time()
+
+    for entry in entries:
+        error_patterns = entry.get("error_patterns", [])
+        if not isinstance(error_patterns, list):
+            continue
+
+        # Parse entry timestamp for recency decay
+        entry_ts = entry.get("timestamp", "")
+        entry_age_days = _timestamp_to_age_days(entry_ts, now_ts)
+
+        # Determine recency weight
+        recency_weight = _RECENCY_DECAY_DAYS[-1][1]  # default: oldest bracket
+        for max_days, weight in _RECENCY_DECAY_DAYS:
+            if entry_age_days <= max_days:
+                recency_weight = weight
+                break
+
+        # Get modified files from this session (for file↔error association)
+        modified_files = entry.get("modified_files", [])
+
+        for ep in error_patterns:
+            if not isinstance(ep, dict):
+                continue
+            error_type = ep.get("type", "unknown")
+            error_file = ep.get("file", "")
+            resolution = ep.get("resolution")
+            has_resolution = isinstance(resolution, dict) and bool(resolution)
+
+            # Determine which file(s) to attribute the error to
+            # Priority: error-specific file > session modified files
+            target_files = []
+            if error_file:
+                target_files = [error_file]
+            else:
+                # No specific file — attribute to all modified files
+                target_files = [os.path.basename(f) for f in modified_files[:5]]
+
+            for tf in target_files:
+                # Normalize to relative path
+                rel_path = _normalize_to_relative(tf, project_dir, modified_files)
+                if not rel_path:
+                    continue
+
+                if rel_path not in file_risks:
+                    file_risks[rel_path] = {
+                        "error_types": {},
+                        "total_weighted": 0.0,
+                        "resolved_count": 0,
+                        "total_count": 0,
+                        "last_error_date": "",
+                    }
+
+                fr = file_risks[rel_path]
+                # Apply type weight × recency weight
+                type_weight = _RISK_WEIGHTS.get(error_type, 0.7)
+                weighted_score = type_weight * recency_weight
+                fr["total_weighted"] += weighted_score
+                fr["error_types"][error_type] = fr["error_types"].get(error_type, 0) + 1
+                fr["total_count"] += 1
+                if has_resolution:
+                    fr["resolved_count"] += 1
+
+                # Track most recent error date
+                entry_date = entry_ts[:10] if len(entry_ts) >= 10 else ""
+                if entry_date > fr["last_error_date"]:
+                    fr["last_error_date"] = entry_date
+
+    # P1-FIX: Merge entries with same basename but different paths
+    # (bare names like "_context_lib.py" vs relative ".claude/hooks/scripts/_context_lib.py")
+    # Keep the longest (most specific) path as canonical key, sum scores.
+    basename_groups = {}
+    for rel_path, fr in file_risks.items():
+        bname = os.path.basename(rel_path)
+        if bname not in basename_groups:
+            basename_groups[bname] = []
+        basename_groups[bname].append((rel_path, fr))
+
+    merged_risks = {}
+    for bname, group in basename_groups.items():
+        if len(group) == 1:
+            merged_risks[group[0][0]] = group[0][1]
+        else:
+            # Pick longest path as canonical (most specific)
+            canonical_path = max(group, key=lambda x: len(x[0]))[0]
+            merged = {
+                "error_types": {},
+                "total_weighted": 0.0,
+                "resolved_count": 0,
+                "total_count": 0,
+                "last_error_date": "",
+            }
+            for _, fr in group:
+                merged["total_weighted"] += fr["total_weighted"]
+                merged["total_count"] += fr["total_count"]
+                merged["resolved_count"] += fr["resolved_count"]
+                for etype, cnt in fr["error_types"].items():
+                    merged["error_types"][etype] = (
+                        merged["error_types"].get(etype, 0) + cnt
+                    )
+                if fr["last_error_date"] > merged["last_error_date"]:
+                    merged["last_error_date"] = fr["last_error_date"]
+            merged_risks[canonical_path] = merged
+
+    # Build output
+    files_output = {}
+    for rel_path, fr in merged_risks.items():
+        resolution_rate = (
+            fr["resolved_count"] / fr["total_count"]
+            if fr["total_count"] > 0
+            else 0.0
+        )
+        files_output[rel_path] = {
+            "risk_score": round(fr["total_weighted"], 2),
+            "error_count": fr["total_count"],
+            "error_types": fr["error_types"],
+            "last_error_session": fr["last_error_date"],
+            "resolution_rate": round(resolution_rate, 2),
+        }
+
+    # Sort by risk_score descending for top_risk_files
+    sorted_files = sorted(
+        files_output.keys(),
+        key=lambda k: files_output[k]["risk_score"],
+        reverse=True,
+    )
+    top_risk = [
+        f for f in sorted_files[:10]
+        if files_output[f]["risk_score"] >= _RISK_SCORE_THRESHOLD
+    ]
+
+    risk_data = {
+        "generated_at": datetime.now().isoformat(),
+        "data_sessions": len(entries),
+        "project_dir": project_dir,
+        "risk_threshold": _RISK_SCORE_THRESHOLD,
+        "files": files_output,
+        "top_risk_files": top_risk,
+    }
+
+    # P1: Self-validation before return
+    validation_warnings = validate_risk_scores(risk_data)
+    if validation_warnings:
+        risk_data["_validation_warnings"] = validation_warnings
+
+    return risk_data
+
+
+def validate_risk_scores(risk_data):
+    """P1 Risk Score Validation (RS1-RS6).
+
+    Deterministic schema enforcement for risk-scores.json.
+    Follows the same pattern as validate_sot_schema (S1-S8),
+    validate_review_output (R1-R5), validate_translation_output (T1-T7).
+
+    Returns: list of warning strings (empty = all checks pass).
+    """
+    warnings = []
+
+    if not isinstance(risk_data, dict):
+        warnings.append("RS1 FAIL: risk_data is not a dict")
+        return warnings
+
+    # RS1: Required top-level keys
+    required_keys = {"generated_at", "data_sessions", "files", "top_risk_files", "risk_threshold"}
+    missing = required_keys - set(risk_data.keys())
+    if missing:
+        warnings.append(f"RS1 FAIL: Missing required keys: {missing}")
+
+    # RS2: data_sessions is int >= 0
+    ds = risk_data.get("data_sessions")
+    if not isinstance(ds, int) or ds < 0:
+        warnings.append(f"RS2 FAIL: data_sessions must be int >= 0, got {ds!r}")
+
+    # RS3-RS5: Per-file validation
+    files = risk_data.get("files", {})
+    if not isinstance(files, dict):
+        warnings.append("RS3 FAIL: files must be a dict")
+    else:
+        for fpath, fdata in files.items():
+            if not isinstance(fdata, dict):
+                warnings.append(f"RS3 FAIL: files[{fpath!r}] is not a dict")
+                continue
+
+            # RS3: risk_score is numeric >= 0
+            score = fdata.get("risk_score")
+            if not isinstance(score, (int, float)) or score < 0:
+                warnings.append(
+                    f"RS3 FAIL: files[{fpath!r}].risk_score must be "
+                    f"numeric >= 0, got {score!r}"
+                )
+
+            # RS4: error_count >= sum(error_types.values())
+            ec = fdata.get("error_count", 0)
+            et = fdata.get("error_types", {})
+            if isinstance(et, dict) and isinstance(ec, int):
+                type_sum = sum(
+                    v for v in et.values() if isinstance(v, (int, float))
+                )
+                if ec < type_sum:
+                    warnings.append(
+                        f"RS4 FAIL: files[{fpath!r}].error_count ({ec}) < "
+                        f"sum(error_types) ({type_sum})"
+                    )
+
+            # RS5: resolution_rate is float, 0.0 <= rate <= 1.0
+            rr = fdata.get("resolution_rate")
+            if rr is not None:
+                if not isinstance(rr, (int, float)) or rr < 0.0 or rr > 1.0:
+                    warnings.append(
+                        f"RS5 FAIL: files[{fpath!r}].resolution_rate must be "
+                        f"0.0-1.0, got {rr!r}"
+                    )
+
+    # RS6: top_risk_files entries exist in files dict and sorted by risk_score desc
+    top = risk_data.get("top_risk_files", [])
+    if isinstance(top, list) and isinstance(files, dict):
+        for tf in top:
+            if tf not in files:
+                warnings.append(
+                    f"RS6 FAIL: top_risk_files entry {tf!r} not found in files"
+                )
+        # Check sort order
+        scores = [
+            files.get(tf, {}).get("risk_score", 0)
+            for tf in top if tf in files
+        ]
+        if scores != sorted(scores, reverse=True):
+            warnings.append(
+                "RS6 FAIL: top_risk_files not sorted by risk_score desc"
+            )
+
+    return warnings
+
+
+def _empty_risk_data(project_dir, data_sessions=0):
+    """Return empty risk data structure (cold start / no data)."""
+    return {
+        "generated_at": datetime.now().isoformat(),
+        "data_sessions": data_sessions,
+        "project_dir": project_dir,
+        "risk_threshold": _RISK_SCORE_THRESHOLD,
+        "files": {},
+        "top_risk_files": [],
+    }
+
+
+def _timestamp_to_age_days(ts_str, now_ts):
+    """Convert ISO timestamp string to age in days.
+
+    P1 Compliance: Deterministic datetime parsing.
+    Returns float (days). Returns 365.0 on parse failure (conservative decay).
+    """
+    if not ts_str:
+        return 365.0
+    try:
+        # Handle both "2026-02-20T15:30:00" and "2026-02-20T153000" formats
+        dt = datetime.fromisoformat(
+            ts_str.replace("Z", "+00:00") if ts_str.endswith("Z") else ts_str
+        )
+        age_seconds = now_ts - dt.timestamp()
+        return max(0.0, age_seconds / 86400.0)
+    except (ValueError, TypeError, OSError):
+        return 365.0  # Conservative: treat unparseable as old
+
+
+def _normalize_to_relative(filename, project_dir, modified_files):
+    """Normalize a filename to project-relative path.
+
+    Strategy:
+      1. If filename is a bare name, find full path in modified_files
+      2. If filename is absolute and under project_dir, make relative
+      3. Otherwise return as-is (best effort)
+
+    P1 Compliance: Deterministic string operations only.
+    Returns: relative path string, or empty string on failure.
+    """
+    if not filename:
+        return ""
+
+    # Case 1: Bare filename (no path separator) — find in modified_files
+    if not os.path.isabs(filename) and os.sep not in filename:
+        for mf in modified_files:
+            if os.path.basename(mf) == filename:
+                if os.path.isabs(mf) and project_dir:
+                    try:
+                        return os.path.relpath(mf, project_dir)
+                    except ValueError:
+                        return mf
+                return mf
+        return filename  # Return bare filename as-is (best effort)
+
+    # Case 2: Absolute path — make relative to project
+    if os.path.isabs(filename) and project_dir:
+        try:
+            return os.path.relpath(filename, project_dir)
+        except ValueError:
+            return filename
+
+    return filename

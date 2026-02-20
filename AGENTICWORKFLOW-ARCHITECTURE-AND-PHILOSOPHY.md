@@ -200,7 +200,7 @@ graph TB
         end
 
         subgraph "Context Preservation + Safety"
-            CPS["hooks/scripts/<br/>10개 Python 스크립트 + 1 라이브러리<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭<br/>+ PreToolUse 위험 명령 차단/TDD Guard<br/>+ Adversarial Review P1 검증)"]
+            CPS["hooks/scripts/<br/>13개 Python 스크립트 + 1 라이브러리<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭<br/>+ PreToolUse 위험 명령 차단/TDD Guard/Predictive Debug<br/>+ Adversarial Review P1 검증 + Translation P1 검증<br/>+ pACS P1 검증 + L0 Anti-Skip Guard)"]
             CSS["context-snapshots/<br/>런타임 스냅샷"]
         end
 
@@ -627,6 +627,7 @@ RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말�
 | Variable Persistence | `work_log.jsonl`로 중간 상태 영속 저장 (9개 도구 추적) | 도구 사용마다 누적, 스냅샷 생성 시 활용 |
 | 프로그래밍적 탐색 | `knowledge-index.jsonl` — Grep으로 검색 가능. phase, phase_flow, primary_language, error_patterns(+resolution), tool_sequence, final_status, tags, session_duration_entries 메타데이터 포함 | 과거 세션을 코드로 탐색 (RLM sub-call 대응) |
 | 에러 분류 + 해결 매칭 | Error Taxonomy 12패턴 — 도구 에러를 결정론적으로 분류. false positive 방지(negative lookahead, 한정어 매칭). **Error→Resolution 매칭**: 에러 후 5 entries 이내 성공 호출을 file-aware로 탐지 → `resolution` 필드 기록 | P1 원칙: 에러 분류와 해결 패턴 모두 코드가 수행 |
+| Predictive Debugging | `aggregate_risk_scores()` — Knowledge Archive의 error_patterns를 파일별 집계(가중치 × 감쇠). SessionStart에서 `risk-scores.json` 캐시 생성 → `predictive_debug_guard.py`(PreToolUse)가 매 Edit/Write마다 캐시 조회 → 임계값 초과 시 stderr 경고 (exit 0). RS1-RS6 P1 검증 | Error Taxonomy(ADR-017) 데이터를 **사전 예측**에 활용하는 L-1 계층. 차단하지 않고 경고만 → 워크플로우 비방해 |
 | 다단계 전환 감지 | `detect_phase_transitions()` — sliding window(20개 도구, 50% 오버랩)로 세션 내 단계 변화 추적 | 세션 구조를 결정론적으로 분류 (research/planning/implementation/orchestration) |
 | IMMORTAL-aware 압축 | 스냅샷 크기 초과 시 IMMORTAL 섹션 우선 보존, 비-IMMORTAL 콘텐츠 먼저 절삭. **압축 감사 추적**: Phase 1~7 delta를 HTML 주석으로 기록 | 세션 경계에서 핵심 맥락 유실 방지 + 디버깅 가능 |
 | Resume Protocol | 스냅샷 내 결정론적 복원 지시 섹션. **동적 RLM 쿼리 힌트**: `extract_path_tags()`로 경로 태그 추출 → 세션별 맞춤 Grep 예시 자동 생성 | 복원 품질의 바닥선(floor) 보장 |
@@ -643,15 +644,17 @@ graph TB
         PTU["PostToolUse<br/>도구 실행 후"]
         ST["Stop<br/>응답 완료"]
         SS["SessionStart<br/>세션 시작"]
-        PRTU["PreToolUse<br/>도구 실행 전 (Bash)"]
+        PRTU["PreToolUse<br/>도구 실행 전 (Bash/Edit/Write)"]
     end
 
     subgraph "디스패처"
         CG["context_guard.py<br/>Global Hook 통합 진입점"]
     end
 
-    subgraph "Safety"
+    subgraph "Safety + Warning"
         BDC["block_destructive_commands.py<br/>위험 명령 차단 (P1)<br/>독립 실행 — exit code 2 보존"]
+        BTFE["block_test_file_edit.py<br/>TDD Guard — .tdd-guard 토글<br/>독립 실행 — exit code 2"]
+        PDG["predictive_debug_guard.py<br/>위험 파일 경고 (Predictive Debug)<br/>독립 실행 — exit code 0 (경고 전용)"]
     end
 
     subgraph "스크립트"
@@ -659,7 +662,7 @@ graph TB
         UWL["update_work_log.py<br/>작업 로그 누적 + threshold 저장"]
         GCS["generate_context_summary.py<br/>증분 스냅샷 + Decision Log 안전망"]
         REST["restore_context.py<br/>포인터+요약 복원"]
-        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증 + ULW 감지·준수 검증<br/>+ Error Taxonomy 12패턴+Resolution 매칭<br/>+ IMMORTAL-aware 압축+감사 추적<br/>+ E5 Guard 중앙화 + KA 통합<br/>+ 경로 태그 추출 + KI/SOT 스키마 검증(8항목)<br/>+ Adversarial Review P1 검증"]
+        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증 + ULW 감지·준수 검증<br/>+ Error Taxonomy 12패턴+Resolution 매칭<br/>+ IMMORTAL-aware 압축+감사 추적<br/>+ E5 Guard 중앙화 + KA 통합<br/>+ 경로 태그 추출 + KI/SOT 스키마 검증(8항목)<br/>+ Adversarial Review P1 검증<br/>+ Predictive Debugging P1 (RS1-RS6)"]
     end
 
     subgraph "데이터"
@@ -669,6 +672,7 @@ graph TB
         SESS["sessions/<br/>세션별 아카이브"]
         TRANS["transcript.jsonl<br/>(읽기 전용)"]
         SOT2["state.yaml<br/>(읽기 전용)"]
+        RISK["risk-scores.json<br/>Predictive Debugging 캐시"]
     end
 
     SE --> SAVE
@@ -677,6 +681,8 @@ graph TB
     ST --> CG
     SS --> CG
     PRTU --> BDC
+    PRTU --> BTFE
+    PRTU --> PDG
     CG -->|pre-compact| SAVE
     CG -->|post-tool| UWL
     CG -->|stop| GCS
@@ -699,11 +705,15 @@ graph TB
     UWL -->|"threshold 저장"| SESS
     REST --> SNAP
     REST --> KI
+    REST -->|"캐시 생성"| RISK
+    PDG -->|"캐시 읽기"| RISK
 
     style SOT2 fill:#d4edda,stroke:#28a745,stroke-width:2px
     style SNAP fill:#fff3cd,stroke:#ffc107,stroke-width:2px
     style KI fill:#e8daef,stroke:#8e44ad,stroke-width:2px
     style SESS fill:#e8daef,stroke:#8e44ad,stroke-width:2px
+    style RISK fill:#fce4ec,stroke:#e91e63,stroke-width:1px
+    style PDG fill:#fff3e0,stroke:#ff9800,stroke-width:1px
     style BDC fill:#f8d7da,stroke:#dc3545,stroke-width:2px
     style PRTU fill:#f8d7da,stroke:#dc3545,stroke-width:2px
 ```
@@ -719,7 +729,7 @@ graph TB
 | `knowledge-index.jsonl` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴). KI 스키마 검증(`_validate_session_facts` — 10개 필수 키 보장). 부분 실패 격리(archive 실패가 index 갱신 차단 안 함) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, session_duration_entries, phase, phase_flow, primary_language, error_patterns(Error Taxonomy 12패턴 + resolution 매칭), tool_sequence(RLE 압축), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑) 포함 |
 | `sessions/` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출) | 세션 아카이브, SOT와 분리 |
 | `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
-| `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook: Python 버전, PyYAML, 스크립트 구문×9, 디렉터리×3(context-snapshots, sessions, 런타임 5개), .gitignore, SOT 쓰기 패턴 검증) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
+| `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook: Python 버전, PyYAML, 스크립트 구문×13, 디렉터리×3(context-snapshots, sessions, 런타임 5개), .gitignore, SOT 쓰기 패턴 검증) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
 | `.claude/hooks/setup.maintenance.log` | **쓰기** — `setup_maintenance.py` (Setup maintenance Hook) | 건강 검진 결과 로그, `/maintenance` 슬래시 커맨드가 분석 |
 
 **P1 원칙 적용 (정확도를 위한 데이터 정제):**
@@ -737,6 +747,9 @@ graph TB
 | 경로 태그 추출 | **Python** (`_context_lib.py`) | 결정론적 — `extract_path_tags()` CamelCase/snake_case 분리 + `_EXT_TAGS` 확장자 매핑 |
 | KI 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `_validate_session_facts()` 10개 필수 키 보장 (누락 시 안전 기본값) |
 | SOT 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `validate_sot_schema()` 8항목 구조 무결성 검증 (S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial\|all_completed), tasks_completed, tasks_pending, completed_summaries)) |
+| pACS P1 검증 | **Python** (`_context_lib.py` + `validate_pacs.py`) | 결정론적 — `validate_pacs_output()` PA1-PA6 pACS 로그 구조 무결성 검증 (파일 존재, 최소 크기, 차원 점수 0-100, Pre-mortem 존재, min() 산술, Color Zone 정합성) |
+| L0 Anti-Skip Guard | **Python** (`_context_lib.py` + `validate_pacs.py`) | 결정론적 — `validate_step_output()` L0a-L0c 산출물 물리적 존재 검증 (SOT outputs에서 경로 추출, 파일 존재, ≥100 bytes, 비공백) |
+| Team Summaries KI 보존 | **Python** (`_context_lib.py`) | 결정론적 — `_extract_team_summaries()` SOT active_team.completed_summaries를 Knowledge Archive에 보존 (스냅샷 로테이션 시 유실 방지) |
 | 도구 시퀀스 압축 (RLE) | **Python** (`_context_lib.py`) | 결정론적 — Run-Length Encoding으로 도구 호출 시퀀스 압축 (예: `Read(3)→Edit→Bash`) |
 | 시스템 명령 필터링 | **Python** (`_context_lib.py`) | 결정론적 — `/clear`, `/help` 등 시스템 명령을 "현재 작업" 추출에서 제외 |
 | Git 상태 캡처 | **Python** (`_context_lib.py`) | 결정론적 — subprocess.run으로 git 명령 실행 |
@@ -1495,6 +1508,7 @@ error_handling:
 | **E5 Guard (Empty Snapshot Guard)** | 다중 신호 감지(크기 ≥3KB OR ≥2개 섹션 마커)로 풍부한 latest.md가 빈 스냅샷에 덮어쓰이는 것을 방지하는 보호 메커니즘 |
 | **Knowledge Archive** | `knowledge-index.jsonl` + `sessions/`로 세션 간 지식을 축적하는 구조화된 인덱스 시스템. RLM 프로그래밍적 탐색 대상 |
 | **Error Taxonomy** | 도구 에러를 12개 패턴으로 결정론적 분류하는 체계. Error→Resolution 매칭으로 해결 패턴도 기록 |
+| **Predictive Debugging** | Error Taxonomy 데이터를 사전 예측에 활용하는 L-1 계층. `aggregate_risk_scores()`(집계) + `predictive_debug_guard.py`(PreToolUse 경고) + RS1-RS6 P1 검증. ADR-036 |
 | **IMMORTAL Section** | 스냅샷 압축 시 우선 보존되는 핵심 섹션. 사용자 작업 지시, Autopilot/ULW 상태 등을 포함 |
 | **ULW (Ultrawork) Mode** | SOT 없이 동작하는 범용 집중 작업 모드. Sisyphus Mode(100% 완료 추구) + Auto Task Tracking. 프롬프트에 `ulw` 포함 시 활성화 |
 | **P1 Hallucination Prevention** | 반복 정확 작업(스키마 검증, 쓰기 패턴 검증 등)을 Python 코드로 강제하여 AI 할루시네이션을 봉쇄하는 메커니즘 |

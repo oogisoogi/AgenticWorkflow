@@ -480,6 +480,56 @@
   - 런타임 디렉터리를 각 Hook에서 개별 생성 → 기각 (Setup에서 한 번 검증이 더 효율적이고 결정론적)
 - **관련 커밋**: (pending)
 
+### ADR-036: Predictive Debugging — 에러 이력 기반 위험 파일 사전 경고
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: Claude가 파일을 편집할 때, 과거 세션에서 반복적으로 에러가 발생한 파일에 대한 사전 경고가 없었다. Knowledge Archive에 error_patterns가 축적되고 있지만(ADR-017), 이를 사전 예방에 활용하지 않고 사후 분석에만 사용하고 있었다. 3차례의 심층 성찰(Critical Reflection)을 거쳐 P1 할루시네이션 봉쇄와 아키텍처 일관성을 검증한 후 설계를 확정했다.
+- **결정**:
+  1. `aggregate_risk_scores()` 함수를 `_context_lib.py`에 추가 — Knowledge Archive의 error_patterns를 파일별로 집계하여 위험 점수를 산출 (P1 결정론적 산술)
+  2. `validate_risk_scores()` (RS1-RS6) 스키마 검증 — `validate_sot_schema()` (S1-S8), `validate_review_output()` (R1-R5) 등과 동일한 P1 패턴
+  3. `predictive_debug_guard.py`를 PreToolUse Hook(matcher: `Edit|Write`)으로 등록 — 위험 점수 임계값 초과 시 stderr 경고 (exit code 0, 경고 전용)
+  4. `restore_context.py`에서 SessionStart 시 risk-scores.json 캐시 생성 — 1회 집계 후 캐시, PreToolUse는 캐시만 읽기 (성능 최적화)
+  5. 가중치 체계: `_RISK_WEIGHTS` (13개 에러 타입별 가중치) × `_RECENCY_DECAY_DAYS` (30일/90일/무한 3구간 감쇠)
+  6. Cold start guard: 5세션 미만이면 경고 미출력 (불충분한 데이터로 false positive 방지)
+- **근거**:
+  - **L-1 계층**: 기존 Safety Hook(L0 차단)과 달리, 에러를 **예측**하여 Claude의 주의를 사전에 환기하는 새로운 계층. 차단하지 않고 경고만 하므로 워크플로우를 방해하지 않는다.
+  - **ADR-017 확장**: Error Taxonomy가 에러를 **분류**하는 인프라라면, Predictive Debugging은 분류된 데이터를 **집계하여 예측에 활용**하는 상위 계층. 동일한 error_patterns 스키마를 소비한다.
+  - **자기완결형 Hook**: `predictive_debug_guard.py`는 `_context_lib.py`를 import하지 않는다. 매 Edit/Write마다 새 Python 프로세스가 생성되므로, 4,500줄 모듈 로딩을 피해야 한다 (D-7 패턴으로 상수 중복).
+  - **캐시 패턴**: SessionStart에서 1회 집계 → JSON 캐시 → PreToolUse는 캐시 읽기만. O(N) 집계를 세션당 1회로 제한.
+  - **Startup 미지원 트레이드오프**: SessionStart matcher가 `clear|compact|resume`이므로, 최초 startup에서는 캐시 미생성. 이전 캐시(2시간 이내)에 의존하거나, 첫 compact/clear 시 생성. 복원과 캐시 생성의 관심사를 분리하기 위한 의도적 선택.
+- **대안**:
+  - 매 Edit/Write마다 knowledge-index 직접 스캔 → 기각 (O(N) 반복, 성능 심각)
+  - exit code 2로 차단 → 기각 (예측은 확률적이므로 차단은 과도)
+  - `_context_lib.py` import → 기각 (PreToolUse 프로세스 시작 지연)
+  - Layer C (Stop hook에서 자동 분석) → 기각 (B+A로 충분, Stop timeout 위험)
+- **관련 ADR**: ADR-017 (Error Taxonomy — error_patterns 스키마 공급), ADR-024 (P1 할루시네이션 봉쇄 — RS1-RS6 패턴), ADR-031 (PreToolUse Safety Hook — 독립 실행 아키텍처)
+- **관련 커밋**: (pending)
+
+### ADR-037: 종합 감사 II — pACS P1 검증 + L0 Anti-Skip Guard 코드화 + IMMORTAL 경계 수정 + Context Memory 최적화
+
+- **상태**: Accepted
+- **날짜**: 2026-02-20
+- **맥락**: 코드베이스 종합 감사에서 3개 CRITICAL, 5개 HIGH, 6개 MEDIUM 결함을 식별했다. 설계 문서에 명시된 기능 중 코드로 뒷받침되지 않는 것(pACS 검증, L0 Anti-Skip Guard), 코드의 로직 버그(IMMORTAL 경계 탐지), 문서 간 불일치(스크립트 수, 프로젝트 트리 누락)가 핵심 유형이었다.
+- **결정**:
+  1. **C1: IMMORTAL 경계 탐지 수정** — Phase 7 압축에서 `if` → `elif` 마커 우선 경계 탐지로 변경. 비-IMMORTAL 섹션 헤더가 IMMORTAL 마커와 같은 줄에 있을 때 IMMORTAL 모드가 꺼지는 버그 수정. 압축 알림(truncation notice)도 IMMORTAL 섹션으로 추가.
+  2. **C2+C3: L0 Anti-Skip Guard + pACS P1 검증 코드화** — `validate_step_output()` (L0a-L0c: 파일 존재, 최소 크기, 비공백) + `validate_pacs_output()` (PA1-PA6: 파일 존재, 최소 크기, 차원 점수, Pre-mortem, min() 산술, Color Zone) 함수를 `_context_lib.py`에 구현. `validate_pacs.py` 독립 실행 스크립트 신규 생성.
+  3. **H1: Team Summaries KI 아카이브** — `_extract_team_summaries()` 함수가 SOT의 `active_team.completed_summaries`를 Knowledge Archive에 보존. 스냅샷 로테이션 시 유실 방지.
+  4. **H2+H3: Orchestrator 역할 + Sub-agent 프로토콜 명시** — AGENTS.md에 Orchestrator = 메인 세션, Team Lead = Orchestrator(team 단계), Sub-agent Task tool 호출 프로토콜, (team) 단계 Task Lifecycle 7단계 추가.
+  5. **H4: Task Lifecycle 표준 흐름** — workflow-template.md에 TeamCreate→TaskCreate→작업→SendMessage→SOT 갱신→TeamDelete 6단계 흐름 추가.
+  6. **M1: Decision Slot 확장** — 15→20 슬롯, 비례 배분(high-signal 최대 15 + intent 나머지).
+  7. **M4: Next Step 추출 창** — 3→5 assistant responses로 확장.
+- **근거**:
+  - **설계-구현 정합성**: 설계 문서(CLAUDE.md, AGENTS.md)에 명시된 L0 Anti-Skip Guard와 pACS 검증이 코드로 존재하지 않으면, 4계층 품질 보장 체계가 사실상 2계층(L1 Verification + L1.5 pACS 자기 채점)으로 축소된다. 코드 구현으로 설계 의도를 강제한다.
+  - **IMMORTAL 경계 버그의 심각성**: Phase 7 하드 트렁케이트는 극한 상황(컨텍스트 초과)에서만 발동하므로, 버그가 발견되기 어렵고 발동 시 핵심 맥락(Autopilot 상태, ULW 상태, Quality Gate 상태)이 유실된다. 선제 수정이 필수.
+  - **Context Memory 품질 최적화**: Decision Slot 확장과 Next Step 창 확장은 토큰 비용 증가 없이(이미 생성되는 데이터의 보존 범위만 확장) 세션 복원 품질을 향상한다.
+- **대안**:
+  - pACS/L0를 프롬프트 기반 검증으로만 유지 → 기각 (P1 원칙 위반 — 반복적 100% 정확도가 필요한 작업은 코드로 강제)
+  - IMMORTAL 경계를 정규식 기반으로 변경 → 기각 (현재 마커 기반이 충분히 결정론적, 추가 복잡성 불필요)
+  - Decision Slot을 무제한으로 확장 → 기각 (무한 확장은 노이즈 유입, 20 슬롯이 실측 기반 적정치)
+- **관련 ADR**: ADR-024 (P1 할루시네이션 봉쇄 — 확장), ADR-035 (종합 감사 I — SOT 스키마+Quality Gate), ADR-033 (Context Memory 최적화 — 확장)
+- **관련 커밋**: (pending)
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -506,6 +556,8 @@
 | 2026-02-20 | (pending) | ADR-033: Context Memory 최적화 (success_patterns, Next Step IMMORTAL, regex) |
 | 2026-02-20 | (pending) | ADR-034: Adversarial Review — Enhanced L2 + P1 할루시네이션 봉쇄 |
 | 2026-02-20 | (pending) | ADR-035: 종합 감사 — SOT 스키마 확장 + Quality Gate IMMORTAL + Error→Resolution 표면화 |
+| 2026-02-20 | (pending) | ADR-036: Predictive Debugging — 에러 이력 기반 위험 파일 사전 경고 |
+| 2026-02-20 | (pending) | ADR-037: 종합 감사 II — pACS P1 + L0 Anti-Skip Guard + IMMORTAL 경계 + Context Memory |
 
 ---
 

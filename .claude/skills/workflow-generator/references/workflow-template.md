@@ -198,6 +198,44 @@ workflow:
 
 > **주의**: Task List(`~/.claude/tasks/`)는 작업 할당/추적 도구이지 SOT가 아니다. 워크플로우 상태는 반드시 SOT(`state.yaml`)에서 관리한다.
 
+#### Task Lifecycle (표준 흐름)
+
+`(team)` 단계에서 Orchestrator(=Team Lead)가 수행하는 Task 관리 표준 흐름:
+
+```
+1. TeamCreate(team_name="step-N-team")
+   → SOT active_team.name = "step-N-team", status = "partial"
+
+2. TaskCreate(subject, description, activeForm, owner=@teammate-name)
+   → Task ID 생성 (예: #1, #2, ...)
+   → SOT active_team.tasks_pending에 ID 추가
+
+3. Task(subagent_type, team_name, name=@teammate-name)
+   → Teammate 생성 + 자동으로 Task 할당 수신
+
+4. Teammate 작업 수행:
+   a. TaskUpdate(taskId, status="in_progress")
+   b. 산출물 생성 (파일 디스크 저장)
+   c. L1 자기 검증 (Verification 기준 대비)
+   d. L1.5 pACS 자기 채점 (Pre-mortem → F/C/L)
+   e. SendMessage(content="보고 + pACS 점수", recipient="team-lead")
+   f. TaskUpdate(taskId, status="completed")
+
+5. Team Lead 수신 및 SOT 갱신:
+   a. 보고 수신 → L2 종합 검증
+   b. SOT active_team.tasks_completed에 ID 이동
+   c. SOT active_team.completed_summaries에 요약 기록
+   d. L2 FAIL 시 → SendMessage(피드백) → Teammate 재작업
+
+6. 모든 Task 완료:
+   a. SOT outputs.step-N 기록
+   b. SOT current_step +1
+   c. SOT active_team.status = "all_completed"
+   d. TeamDelete → SOT active_team → completed_teams 이동
+```
+
+> **Task ID ↔ SOT 매핑**: Task ID는 `TaskCreate` 시 자동 생성된다. SOT `active_team.tasks_completed`에는 Task subject를 기록하고, `completed_summaries`에는 `{task_subject: {agent, output_path, pacs_score, summary}}`를 기록한다.
+
 ### Hooks
 
 ```json

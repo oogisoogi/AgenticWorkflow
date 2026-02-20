@@ -169,6 +169,50 @@ Orchestrator (품질 조율 + 흐름 관리)
   └→ Agent C: 검증 및 품질 게이트
 ```
 
+#### Orchestrator 역할 정의
+
+**Orchestrator = 메인 Claude 세션**이다. 별도 에이전트 파일이 아닌, 워크플로우를 실행하는 메인 세션이 Orchestrator 역할을 수행한다. `(team)` 단계에서는 **Orchestrator가 Team Lead 역할을 겸임**한다.
+
+| 역할 | 주체 | SOT 쓰기 | 시작 시점 |
+|------|------|---------|----------|
+| Orchestrator | 메인 Claude 세션 | **쓰기 가능** (유일) | 워크플로우 시작 시 |
+| Team Lead | Orchestrator 겸임 | **쓰기 가능** | `(team)` 단계 진입 시 |
+| Sub-agent | `Task` 도구로 생성 | **읽기 전용** | Orchestrator가 호출 시 |
+| Teammate | `Task` + `TeamCreate`로 생성 | **읽기 전용** | Team Lead가 할당 시 |
+
+#### Sub-agent 호출 프로토콜
+
+Orchestrator가 Sub-agent(`@translator`, `@reviewer`, `@fact-checker`)를 호출할 때의 표준 프로토콜:
+
+**1. 호출 방법**: `Task` 도구의 `subagent_type` 파라미터로 에이전트 이름 지정
+```
+Task(subagent_type="translator", prompt="...", ...)
+```
+
+**2. 프롬프트에 반드시 포함할 컨텍스트**:
+- 워크플로우 단계 번호 (step N)
+- 입력 산출물 파일 경로 (절대 경로)
+- 해당 단계의 Verification 기준 (있는 경우)
+- SOT `outputs.step-N` 경로 (산출물 저장 위치)
+- 참조 파일 경로 (glossary.yaml, 이전 단계 산출물 등)
+
+**3. 결과 수신**: Sub-agent 종료 시 `Task` 도구가 결과를 반환한다.
+- 산출물 파일이 디스크에 생성되었는지 Orchestrator가 확인
+- P1 검증 스크립트 실행 (validate_review.py, validate_translation.py 등)
+- SOT `outputs.step-N`에 경로 기록 (Orchestrator가 수행)
+
+**4. `(team)` 단계 Task Lifecycle**:
+```
+Team Lead(=Orchestrator)
+  1. TeamCreate → SOT active_team 기록
+  2. TaskCreate (subject, description, owner=@teammate)
+  3. Task(subagent_type, team_name, ...) → Teammate 생성
+  4. Teammate: 작업 수행 → L1 자기 검증 → L1.5 pACS 자기 채점
+  5. Teammate: SendMessage(보고 + pACS 점수) → TaskUpdate(completed)
+  6. Team Lead: 보고 수신 → L2 종합 검증 → SOT 갱신
+  7. TeamDelete → SOT active_team → completed_teams 이동
+```
+
 ### P3. 리소스 정확성
 
 이미지, 파일, 외부 리소스가 필요한 단계에서는 정확한 경로를 명시한다. placeholder 누락 불가.
@@ -204,18 +248,20 @@ AgenticWorkflow/
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks + Safety Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), Translation P1 검증(validate_translation_output T1-T7, check_glossary_freshness T8, verify_pacs_arithmetic T9 범용, validate_verification_log V1a-V1c), 모듈 레벨 regex 컴파일(9개+8개+8개 패턴 — 프로세스당 1회))
+│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), Translation P1 검증(validate_translation_output T1-T7, check_glossary_freshness T8, verify_pacs_arithmetic T9 범용, validate_verification_log V1a-V1c), Predictive Debugging P1(aggregate_risk_scores+validate_risk_scores RS1-RS6+_RISK_WEIGHTS 13개 가중치+_RECENCY_DECAY_DAYS 감쇠), pACS P1 검증(validate_pacs_output PA1-PA6 — pACS 로그 구조 무결성: 파일 존재·최소 크기·차원 점수·Pre-mortem·min() 산술·Color Zone), L0 Anti-Skip Guard(validate_step_output L0a-L0c — 산출물 파일 존재+최소 크기+비공백), Team Summaries KI 아카이브(_extract_team_summaries — SOT active_team.completed_summaries → KI 보존), 모듈 레벨 regex 컴파일(9개+8개+8개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py    (저장 엔진)
-│   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
+│   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태 + Predictive Debugging 위험 점수 캐시 생성)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
 │   │   ├── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
 │   │   ├── setup_init.py      (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
 │   │   ├── setup_maintenance.py (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   │   ├── block_destructive_commands.py (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
+│   │   ├── block_test_file_edit.py  (PreToolUse TDD Guard — 테스트 파일 수정 차단(.tdd-guard 토글), exit code 2로 차단 + 구현 코드 수정 유도)
+│   │   ├── predictive_debug_guard.py (PreToolUse Predictive Debug — 에러 이력 기반 위험 파일 경고, exit code 0 경고 전용)
+│   │   ├── validate_pacs.py    (pACS P1 검증 + L0 Anti-Skip Guard — 독립 실행 스크립트, JSON 출력)
 │   │   ├── validate_review.py (Adversarial Review P1 검증 — 독립 실행 스크립트, JSON 출력)
 │   │   ├── validate_translation.py (Translation P1 검증 — T1-T9 + glossary 검증, JSON 출력)
-│   │   ├── validate_verification.py (Verification Log P1 검증 — V1a-V1c 구조적 무결성, JSON 출력)
-│   │   └── block_test_file_edit.py  (PreToolUse TDD Guard — 테스트 파일 수정 차단(.tdd-guard 토글), exit code 2로 차단 + 구현 코드 수정 유도)
+│   │   └── validate_verification.py (Verification Log P1 검증 — V1a-V1c 구조적 무결성, JSON 출력)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성
