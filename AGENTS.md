@@ -204,7 +204,7 @@ AgenticWorkflow/
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks + Safety Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), 모듈 레벨 regex 컴파일(9개 패턴 — 프로세스당 1회))
+│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), Translation P1 검증(validate_translation_output T1-T7, check_glossary_freshness T8, verify_pacs_arithmetic T9 범용, validate_verification_log V1a-V1c), 모듈 레벨 regex 컴파일(9개+8개+8개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
@@ -213,6 +213,8 @@ AgenticWorkflow/
 │   │   ├── setup_maintenance.py (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   │   ├── block_destructive_commands.py (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
 │   │   ├── validate_review.py (Adversarial Review P1 검증 — 독립 실행 스크립트, JSON 출력)
+│   │   ├── validate_translation.py (Translation P1 검증 — T1-T9 + glossary 검증, JSON 출력)
+│   │   ├── validate_verification.py (Verification Log P1 검증 — V1a-V1c 구조적 무결성, JSON 출력)
 │   │   └── block_test_file_edit.py  (PreToolUse TDD Guard — 테스트 파일 수정 차단(.tdd-guard 토글), exit code 2로 차단 + 구현 코드 수정 유도)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
@@ -470,6 +472,7 @@ Step N 영어 산출물 완성
     ⑥ *.ko.md 파일 생성
   → SOT outputs.step-N-ko 기록
   → 번역 파일 존재 + 비어있지 않음 확인
+  → P1 검증: python3 .claude/hooks/scripts/validate_translation.py --step N --project-dir . --check-pacs --check-sequence
   → Step N+1로 진행
 ```
 
@@ -875,6 +878,38 @@ FAIL → Rework (최대 2회) → Re-review
 
 독립 실행 스크립트: `python3 .claude/hooks/scripts/validate_review.py --step N --project-dir .`
 출력: JSON `{"valid": true, "verdict": "PASS", "critical_count": 0, ...}`
+
+#### Translation P1 할루시네이션 봉쇄
+
+번역 산출물에서 100% 정확해야 하는 9가지 작업을 Python 코드로 강제:
+
+| 검증 | 함수 | 위치 |
+|------|------|------|
+| T1: 번역 파일 존재 | `validate_translation_output()` | `_context_lib.py` |
+| T2: 최소 크기 (100 bytes) | `validate_translation_output()` | `_context_lib.py` |
+| T3: 영어 원본 존재 | `validate_translation_output()` | `_context_lib.py` |
+| T4: .ko.md 확장자 | `validate_translation_output()` | `_context_lib.py` |
+| T5: 비-공백 콘텐츠 | `validate_translation_output()` | `_context_lib.py` |
+| T6: 헤딩 수 ±20% | `validate_translation_output()` | `_context_lib.py` |
+| T7: 코드 블록 수 일치 | `validate_translation_output()` | `_context_lib.py` |
+| T8: glossary 타임스탬프 신선도 | `check_glossary_freshness()` | `_context_lib.py` |
+| T9: pACS min() 산술 정확성 (범용) | `verify_pacs_arithmetic()` | `_context_lib.py` |
+
+독립 실행 스크립트: `python3 .claude/hooks/scripts/validate_translation.py --step N --project-dir . --check-pacs --check-sequence`
+출력: JSON `{"valid": true, "checks": {"T1": true, ...}, "pacs_valid": true}`
+
+#### Verification Log P1 할루시네이션 봉쇄
+
+검증 로그 구조적 무결성을 3항목으로 Python 코드로 강제:
+
+| 검증 | 함수 | 위치 |
+|------|------|------|
+| V1a: 검증 로그 파일 존재 | `validate_verification_log()` | `_context_lib.py` |
+| V1b: 기준별 PASS/FAIL 명시 | `validate_verification_log()` | `_context_lib.py` |
+| V1c: 논리적 일관성 (FAIL 있으면 전체 PASS 불가) | `validate_verification_log()` | `_context_lib.py` |
+
+독립 실행 스크립트: `python3 .claude/hooks/scripts/validate_verification.py --step N --project-dir .`
+출력: JSON `{"valid": true, "checks": {"V1a": true, "V1b": true, "V1c": true}}`
 
 #### 이슈 심각도 분류
 

@@ -134,6 +134,14 @@ def main():
     except Exception:
         pass  # Non-blocking — never fail the hook
 
+    # --- Translation safety net ---
+    # Detect steps with translation pACS logs but missing translation files.
+    # Non-blocking: only logs warning, does not fail the hook.
+    try:
+        _check_missing_translations(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
     # Cleanup old snapshots
     cleanup_snapshots(snapshot_dir)
 
@@ -265,6 +273,63 @@ def _check_missing_reviews(project_dir):
             print(
                 f"[Review Safety Net] Step {step_num}: pACS log exists but "
                 f"no review report found at review-logs/step-{step_num}-review.md",
+                file=sys.stderr,
+            )
+
+
+def _check_missing_translations(project_dir):
+    """Detect steps with translation pACS logs but no translation files.
+
+    Safety net: If a step has pacs-logs/step-N-translation-pacs.md but no
+    corresponding .ko.md file, log a warning to stderr.
+    This catches cases where the Translation was started (pACS scored)
+    but the output file is missing.
+
+    P1 Compliance: File existence check (deterministic).
+    SOT Compliance: Read-only.
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    pacs_dir = os.path.join(project_dir, "pacs-logs")
+    translations_dir = os.path.join(project_dir, "translations")
+
+    if not os.path.isdir(pacs_dir):
+        return
+
+    step_pattern = re.compile(r"^step-(\d+)-translation-pacs\.md$")
+
+    for fname in os.listdir(pacs_dir):
+        match = step_pattern.match(fname)
+        if not match:
+            continue
+        step_num = match.group(1)
+
+        # Check 3 possible locations for translation files
+        found = False
+
+        # Location 1: translations/step-N*.ko.md
+        if os.path.isdir(translations_dir):
+            try:
+                for tf in os.listdir(translations_dir):
+                    if tf.startswith(f"step-{step_num}") and tf.endswith(".ko.md"):
+                        found = True
+                        break
+            except OSError:
+                pass
+
+        # Location 2: Any .ko.md in project (check SOT outputs)
+        if not found:
+            try:
+                from _context_lib import _find_translation_files_for_step
+                files = _find_translation_files_for_step(project_dir, int(step_num))
+                if files:
+                    found = True
+            except Exception:
+                pass  # Graceful fallback — already checked translations/ dir
+
+        if not found:
+            print(
+                f"[Translation Safety Net] Step {step_num}: translation pACS log "
+                f"exists but no .ko.md file found",
                 file=sys.stderr,
             )
 

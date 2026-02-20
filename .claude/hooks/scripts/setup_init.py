@@ -34,7 +34,7 @@ from datetime import datetime
 # Constants
 # =============================================================================
 
-# Hook scripts that must exist and have valid Python syntax (9 scripts)
+# Hook scripts that must exist and have valid Python syntax (11 scripts)
 # D-7: Intentionally duplicated in setup_maintenance.py — setup scripts are
 # independent from _context_lib.py by design (no import dependency).
 REQUIRED_SCRIPTS = [
@@ -47,6 +47,8 @@ REQUIRED_SCRIPTS = [
     "save_context.py",
     "update_work_log.py",
     "validate_review.py",
+    "validate_translation.py",
+    "validate_verification.py",
 ]
 
 # Severity levels

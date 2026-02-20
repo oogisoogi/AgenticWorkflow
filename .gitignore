@@ -10,7 +10,8 @@ __pycache__/
 verification-logs/
 autopilot-logs/
 pacs-logs/
-translations/
+translations/*
+!translations/glossary.yaml
 
 # TDD Guard toggle — personal workflow setting (not shared)
 .tdd-guard

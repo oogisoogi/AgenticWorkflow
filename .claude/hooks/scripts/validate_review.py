@@ -31,6 +31,7 @@ from _context_lib import (
     parse_review_verdict,
     calculate_pacs_delta,
     validate_review_sequence,
+    verify_pacs_arithmetic,
 )
 
 
@@ -49,6 +50,10 @@ def main():
     parser.add_argument(
         "--check-sequence", action="store_true",
         help="Also validate review→translation sequence"
+    )
+    parser.add_argument(
+        "--check-pacs-arithmetic", action="store_true",
+        help="Also validate pACS arithmetic (T9 — generator + reviewer)"
     )
     args = parser.parse_args()
 
@@ -85,6 +90,27 @@ def main():
         "needs_reconciliation": pacs_data["needs_reconciliation"],
         "warnings": warnings,
     }
+
+    # Optional: T9 — pACS arithmetic verification (generator + reviewer logs)
+    if args.check_pacs_arithmetic:
+        # Verify generator pACS
+        gen_pacs_path = os.path.join(
+            project_dir, "pacs-logs", f"step-{step}-pacs.md"
+        )
+        gen_valid, gen_warning = verify_pacs_arithmetic(gen_pacs_path)
+        output["generator_pacs_arithmetic_valid"] = gen_valid
+        if gen_warning:
+            output["warnings"].append(gen_warning)
+            if not gen_valid:
+                output["valid"] = False
+
+        # Verify reviewer pACS (in review report itself)
+        rev_valid, rev_warning = verify_pacs_arithmetic(review_path)
+        output["reviewer_pacs_arithmetic_valid"] = rev_valid
+        if rev_warning:
+            output["warnings"].append(rev_warning)
+            if not rev_valid:
+                output["valid"] = False
 
     # Optional: sequence validation
     if args.check_sequence:

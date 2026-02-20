@@ -3805,3 +3805,482 @@ def validate_review_sequence(project_dir, step_number):
             continue
 
     return (True, None)
+
+
+# =============================================================================
+# Translation P1 Validation (T1-T9) + Universal pACS + Verification Log P1
+# =============================================================================
+# These functions provide deterministic validation for:
+#   1. Translation outputs (T1-T7 in validate_translation_output)
+#   2. Glossary freshness (T8 in check_glossary_freshness)
+#   3. pACS arithmetic across ALL log types (T9 — universal)
+#   4. Verification log structural integrity (V1a-V1c)
+# All checks are regex/filesystem/arithmetic — zero LLM interpretation.
+# SOT Compliance: Read-only access to SOT, translations/, pacs-logs/, verification-logs/.
+
+# --- Translation structural comparison (T6, T7) ---
+_HEADING_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
+_CODE_BLOCK_FENCE_RE = re.compile(r"^```", re.MULTILINE)
+
+# --- Universal pACS arithmetic verification (T9) ---
+# Dimension row: "| F | 85 |", "| Ft (Fidelity) | 85 |", "| Ct (Completeness) | 72 |"
+_PACS_DIM_UNIVERSAL_RE = re.compile(
+    r"^\|\s*([A-Z][a-z]?)\s*(?:\([^)]*\))?\s*\|\s*(\d{1,3})\s*\|",
+    re.MULTILINE,
+)
+# Explicit min formula: "pACS = min(F, C, L) = 75" or "Translation pACS = min(Ft,Ct,Nt) = 72"
+_PACS_WITH_MIN_RE = re.compile(
+    r"pACS\s*=\s*min\s*\([^)]+\)\s*=\s*(\d{1,3})",
+    re.IGNORECASE,
+)
+# Simple score (no min formula): "pACS = 85" — used as fallback
+_PACS_SIMPLE_RE = re.compile(
+    r"pACS\s*=\s*(\d{1,3})\b",
+    re.IGNORECASE,
+)
+
+# --- Verification log structural integrity (V1) ---
+# Per-criterion result: "- [x] Criterion: PASS" or "- Criterion: FAIL"
+_VERIFY_CRITERION_CHECKLIST_RE = re.compile(
+    r"^[-*]\s*\[?\s*[xX✅❌ ]?\s*\]?\s*(.+?)[:：]\s*(PASS|FAIL)",
+    re.MULTILINE | re.IGNORECASE,
+)
+# Table format: "| Criterion | PASS | evidence |"
+_VERIFY_CRITERION_TABLE_RE = re.compile(
+    r"^\|\s*([^|]+?)\s*\|\s*(PASS|FAIL)\s*\|",
+    re.MULTILINE | re.IGNORECASE,
+)
+# Overall result: "## Overall: PASS", "Overall Result: FAIL"
+_VERIFY_OVERALL_RE = re.compile(
+    r"(?:Overall|Total|종합|최종)\s*(?:Result|결과|Verdict|판정)?\s*[:：]\s*(PASS|FAIL)",
+    re.IGNORECASE,
+)
+# Table header words to skip when parsing verification log tables
+_VERIFY_TABLE_HEADER_WORDS = frozenset({
+    "criterion", "criteria", "check", "기준", "항목",
+    "dimension", "result", "evidence", "---",
+})
+
+
+def validate_translation_output(project_dir, step_number):
+    """Anti-Skip Guard for Translation outputs (T1-T7).
+
+    P1 Compliance: All 7 checks are deterministic (filesystem + regex).
+    SOT Compliance: Read-only access via _read_sot_outputs().
+
+    Checks:
+      T1: Translation file exists (3-tier discovery via _find_translation_files_for_step)
+      T2: Translation file size >= MIN_OUTPUT_SIZE (100 bytes)
+      T3: English source file exists (from SOT outputs)
+      T4: Translation file has .ko.md extension
+      T5: Translation content is non-empty (not just whitespace)
+      T6: Structural completeness — heading count EN ≈ KO (±20% tolerance)
+      T7: Code block preservation — code block fence count EN == KO
+
+    Args:
+        project_dir: Project root directory path
+        step_number: Step number (int) to validate
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+        - is_valid: True only if all T1-T7 pass
+        - warnings: List of human-readable failure reasons
+    """
+    warnings = []
+
+    # --- T1: Translation file existence (3-tier discovery) ---
+    translation_files = _find_translation_files_for_step(project_dir, step_number)
+    if not translation_files:
+        warnings.append(
+            f"T1 FAIL: No translation file found for step {step_number} "
+            f"(checked SOT ko key, translations/ dir, sibling .ko.md)"
+        )
+        return (False, warnings)
+
+    # Use first discovered translation file as primary
+    ko_path = translation_files[0]
+
+    # --- T2: Minimum size ---
+    try:
+        ko_size = os.path.getsize(ko_path)
+    except OSError:
+        warnings.append(f"T2 FAIL: Cannot read file size: {ko_path}")
+        return (False, warnings)
+
+    if ko_size < MIN_OUTPUT_SIZE:
+        warnings.append(
+            f"T2 FAIL: Translation too small ({ko_size} bytes, min {MIN_OUTPUT_SIZE})"
+        )
+
+    # --- T3: English source file existence ---
+    outputs = _read_sot_outputs(project_dir)
+    en_path = None
+    if outputs:
+        en_val = outputs.get(f"step-{step_number}")
+        if en_val:
+            en_path = (
+                en_val if os.path.isabs(en_val)
+                else os.path.join(project_dir, en_val)
+            )
+
+    if en_path is None:
+        warnings.append(
+            f"T3 FAIL: No English source path in SOT outputs.step-{step_number}"
+        )
+    elif not os.path.exists(en_path):
+        warnings.append(f"T3 FAIL: English source not found: {en_path}")
+
+    # --- T4: .ko.md extension ---
+    ko_basename = os.path.basename(ko_path)
+    if not ko_basename.endswith(".ko.md"):
+        warnings.append(
+            f"T4 FAIL: Translation filename '{ko_basename}' does not end with .ko.md"
+        )
+
+    # --- T5-T7: Content-based checks (require reading files) ---
+    ko_content = None
+    try:
+        with open(ko_path, "r", encoding="utf-8") as f:
+            ko_content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        warnings.append(f"T5 FAIL: Cannot read translation file: {e}")
+
+    if ko_content is not None:
+        # T5: Non-empty content
+        if not ko_content.strip():
+            warnings.append("T5 FAIL: Translation file contains only whitespace")
+
+        # T6 & T7 require English source content
+        en_content = None
+        if en_path and os.path.exists(en_path):
+            try:
+                with open(en_path, "r", encoding="utf-8") as f:
+                    en_content = f.read()
+            except (IOError, UnicodeDecodeError) as e:
+                warnings.append(
+                    f"T6/T7 SKIP: English source exists but unreadable: {e}"
+                )
+
+        if en_content is not None and ko_content.strip():
+            # T6: Structural completeness
+            t6_valid, t6_msg = _check_structural_completeness(en_content, ko_content)
+            if not t6_valid:
+                warnings.append(t6_msg)
+
+            # T7: Code block preservation
+            t7_valid, t7_msg = _check_code_block_preservation(en_content, ko_content)
+            if not t7_valid:
+                warnings.append(t7_msg)
+
+    is_valid = len(warnings) == 0
+    return (is_valid, warnings)
+
+
+def _check_structural_completeness(en_content, ko_content):
+    """T6: Heading count comparison between EN and KO documents.
+
+    P1 Compliance: Regex counting — deterministic.
+
+    Tolerance: KO headings within ±20% of EN count (minimum ±1).
+    Minor structural adjustments by translator are acceptable;
+    major omissions are not.
+
+    Args:
+        en_content: English document content (str)
+        ko_content: Korean document content (str)
+
+    Returns:
+        tuple: (is_valid: bool, message: str)
+    """
+    en_headings = len(_HEADING_RE.findall(en_content))
+    ko_headings = len(_HEADING_RE.findall(ko_content))
+
+    if en_headings == 0:
+        return (True, "T6 SKIP: No headings in English source")
+
+    # ±20% tolerance (minimum ±1 for small documents)
+    tolerance = max(1, int(en_headings * 0.2))
+    diff = abs(en_headings - ko_headings)
+
+    if diff > tolerance:
+        return (
+            False,
+            f"T6 FAIL: Heading count mismatch — EN={en_headings}, KO={ko_headings} "
+            f"(tolerance ±{tolerance})",
+        )
+
+    return (True, f"T6 PASS: EN={en_headings}, KO={ko_headings}")
+
+
+def _check_code_block_preservation(en_content, ko_content):
+    """T7: Code block fence count must match exactly between EN and KO.
+
+    P1 Compliance: Regex counting — deterministic.
+    Per translator.md: "Code blocks are NEVER translated — Keep all code."
+    Triple-backtick fences must be preserved 1:1.
+
+    Args:
+        en_content: English document content (str)
+        ko_content: Korean document content (str)
+
+    Returns:
+        tuple: (is_valid: bool, message: str)
+    """
+    en_fences = len(_CODE_BLOCK_FENCE_RE.findall(en_content))
+    ko_fences = len(_CODE_BLOCK_FENCE_RE.findall(ko_content))
+
+    if en_fences == 0:
+        return (True, "T7 SKIP: No code blocks in English source")
+
+    if en_fences != ko_fences:
+        return (
+            False,
+            f"T7 FAIL: Code block fence count mismatch — EN={en_fences}, KO={ko_fences} "
+            f"(must be exact match)",
+        )
+
+    return (True, f"T7 PASS: {en_fences} code fences preserved")
+
+
+def check_glossary_freshness(project_dir, step_number):
+    """T8: Verify glossary was updated during/after translation.
+
+    P1 Compliance: File timestamp comparison — deterministic.
+    Per translator.md protocol: Step 5 (Update Glossary) → Step 6 (Write Output).
+
+    Checks:
+      - translations/glossary.yaml exists
+      - glossary.yaml was modified within 1 hour of translation file
+
+    Args:
+        project_dir: Project root directory path
+        step_number: Step number (int) to validate
+
+    Returns:
+        tuple: (is_valid: bool, warning: str | None)
+        - is_valid: True if glossary is fresh or no translation exists
+        - warning: Human-readable issue description, None if valid
+    """
+    glossary_path = os.path.join(project_dir, "translations", "glossary.yaml")
+
+    if not os.path.exists(glossary_path):
+        return (
+            False,
+            "T8 FAIL: translations/glossary.yaml not found — "
+            "translator must create/update glossary (Step 5)",
+        )
+
+    # Find translation files for timestamp comparison
+    translation_files = _find_translation_files_for_step(project_dir, step_number)
+    if not translation_files:
+        return (True, None)  # No translation → T8 trivially valid
+
+    try:
+        glossary_mtime = os.path.getmtime(glossary_path)
+    except OSError:
+        return (False, "T8 FAIL: Cannot read glossary.yaml timestamp")
+
+    ko_path = translation_files[0]
+    try:
+        ko_mtime = os.path.getmtime(ko_path)
+    except OSError:
+        return (False, f"T8 FAIL: Cannot read translation file timestamp: {ko_path}")
+
+    # Tolerance: glossary should be modified within 1 hour of translation
+    # (translator protocol: Step 5 → Step 6, typically within same session)
+    staleness = ko_mtime - glossary_mtime
+    if staleness > 3600:
+        return (
+            False,
+            f"T8 FAIL: Glossary is stale — modified {staleness:.0f}s before "
+            f"translation (max 3600s). Translator may have skipped Step 5.",
+        )
+
+    return (True, None)
+
+
+def verify_pacs_arithmetic(pacs_log_path):
+    """T9: Universal pACS arithmetic verification.
+
+    P1 Compliance: Regex + arithmetic — deterministic.
+    Applies to ALL pACS log types (general, translation, reviewer).
+
+    Verifies that the reported pACS score equals min(dimension scores).
+    This catches AI hallucination where dimension scores are stated but
+    min() is calculated incorrectly.
+
+    Strategy:
+      1. Prefer explicit min() formula match (e.g., "pACS = min(F,C,L) = 75")
+      2. Fallback to simple "pACS = N" if unambiguous (exactly 1 match)
+      3. Skip if ambiguous (multiple simple matches without min formula)
+
+    Supports dimension naming patterns:
+      - General: F, C, L (Faithfulness, Completeness, Logic)
+      - Translation: Ft, Ct, Nt (Fidelity, Completeness, Naturalness)
+      - Any single/two-letter uppercase dimension codes
+
+    Ambiguity guard: If the same dimension letter appears with different
+    scores (e.g., generator and reviewer tables in same file), verification
+    is skipped to avoid false alarms.
+
+    Args:
+        pacs_log_path: Absolute path to any pACS log file
+
+    Returns:
+        tuple: (is_valid: bool, warning: str | None)
+        - is_valid: True if arithmetic is correct or cannot be verified
+        - warning: Human-readable issue description, None if valid
+    """
+    if not os.path.exists(pacs_log_path):
+        return (True, None)  # No file → nothing to verify
+
+    try:
+        with open(pacs_log_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError):
+        return (True, None)  # Unreadable → graceful skip
+
+    # --- Extract dimension scores ---
+    dims = {}
+    seen_dim_scores = {}  # dim -> list of scores (for ambiguity detection)
+    for match in _PACS_DIM_UNIVERSAL_RE.finditer(content):
+        dim_name = match.group(1)
+        dim_score = int(match.group(2))
+        if 0 <= dim_score <= 100:
+            if dim_name in seen_dim_scores:
+                seen_dim_scores[dim_name].append(dim_score)
+            else:
+                seen_dim_scores[dim_name] = [dim_score]
+            dims[dim_name] = dim_score
+
+    if len(dims) < 2:
+        return (True, None)  # Not enough dimensions → skip
+
+    # Ambiguity guard: same dimension with different scores → skip
+    for scores in seen_dim_scores.values():
+        if len(set(scores)) > 1:
+            return (True, None)
+
+    # --- Extract reported final score ---
+    # Strategy: prefer explicit min() formula over simple "pACS = N"
+    min_match = _PACS_WITH_MIN_RE.search(content)
+    if min_match:
+        reported_score = int(min_match.group(1))
+    else:
+        # Fallback: simple "pACS = N" (no min formula)
+        simple_matches = _PACS_SIMPLE_RE.findall(content)
+        if len(simple_matches) == 1:
+            reported_score = int(simple_matches[0])
+        else:
+            return (True, None)  # 0 or multiple → ambiguous → skip
+
+    # --- Verify arithmetic ---
+    expected_score = min(dims.values())
+    if reported_score != expected_score:
+        dim_str = ", ".join(f"{k}={v}" for k, v in sorted(dims.items()))
+        return (
+            False,
+            f"T9 FAIL: pACS arithmetic error in {os.path.basename(pacs_log_path)} — "
+            f"reported {reported_score} but min({dim_str}) = {expected_score}",
+        )
+
+    return (True, None)
+
+
+def validate_verification_log(project_dir, step_number):
+    """V1: Verification log structural integrity (V1a-V1c).
+
+    P1 Compliance: Filesystem + regex — deterministic.
+    SOT Compliance: Read-only access to verification-logs/.
+
+    Checks:
+      V1a: verification-logs/step-{N}-verify.md exists + size >= MIN_OUTPUT_SIZE
+      V1b: Each criterion has explicit PASS/FAIL marking (checklist or table)
+      V1c: Logical consistency — if any criterion is FAIL, overall must be FAIL
+
+    Args:
+        project_dir: Project root directory path
+        step_number: Step number (int) to validate
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+        - is_valid: True only if V1a-V1c pass
+        - warnings: List of human-readable failure reasons
+    """
+    warnings = []
+    verify_path = os.path.join(
+        project_dir, "verification-logs", f"step-{step_number}-verify.md"
+    )
+
+    # V1a: File existence + minimum size
+    if not os.path.exists(verify_path):
+        warnings.append(
+            f"V1a FAIL: verification-logs/step-{step_number}-verify.md not found"
+        )
+        return (False, warnings)
+
+    try:
+        size = os.path.getsize(verify_path)
+    except OSError:
+        warnings.append(f"V1a FAIL: Cannot read file size: {verify_path}")
+        return (False, warnings)
+
+    if size < MIN_OUTPUT_SIZE:
+        warnings.append(
+            f"V1a FAIL: Verification log too small "
+            f"({size} bytes, min {MIN_OUTPUT_SIZE})"
+        )
+
+    # Read content for V1b-V1c
+    try:
+        with open(verify_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        warnings.append(f"V1a FAIL: Cannot read file: {e}")
+        return (False, warnings)
+
+    # V1b: Extract per-criterion PASS/FAIL results
+    criteria = []
+    # Try checklist format: "- [x] Criterion: PASS"
+    for match in _VERIFY_CRITERION_CHECKLIST_RE.finditer(content):
+        criteria.append({
+            "name": match.group(1).strip(),
+            "result": match.group(2).upper(),
+        })
+    # Also try table format: "| Criterion | PASS |"
+    for match in _VERIFY_CRITERION_TABLE_RE.finditer(content):
+        name = match.group(1).strip()
+        # Skip table header and separator rows
+        if name.lower().rstrip("-") in _VERIFY_TABLE_HEADER_WORDS:
+            continue
+        if name.startswith("-"):
+            continue
+        criteria.append({
+            "name": name,
+            "result": match.group(2).upper(),
+        })
+
+    if not criteria:
+        warnings.append(
+            "V1b FAIL: No per-criterion PASS/FAIL results found "
+            "(expected checklist or table format)"
+        )
+
+    # V1c: Logical consistency — any FAIL criterion → overall must be FAIL
+    has_individual_fail = any(c["result"] == "FAIL" for c in criteria)
+    overall_match = _VERIFY_OVERALL_RE.search(content)
+    if overall_match:
+        overall_result = overall_match.group(1).upper()
+        if has_individual_fail and overall_result == "PASS":
+            failed_names = [c["name"] for c in criteria if c["result"] == "FAIL"]
+            warnings.append(
+                f"V1c FAIL: Logical inconsistency — overall is PASS but "
+                f"these criteria are FAIL: {', '.join(failed_names)}"
+            )
+    elif criteria:
+        warnings.append(
+            "V1c FAIL: No overall PASS/FAIL result found in verification log"
+        )
+
+    is_valid = len(warnings) == 0
+    return (is_valid, warnings)

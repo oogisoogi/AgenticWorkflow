@@ -40,10 +40,16 @@ workflow:
 
   # --- pACS 활성 시 추가 (AGENTS.md §5.4) ---
   # pacs:
-  #   min_score: null                  # 최근 pACS min-score (Hook이 읽기 전용 참조)
-  #   step_scores:                     # 단계별 pACS 이력
-  #     step-1: 82                     # min(F, C, L) 결과
-  #     step-2: 75
+  #   current_step_score: 72          # 현재 단계 pACS = min(F, C, L)
+  #   dimensions:                     # 3차원 채점 결과
+  #     F: 72                         # Factual Grounding (사실 근거)
+  #     C: 85                         # Completeness (완전성)
+  #     L: 78                         # Logical Coherence (논리 일관성)
+  #   weak_dimension: "F"             # min-score 차원
+  #   pre_mortem_flag: null           # Pre-mortem Protocol 약점 식별 (string)
+  #   history:                        # 단계별 이력
+  #     step-1: {score: 85, weak: "C"}
+  #     step-2: {score: 72, weak: "F"}
 
   # --- Verification 이력 (AGENTS.md §5.3) ---
   # verification:
