@@ -12,5 +12,8 @@ autopilot-logs/
 pacs-logs/
 translations/
 
+# TDD Guard toggle — personal workflow setting (not shared)
+.tdd-guard
+
 # Setup Hook logs — runtime diagnostics (regenerated on each run)
 .claude/hooks/*.log

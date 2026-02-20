@@ -37,12 +37,13 @@ STALE_ARCHIVE_SECONDS = STALE_ARCHIVE_DAYS * 24 * 3600
 # work_log.jsonl size warning threshold (1MB)
 WORK_LOG_SIZE_WARN = 1_000_000
 
-# Hook scripts to re-validate (7 scripts)
+# Hook scripts to re-validate (8 scripts)
 # D-7: Intentionally duplicated in setup_init.py — setup scripts are
 # independent from _context_lib.py by design (no import dependency).
 REQUIRED_SCRIPTS = [
     "_context_lib.py",
     "block_destructive_commands.py",
+    "block_test_file_edit.py",
     "context_guard.py",
     "generate_context_summary.py",
     "restore_context.py",
