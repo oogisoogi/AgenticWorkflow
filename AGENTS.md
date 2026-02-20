@@ -196,13 +196,15 @@ AgenticWorkflow/
 ├── .claude/
 │   ├── settings.json          ← Hook 설정 (Setup + SessionEnd)
 │   ├── agents/                ← Sub-agent 정의
-│   │   └── translator.md     (영→한 번역 전문 에이전트 — glossary 기반 용어 일관성)
+│   │   ├── translator.md     (영→한 번역 전문 에이전트 — glossary 기반 용어 일관성)
+│   │   ├── reviewer.md       (Adversarial Review — 코드/산출물 비판적 분석, 읽기 전용)
+│   │   └── fact-checker.md   (Adversarial Review — 외부 사실 검증, 웹 접근)
 │   ├── commands/              ← Slash Commands
 │   │   ├── install.md         (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks + Safety Hooks
 │   │   ├── context_guard.py   (Global Hook 통합 디스패처)
-│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 6항목 검증), 모듈 레벨 regex 컴파일(9개 패턴 — 프로세스당 1회))
+│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), 모듈 레벨 regex 컴파일(9개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
@@ -210,6 +212,7 @@ AgenticWorkflow/
 │   │   ├── setup_init.py      (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
 │   │   ├── setup_maintenance.py (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   │   ├── block_destructive_commands.py (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
+│   │   ├── validate_review.py (Adversarial Review P1 검증 — 독립 실행 스크립트, JSON 출력)
 │   │   └── block_test_file_edit.py  (PreToolUse TDD Guard — 테스트 파일 수정 차단(.tdd-guard 토글), exit code 2로 차단 + 구현 코드 수정 유도)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
@@ -243,7 +246,7 @@ AgenticWorkflow/
 - **Error Taxonomy**: 도구 에러를 12패턴으로 분류 (file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found). False positive 방지를 위해 negative lookahead·한정어 매칭 적용. Knowledge Archive의 error_patterns 필드에 기록. **Error→Resolution 매칭**: 에러 발생 후 5 entries 이내의 성공적 도구 호출을 file-aware 매칭으로 탐지하여 `resolution` 필드에 기록 (도구명 + 파일명). `Grep "resolution" knowledge-index.jsonl`로 해결 패턴 cross-session 탐색 가능
 - **시스템 명령 필터링**: 스냅샷의 "현재 작업" 섹션에서 `/clear`, `/help` 등 시스템 명령을 필터링하여 실제 작업 의도만 캡처
 - **Crash-safe 쓰기**: 모든 파일 쓰기(스냅샷, 아카이브, 로그 정리)에 atomic write(temp → rename) 패턴 적용. 프로세스 크래시 시 부분 쓰기 방지
-- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지. (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 6항목으로 검증
+- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지. (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 8항목으로 검증 (S1-S6 기본 + S7 pacs 5필드 + S8 active_team 5필드). (5) **Adversarial Review P1 검증**: `validate_review_output()` R1-R5, `parse_review_verdict()`, `calculate_pacs_delta()`, `validate_review_sequence()`가 리뷰 품질을 결정론적으로 보장
 
 **데이터 흐름:**
 
@@ -700,8 +703,8 @@ L1.5  pACS Self-Rating (Agent — 신뢰도)
         Pre-mortem → F, C, L 채점 → min(F,C,L) = pACS
         ↓ GREEN/YELLOW: 진행 (YELLOW은 플래그)
         ↓ RED: 재작업 또는 에스컬레이션
-[L2]  Calibration (선택적 — 고위험 단계만)
-        별도 에이전트가 pACS 점수의 적절성을 교차 검증
+L2    Adversarial Review (Enhanced — Review: 필드 지정 단계)
+        @reviewer/@fact-checker가 산출물을 독립적으로 적대적 검토 (§5.5)
 ```
 
 > **L1과 L1.5의 관계**: Verification Gate는 "체크리스트 항목 PASS/FAIL" — 이진 판정. pACS는 "전체적 신뢰도 0-100" — 연속적 자기 평가. Verification이 모두 PASS여도 pACS가 낮을 수 있다 (예: 모든 항목을 다뤘지만 출처 품질이 낮은 경우).
@@ -737,13 +740,13 @@ workflow:
 
 Translation pACS = min(Ft, Ct, Nt). 행동 트리거는 동일 (GREEN/YELLOW/RED).
 
-#### L2 Calibration (선택적 — 고위험 단계용)
+#### L2 Adversarial Review (Enhanced — Review: 필드 지정 단계)
 
-별도의 검증 에이전트(`@verifier`)가 산출물과 pACS 점수를 교차 검증한다:
-- 에이전트가 부여한 pACS와 검증자의 독립 평가를 비교
-- 점수 괴리가 15점 이상이면 중재 (사용자 에스컬레이션)
+기존 L2 Calibration을 대체하는 강화된 품질 검증 계층이다. `@reviewer`(코드/산출물 비판적 분석, 읽기 전용) 및 `@fact-checker`(외부 사실 검증, 웹 접근)가 독립적으로 산출물을 검토한다. 리뷰 결과는 P1 검증(`validate_review.py`)으로 결정론적 품질 보장된다.
 
-워크플로우 설계 시 `Calibration: @verifier`를 명시한 단계에서만 적용한다. 기본값은 자기 평가(L1.5)만.
+워크플로우 설계 시 `Review: @reviewer` 또는 `Review: @reviewer + @fact-checker`를 명시한 단계에서 적용한다. 기본값은 자기 평가(L1.5)만.
+
+상세: §5.5 Adversarial Review 참조.
 
 #### pACS 로그 형식
 

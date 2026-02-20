@@ -200,7 +200,7 @@ graph TB
         end
 
         subgraph "Context Preservation + Safety"
-            CPS["hooks/scripts/<br/>9개 Python 스크립트<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭<br/>+ PreToolUse 위험 명령 차단)"]
+            CPS["hooks/scripts/<br/>10개 Python 스크립트 + 1 라이브러리<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭<br/>+ PreToolUse 위험 명령 차단/TDD Guard<br/>+ Adversarial Review P1 검증)"]
             CSS["context-snapshots/<br/>런타임 스냅샷"]
         end
 
@@ -475,7 +475,7 @@ graph LR
 
 주황색 노드는 **차단 가능(blocking)** 이벤트 — exit code 2로 동작을 차단하고 피드백을 전달할 수 있다.
 
-> **Context Preservation System + Safety Hook**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook으로 컨텍스트 보존 시스템을 운용하고, PreToolUse 1개 hook으로 위험 명령 차단(Safety Hook)을 수행한다 (총 6개 hook 이벤트). `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 위험한 Bash 명령(git push --force, git reset --hard 등)은 PreToolUse에서 정규식 기반으로 결정론적 차단된다. 상세는 `.claude/hooks/scripts/` 참조.
+> **Context Preservation System + Safety Hooks**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook으로 컨텍스트 보존 시스템을 운용하고, PreToolUse 2개 hook으로 위험 명령 차단(Safety Hook) + TDD 테스트 파일 보호(TDD Guard)를 수행한다 (총 7개 hook 이벤트). `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 위험한 Bash 명령(git push --force, git reset --hard 등)은 PreToolUse에서 정규식 기반으로 결정론적 차단된다. 상세는 `.claude/hooks/scripts/` 참조.
 
 **Hook 3가지 타입:**
 
@@ -631,7 +631,7 @@ RLM 논문의 핵심 원칙 — "프롬프트를 신경망에 직접 넣지 말�
 | IMMORTAL-aware 압축 | 스냅샷 크기 초과 시 IMMORTAL 섹션 우선 보존, 비-IMMORTAL 콘텐츠 먼저 절삭. **압축 감사 추적**: Phase 1~7 delta를 HTML 주석으로 기록 | 세션 경계에서 핵심 맥락 유실 방지 + 디버깅 가능 |
 | Resume Protocol | 스냅샷 내 결정론적 복원 지시 섹션. **동적 RLM 쿼리 힌트**: `extract_path_tags()`로 경로 태그 추출 → 세션별 맞춤 Grep 예시 자동 생성 | 복원 품질의 바닥선(floor) 보장 |
 | 경로 태그 추출 | `extract_path_tags()` — CamelCase/snake_case 분리 + 확장자 매핑(`_EXT_TAGS`)으로 언어 독립적 검색 태그 생성 | Knowledge Archive의 `tags` 필드 + RLM 쿼리 힌트의 기반 |
-| P1 할루시네이션 봉쇄 | KI 스키마 검증(`_validate_session_facts`), 부분 실패 격리(`archive_and_index_session`), SOT 쓰기 패턴 검증(AST 기반), SOT 스키마 검증(`validate_sot_schema` — 6항목), **위험 명령 차단**(`block_destructive_commands.py` — PreToolUse, 8개 정규식 패턴) | 반복 정확 작업을 코드로 강제 |
+| P1 할루시네이션 봉쇄 | KI 스키마 검증(`_validate_session_facts`), 부분 실패 격리(`archive_and_index_session`), SOT 쓰기 패턴 검증(AST 기반), SOT 스키마 검증(`validate_sot_schema` — 8항목: S1-S6 기본 + S7 pacs 5필드 + S8 active_team 5필드), **위험 명령 차단**(`block_destructive_commands.py` — PreToolUse, 8개 정규식 패턴), **Adversarial Review P1 검증**(`validate_review.py` — R1-R5 + pACS Delta + Review→Translation 순서) | 반복 정확 작업을 코드로 강제 |
 
 **스크립트 아키텍처와 데이터 흐름:**
 
@@ -659,7 +659,7 @@ graph TB
         UWL["update_work_log.py<br/>작업 로그 누적 + threshold 저장"]
         GCS["generate_context_summary.py<br/>증분 스냅샷 + Decision Log 안전망"]
         REST["restore_context.py<br/>포인터+요약 복원"]
-        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증 + ULW 감지·준수 검증<br/>+ Error Taxonomy 12패턴+Resolution 매칭<br/>+ IMMORTAL-aware 압축+감사 추적<br/>+ E5 Guard 중앙화 + KA 통합<br/>+ 경로 태그 추출 + KI/SOT 스키마 검증"]
+        LIB["_context_lib.py<br/>공유 라이브러리<br/>+ 절삭 상수 중앙화 + sot_paths()<br/>+ 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ Autopilot 상태·검증 + ULW 감지·준수 검증<br/>+ Error Taxonomy 12패턴+Resolution 매칭<br/>+ IMMORTAL-aware 압축+감사 추적<br/>+ E5 Guard 중앙화 + KA 통합<br/>+ 경로 태그 추출 + KI/SOT 스키마 검증(8항목)<br/>+ Adversarial Review P1 검증"]
     end
 
     subgraph "데이터"
@@ -719,7 +719,7 @@ graph TB
 | `knowledge-index.jsonl` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴). KI 스키마 검증(`_validate_session_facts` — 10개 필수 키 보장). 부분 실패 격리(archive 실패가 index 갱신 차단 안 함) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, session_duration_entries, phase, phase_flow, primary_language, error_patterns(Error Taxonomy 12패턴 + resolution 매칭), tool_sequence(RLE 압축), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑) 포함 |
 | `sessions/` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출) | 세션 아카이브, SOT와 분리 |
 | `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
-| `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook, 7개 항목: Python 버전, PyYAML, 스크립트 구문×6, 디렉터리×2, .gitignore, SOT 쓰기 패턴 검증) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
+| `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook: Python 버전, PyYAML, 스크립트 구문×9, 디렉터리×3(context-snapshots, sessions, 런타임 5개), .gitignore, SOT 쓰기 패턴 검증) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
 | `.claude/hooks/setup.maintenance.log` | **쓰기** — `setup_maintenance.py` (Setup maintenance Hook) | 건강 검진 결과 로그, `/maintenance` 슬래시 커맨드가 분석 |
 
 **P1 원칙 적용 (정확도를 위한 데이터 정제):**
@@ -736,7 +736,7 @@ graph TB
 | 에러 패턴 분류 + 해결 매칭 (Error Taxonomy) | **Python** (`_context_lib.py`) | 결정론적 — 12개 regex 패턴으로 에러 유형 분류. false positive 방지. Error→Resolution 매칭: 에러 후 5 entries 이내 성공 호출을 file-aware 탐지 |
 | 경로 태그 추출 | **Python** (`_context_lib.py`) | 결정론적 — `extract_path_tags()` CamelCase/snake_case 분리 + `_EXT_TAGS` 확장자 매핑 |
 | KI 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `_validate_session_facts()` 10개 필수 키 보장 (누락 시 안전 기본값) |
-| SOT 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `validate_sot_schema()` 6항목 구조 무결성 검증 (current_step, outputs, workflow_status 등) |
+| SOT 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `validate_sot_schema()` 8항목 구조 무결성 검증 (S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial\|all_completed), tasks_completed, tasks_pending, completed_summaries)) |
 | 도구 시퀀스 압축 (RLE) | **Python** (`_context_lib.py`) | 결정론적 — Run-Length Encoding으로 도구 호출 시퀀스 압축 (예: `Read(3)→Edit→Bash`) |
 | 시스템 명령 필터링 | **Python** (`_context_lib.py`) | 결정론적 — `/clear`, `/help` 등 시스템 명령을 "현재 작업" 추출에서 제외 |
 | Git 상태 캡처 | **Python** (`_context_lib.py`) | 결정론적 — subprocess.run으로 git 명령 실행 |
@@ -902,12 +902,13 @@ Anti-Skip Guard가 **물리적 존재**를, Verification Gate가 **내용적 완
    └─ FAIL → 해당 부분만 재실행 (최대 2회) → 초과 시 사용자 에스컬레이션
 ```
 
-**Team 단계 2계층 검증:**
+**Team 단계 3계층 검증:**
 
 | 계층 | 수행자 | 검증 대상 | SOT 쓰기 |
 |------|--------|---------|---------|
-| **L1** | Teammate | 자기 Task의 검증 기준 | 없음 (세션 내부 완결) |
-| **L2** | Team Lead | 단계 전체의 검증 기준 | 있음 (SOT outputs 갱신) |
+| **L1** | Teammate (자기 검증) | 자기 Task의 검증 기준 | 없음 (세션 내부 완결) |
+| **L1.5** | Teammate (pACS) | 자기 Task 산출물의 신뢰도 | 없음 (점수를 보고 메시지에 포함) |
+| **L2** | Team Lead (종합 검증 + 단계 pACS) | 단계 전체의 검증 기준 | 있음 (SOT outputs + pacs 갱신) |
 
 **하위 호환:** `Verification` 필드가 없는 단계는 기존 Anti-Skip Guard만으로 진행. 새 워크플로우 생성 시에는 필수 포함.
 
@@ -935,7 +936,7 @@ AlphaFold의 pLDDT(predicted Local Distance Difference Test)에서 영감을 받
 L0   Anti-Skip Guard (결정론적)    — 파일 존재 + ≥ 100 bytes
 L1   Verification Gate (의미론적)   — 기능적 목표 100% 달성
 L1.5 pACS Self-Rating (신뢰도)    — Pre-mortem + F/C/L 채점
-[L2] Calibration (선택적)          — 별도 에이전트 교차 검증
+L2   Adversarial Review (Enhanced) — @reviewer/@fact-checker 적대적 검토 (§5.5 of AGENTS.md)
 ```
 
 **설계 결정 — "왜 가중 평균이 아닌 min-score인가":**
@@ -1058,23 +1059,32 @@ graph LR
 
 **핵심 제약:** `(hook)` 품질 게이트는 Autopilot에서도 그대로 차단. 모든 단계 완전 실행. 모든 산출물 완전 품질.
 
-**Anti-Skip Guard + Verification Gate (2계층 품질 보장):**
+**Anti-Skip Guard + Verification Gate + pACS + Adversarial Review (4계층 품질 보장):**
 
-각 단계 완료 시 Orchestrator가 수행하는 2계층 검증:
+각 단계 완료 시 Orchestrator가 수행하는 최대 4계층 검증:
 
 ```
-계층 1: Anti-Skip Guard (결정론적)
+L0: Anti-Skip Guard (결정론적)
   1. 산출물 파일이 SOT outputs에 경로로 기록되었는가
   2. 해당 파일이 디스크에 존재하는가
   3. 파일 크기가 최소 100 bytes 이상인가
 
-계층 2: Verification Gate (의미론적 — Verification 필드 있는 단계만)
+L1: Verification Gate (의미론적 — Verification 필드 있는 단계만)
   4. 산출물이 Verification 기준을 100% 달성했는가
   5. 실패 기준 있으면 해당 부분만 재실행 (최대 2회)
   6. verification-logs/step-N-verify.md에 기록
+
+L1.5: pACS Self-Rating (신뢰도 — Verification 통과 후)
+  7. Pre-mortem Protocol → F/C/L 3차원 채점 → pACS = min(F,C,L)
+  8. pacs-logs/step-N-pacs.md에 기록
+
+L2: Adversarial Review (Enhanced — Review: 필드 지정 단계만)
+  9. @reviewer/@fact-checker가 독립적 적대적 검토
+  10. P1 검증(validate_review.py)으로 리뷰 품질 보장
+  11. review-logs/step-N-review.md에 기록
 ```
 
-> `Verification` 필드가 없는 단계는 계층 1(Anti-Skip Guard)만으로 진행 (하위 호환). 상세: §5.6, AGENTS.md §5.3
+> `Verification` 필드가 없는 단계는 L0(Anti-Skip Guard)만으로 진행 (하위 호환). 상세: §5.6, AGENTS.md §5.3~§5.5
 
 **Decision Log:**
 

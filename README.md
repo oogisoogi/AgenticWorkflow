@@ -36,7 +36,7 @@ AgenticWorkflow/
 ├── .claude/
 │   ├── settings.json      # Hook 설정 (Setup + SessionEnd)
 │   ├── commands/           # Slash Commands (/install, /maintenance)
-│   ├── hooks/scripts/     # Context Preservation System (6개 파일) + Setup Hooks (2개) + Safety Hook (1개)
+│   ├── hooks/scripts/     # Context Preservation System (6개 파일) + Setup Hooks (2개) + Safety Hooks (2개)
 │   ├── context-snapshots/ # 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/ # 워크플로우 설계·생성 스킬
@@ -98,16 +98,17 @@ AgenticWorkflow/
 | **L0** | Anti-Skip Guard | 파일 존재 + ≥ 100 bytes | 결정론적 (Hook) |
 | **L1** | Verification Gate | 기능적 목표 100% 달성 | 의미론적 (Agent 자기검증) |
 | **L1.5** | pACS Self-Rating | F/C/L 3차원 신뢰도 | Pre-mortem Protocol 기반 |
-| **[L2]** | Calibration | pACS 교차 검증 | 선택적 (고위험 단계만) |
+| **L2** | Adversarial Review (Enhanced) | 적대적 검토 (`@reviewer` + `@fact-checker`) | `Review:` 필드 지정 단계 |
 
 - **검증 기준 선행 선언**: 워크플로우의 각 단계에 `Verification` 필드로 구체적·측정 가능한 기준을 Task 앞에 정의
 - **pACS (predicted Agent Confidence Score)**: Pre-mortem Protocol 후 F(Factual Grounding), C(Completeness), L(Logical Coherence) 채점. min-score 원칙: pACS = min(F,C,L)
 - **행동 트리거**: GREEN(≥70) 자동 진행, YELLOW(50-69) 플래그 후 진행, RED(<50) 재작업
+- **Adversarial Review (L2)**: `@reviewer`(코드/산출물 비판적 분석) + `@fact-checker`(외부 사실 검증) Sub-agent로 독립적 검토. P1 검증(`validate_review.py`)으로 리뷰 품질 보장
 - **Team 3계층 검증**: L1(Teammate 자기검증) + L1.5(pACS 자기채점) + L2(Team Lead 종합검증 + 단계 pACS)
 - **검증 로그**: `verification-logs/step-N-verify.md`, `pacs-logs/step-N-pacs.md`
 - **하위 호환**: `Verification` 필드 없는 기존 워크플로우는 Anti-Skip Guard만으로 동작
 
-상세: `AGENTS.md §5.3`, `§5.4`
+상세: `AGENTS.md §5.3`, `§5.4`, `§5.5`
 
 ## 절대 기준
 

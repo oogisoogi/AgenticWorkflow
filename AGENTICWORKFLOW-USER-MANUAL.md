@@ -215,6 +215,7 @@ AI 동작:
   - [ ] [구체적, 측정 가능한 기준]
 - Task: [수행 작업]
 - Output: [산출물]
+- Review: @reviewer | @fact-checker | @reviewer + @fact-checker | none
 - Translation: @translator → [산출물].ko.md | none
 - Post-processing: [산출물 정제 — P1]
 
@@ -243,6 +244,8 @@ AI 동작:
 | `(hook)` | 자동 검증/품질 게이트 |
 | `@agent-name` | Sub-agent 호출 |
 | `@translator` | 번역 서브에이전트 — `Translation` 필드에서 호출 |
+| `@reviewer` | Adversarial Review — 코드/산출물 비판적 분석 (읽기 전용) |
+| `@fact-checker` | Adversarial Review — 외부 사실 검증 (웹 접근) |
 | `/command-name` | Slash command 실행 |
 | `[skill-name]` | Skill 참조 |
 
@@ -372,7 +375,7 @@ workflow.md에 `(hook)` 구간이 있다면:
 | `0` | 통과 |
 | `2` | 차단 — 에이전트에 피드백 전달, 재작업 |
 
-> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태 + 동적 RLM 쿼리 힌트)으로 이전 맥락을 복원합니다. PostToolUse는 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate)를 추적합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), tool_sequence(RLE 압축 도구 시퀀스), final_status(세션 종료 상태), tags(경로 기반 검색 태그), session_duration_entries(세션 길이) 메타데이터를 포함하여 기록합니다. 스냅샷의 설계 결정은 품질 태그 우선순위(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 정렬되어 노이즈가 제거되고, 스냅샷 압축 시 IMMORTAL 섹션이 우선 보존되며(압축 감사 추적 포함), 모든 파일 쓰기(스냅샷, 아카이브, 로그 절삭)에 atomic write(temp → rename) 패턴이 적용됩니다. P1 할루시네이션 봉쇄로 KI 스키마 검증, 부분 실패 격리, SOT 쓰기 패턴 검증(setup_init.py), SOT 스키마 검증이 결정론적으로 수행됩니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
+> **Context Preservation System**: 이 코드베이스 자체는 5개의 Hook(SessionStart, PostToolUse, Stop, PreCompact, SessionEnd)으로 컨텍스트 보존 시스템을 운용합니다. `/clear`, 컨텍스트 압축, 응답 완료 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약 + 완료 상태 + Git 상태 + 동적 RLM 쿼리 힌트)으로 이전 맥락을 복원합니다. PostToolUse는 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate)를 추적합니다. Stop hook은 30초 throttling + 5KB growth threshold로 노이즈를 최소화하면서 Knowledge Archive(knowledge-index.jsonl, sessions/)에 세션별 phase(단계), phase_flow(전환 흐름), primary_language(주요 언어), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), tool_sequence(RLE 압축 도구 시퀀스), final_status(세션 종료 상태), tags(경로 기반 검색 태그), session_duration_entries(세션 길이) 메타데이터를 포함하여 기록합니다. 스냅샷의 설계 결정은 품질 태그 우선순위(`[explicit]` > `[decision]` > `[rationale]` > `[intent]`)로 정렬되어 노이즈가 제거되고, 스냅샷 압축 시 IMMORTAL 섹션이 우선 보존되며(압축 감사 추적 포함), 모든 파일 쓰기(스냅샷, 아카이브, 로그 절삭)에 atomic write(temp → rename) 패턴이 적용됩니다. P1 할루시네이션 봉쇄로 KI 스키마 검증, 부분 실패 격리, SOT 쓰기 패턴 검증(setup_init.py), SOT 스키마 검증(8항목 — S1-S6 기본 + S7 pacs 5필드 + S8 active_team 5필드), Adversarial Review P1 검증(validate_review.py — R1-R5)이 결정론적으로 수행됩니다. SessionStart에서 Error→Resolution 매칭 결과가 자동 표면화되어 반복 에러 방지에 활용됩니다. 상세는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md` §4.10을 참조하세요.
 
 ### 6.5 Slash Commands 만들기
 
@@ -573,7 +576,7 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 | **L0** | Anti-Skip Guard | 결정론적 | 항상 |
 | **L1** | Verification Gate | 의미론적 | `Verification` 필드 있는 단계 |
 | **L1.5** | pACS (Self-Rating) | 자기 평가 | pACS 활성 + Verification 통과 |
-| **[L2]** | Calibration | 교차 검증 | 고위험 단계 (선택) |
+| **L2** | Adversarial Review (Enhanced) | 적대적 검토 | `Review:` 필드 지정 단계 |
 
 **L0: Anti-Skip Guard (결정론적)**
 1. 산출물 파일이 SOT `outputs`에 경로로 기록됨
@@ -591,9 +594,11 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 9. RED(< 50) → 해당 차원 재작업, YELLOW(50-69) → 경고 후 진행, GREEN(≥ 70) → 통과
 10. `pacs-logs/step-N-pacs.md`에 Pre-mortem 답변 + 점수 기록
 
-**[L2]: Calibration (선택적 — 고위험 단계만)**
-11. `@verifier` 서브에이전트가 독립적으로 산출물을 교차 검증
-12. 상세: `AGENTS.md §5.4`
+**L2: Adversarial Review (Enhanced — `Review:` 필드 지정 단계만)**
+11. `@reviewer`(코드/산출물 비판적 분석) 또는 `@fact-checker`(외부 사실 검증) Sub-agent가 독립적으로 적대적 검토
+12. P1 검증(`validate_review.py`)으로 리뷰 품질 결정론적 보장
+13. `review-logs/step-N-review.md`에 기록
+14. 상세: `AGENTS.md §5.5`
 
 > `Verification` 필드가 없는 단계는 L0(Anti-Skip Guard)만으로 진행합니다 (하위 호환).
 > pACS는 Verification 없이 단독 사용 불가 — L1 통과가 L1.5의 선행 조건입니다.
@@ -854,6 +859,7 @@ outputs:
 - [ ] Agent Team 설정 (병렬 협업 필요 시)
 - [ ] Task 설계 (Agent Team 사용 시 — workflow.md 내 Task 정의)
 - [ ] Verification 기준 정의 (각 단계별 구체적·측정 가능한 기준 — §13 참조)
+- [ ] Review 필드 설정 (고위험 단계에 `@reviewer` / `@fact-checker` 지정 — `AGENTS.md §5.5` 참조)
 - [ ] Error Handling 설정 (재시도, 롤백, 에스컬레이션 규칙)
 - [ ] Translation 필드 설정 (각 단계별 `@translator` 또는 `none`)
 - [ ] `translations/glossary.yaml` 초기화 (번역 대상 단계가 있는 경우)
