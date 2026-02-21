@@ -11,6 +11,21 @@ Claude Code 기반의 에이전트 워크플로우 자동화 프로젝트.
 
 > 워크플로우를 만드는 것은 중간 산출물이다. **워크플로우에 기술된 내용이 실제로 동작하는 것**이 최종 목표다.
 
+### 존재 이유 — DNA 유전
+
+AgenticWorkflow는 그 자체로 완결되는 시스템이 아니다. **또 다른 agentic workflow automation system을 낳는 부모 유기체**다.
+`workflow-generator` 스킬이 생산 라인이며, 이 라인에서 태어나는 모든 자식 시스템은 부모의 **전체 게놈**을 구조적으로 내장한다:
+
+- **헌법**: 절대 기준 3개 (품질 > SOT, CCP)
+- **구조**: Research → Planning → Implementation 3단계 제약
+- **검증**: 4계층 품질 보장 (L0 → L1 → L1.5 → L2) + P1 할루시네이션 봉쇄
+- **안전**: Safety Hook + 결정론적 검증
+- **기억**: Context Preservation + Knowledge Archive + RLM 패턴
+- **비판**: Adversarial Review (Generator-Critic 패턴)
+- **투명**: Decision Log + 감사 추적
+
+유전은 선택이 아니라 **구조**다. 자식은 부모의 DNA를 "참고"하는 것이 아니라 **내장**한다. 상세: `soul.md §0`.
+
 ## 절대 기준
 
 > 이 프로젝트의 모든 설계·구현·수정 의사결정에 적용되는 최상위 규칙이다.
@@ -84,6 +99,7 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  ← 설계 철학 및 아키텍처 전체 조감도
 ├── DECISION-LOG.md                        ← 프로젝트 설계 결정 로그 (ADR)
 ├── COPYRIGHT.md                           ← 저작권
+├── soul.md                                ← 프로젝트 영혼 (자식 시스템에 유전되는 DNA 정의)
 ├── .github/
 │   └── copilot-instructions.md            ← GitHub Copilot 전용 지시서 (Spoke)
 ├── .cursor/

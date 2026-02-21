@@ -1726,3 +1726,33 @@ Team Lead ───────────────────────�
 ```
 
 이 패턴은 워크플로우 설계 시 해당 단계에 `Verification: @translation-verifier`를 명시하여 적용한다.
+
+---
+
+## DNA Inheritance Pattern
+
+모든 생성된 워크플로우가 부모(AgenticWorkflow)의 게놈을 구조적으로 내장하는 패턴.
+
+> **원칙**: "유전은 선택이 아니라 구조다." — 자식 워크플로우는 부모의 DNA를 참조하는 것이 아니라 내장한다.
+
+### 필수 포함 항목
+
+| 워크플로우 구성요소 | DNA 내장 형태 | 검증 방법 |
+|-------------------|-------------|----------|
+| `workflow.md` | `## Inherited DNA (Parent Genome)` 섹션 포함 | 섹션 존재 확인 |
+| `state.yaml` | `parent_genome` 메타데이터 포함 | 필드 존재 확인 |
+| Sub-agent 정의 | 부모의 품질 기준을 에이전트 프롬프트에 반영 | Absolute Rules에 품질 원칙 포함 |
+| Hook 설계 | P1 할루시네이션 봉쇄 패턴을 자식 Hook에도 적용 | exit code 2 차단 패턴 존재 |
+
+### 유전자 발현 (Gene Expression)
+
+도메인에 따라 발현 강도가 다르지만 게놈 자체는 동일하다:
+
+```
+리서치 자동화  → P1(데이터 정제) 강발현, P2(전문가 위임) 강발현
+SW 개발       → CCP(코드 변경 프로토콜) 강발현, Safety Hook 강발현
+콘텐츠 생성   → P2(전문가 위임) 강발현, Adversarial Review 강발현
+데이터 분석   → P1(데이터 정제) 강발현, SOT(상태 관리) 강발현
+```
+
+> **참조**: `soul.md §0` — 게놈 구성요소 12개 정의, `AGENTS.md §1` — 존재 이유와 유전 메커니즘

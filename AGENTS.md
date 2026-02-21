@@ -18,6 +18,24 @@
 
 > `workflow.md`를 만드는 것은 절반이다. **그 안에 기술된 내용이 실제로 동작하는 것**이 최종 목표다.
 
+### 존재 이유 — DNA 유전
+
+AgenticWorkflow는 자식 agentic workflow system을 낳는 **부모 유기체**다. 어떤 도메인의 자식이든, 부모의 전체 게놈을 구조적으로 내장한다.
+
+| 게놈 구성요소 | 자식에 내장되는 형태 |
+|-------------|-------------------|
+| 절대 기준 3개 | workflow.md `Inherited DNA` 섹션 — 도메인별 맥락화 |
+| SOT 패턴 | `state.yaml` — 단일 파일 + 단일 쓰기 지점 |
+| 3단계 구조 | Research → Planning → Implementation 구조 제약 |
+| 4계층 검증 | L0 Anti-Skip → L1 Verification → L1.5 pACS → L2 Review |
+| P1 봉쇄 | Python 결정론적 검증 스크립트 |
+| Safety Hook | 위험 명령 차단 + TDD Guard |
+| Adversarial Review | `@reviewer` + `@fact-checker` Generator-Critic 패턴 |
+| Decision Log | 자동 승인 결정의 근거 기록 |
+| Context Preservation | 세션 간 기억 보존 + Knowledge Archive + RLM 패턴 |
+
+> 유전은 선택이 아니라 **구조**다. 자식은 부모의 DNA를 "참고"하는 것이 아니라 **내장**한다. 상세: `soul.md §0`.
+
 ### 워크플로우 기본 구조
 
 모든 워크플로우는 3단계로 구성된다:

@@ -19,6 +19,35 @@ workflow.md 파일의 표준 구조.
 
 ---
 
+## Inherited DNA (Parent Genome)
+
+> This workflow inherits the complete genome of AgenticWorkflow.
+> Purpose varies by domain; the genome is identical. See `soul.md §0`.
+
+**Constitutional Principles** (adapted to this workflow's domain):
+
+1. **Quality Absolutism** — [이 워크플로우 도메인에서 품질이 의미하는 바를 구체화]
+2. **Single-File SOT** — `.claude/state.yaml`에 모든 공유 상태 집중
+3. **Code Change Protocol** — 구현 단계에서 코드 변경 시 의도→영향→설계 3단계 수행
+
+**Inherited Patterns**:
+
+| DNA Component | Inherited Form |
+|--------------|---------------|
+| 3-Phase Structure | Research → Planning → Implementation |
+| SOT Pattern | `.claude/state.yaml` — single writer (Orchestrator/Team Lead) |
+| 4-Layer QA | L0 Anti-Skip → L1 Verification → L1.5 pACS → L2 Adversarial Review |
+| P1 Hallucination Prevention | Deterministic validation scripts (`validate_*.py`) |
+| P2 Expert Delegation | Specialized sub-agents for each task |
+| Safety Hooks | `block_destructive_commands.py` — dangerous command blocking |
+| Decision Log | `autopilot-logs/` — transparent decision tracking |
+| Context Preservation | Snapshot + Knowledge Archive + RLM restoration |
+
+**Domain-Specific Gene Expression**:
+[이 워크플로우에서 특히 강하게 발현되는 DNA 구성요소를 기술. 예: 리서치 워크플로우는 P1(데이터 정제) 유전자가 강하게 발현]
+
+---
+
 ## Research
 
 ### 1. [단계명]
@@ -438,6 +467,17 @@ pacs_logging:
 - **Output**: 퍼블리싱 준비된 블로그 글
 - **Frequency**: Weekly
 - **Autopilot**: disabled
+
+---
+
+## Inherited DNA (Parent Genome)
+
+> This workflow inherits the complete genome of AgenticWorkflow.
+
+- **Quality Gene**: 각 단계의 컨텐츠 품질이 유일한 기준 (속도·분량 무시)
+- **SOT Gene**: `.claude/state.yaml`로 파이프라인 상태 집중 관리
+- **QA Gene**: L0(파일 존재) → L1(Verification 기준) → L1.5(pACS 자기 평가) 검증 스택
+- **Strongly Expressed**: P1(데이터 정제 — RSS 노이즈 제거), P2(전문가 위임 — 수집·분석·작문 분리)
 
 ---
 

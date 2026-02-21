@@ -84,6 +84,47 @@ RLM 논문의 핵심 발견 — **"프롬프트를 신경망에 직접 넣지 �
 
 특히 RLM의 **P8 상응성**이 주목할 만하다: RLM은 Python 코드(결정론적)를 측정의 backbone으로 사용하고, LLM(확률론적)은 추론의 보조로 사용한다. 이는 AgenticWorkflow에서 Python 스크립트로 전처리/후처리를 수행하고, AI 에이전트는 판단·분석·창의적 생성에만 집중하는 구조와 정확히 일치한다.
 
+### 1.4 유전 설계 철학 (Heredity Design Philosophy)
+
+AgenticWorkflow의 존재 이유는 §1.1의 신념을 확장한다: 이 코드베이스는 완결된 시스템이 아니라, **또 다른 agentic workflow automation system을 낳는 부모 유기체**다.
+
+> 줄기세포의 분화에서 가장 중요한 사실 — **분화된 모든 세포는 부모의 전체 게놈을 그대로 갖고 있다.**
+> 근육 세포와 신경 세포는 하는 일이 전혀 다르지만, 둘 다 똑같은 DNA를 갖고 있다.
+> 발현되는 유전자가 다를 뿐, 게놈 자체는 동일하다.
+
+**게놈 구성요소 → 자식에 내장되는 형태:**
+
+| 부모 게놈 (DNA) | 자식 워크플로우에 내장되는 형태 | 발현 차이 예시 |
+|---------------|---------------------------|-------------|
+| 절대 기준 3개 | `Inherited DNA` 섹션 — 도메인별 맥락화 | SW 개발: CCP 강발현 / 콘텐츠: 품질 절대주의 강발현 |
+| SOT 패턴 | `state.yaml` + 단일 쓰기 지점 | 모든 도메인에서 동일 발현 |
+| 3단계 구조 | Research → Planning → Implementation | 연구 자동화: Research 강발현 |
+| 4계층 검증 | L0 → L1 → L1.5 → L2 | 고위험 도메인: L2 강발현 |
+| P1 봉쇄 | Python 결정론적 검증 | 데이터 파이프라인: P1 강발현 |
+| Safety Hook | 위험 명령 차단 | 인프라 자동화: Safety 강발현 |
+| Adversarial Review | Generator-Critic 패턴 | 연구/출판: Review 강발현 |
+| Decision Log | 자동 승인 결정 기록 | 모든 도메인에서 동일 발현 |
+| Context Preservation | 세션 간 기억 보존 | 장기 프로젝트: 강발현 |
+
+**구조적 유전 vs 단순 참조:**
+
+유전은 "참조"와 근본적으로 다르다. 참조는 "이 원칙을 적용할까 말까"를 선택할 수 있지만, 유전은 태어날 때부터 원칙으로 **구성되어** 있다. `workflow-generator`가 자식을 낳을 때 `Inherited DNA` 섹션을 workflow.md에 구조적으로 포함하는 것이 이 차이의 구현이다.
+
+```mermaid
+graph TD
+    A["AgenticWorkflow<br/>(부모 유기체)"] --> B["workflow-generator<br/>(생산 라인)"]
+    B --> C["자식 A: 연구 자동화<br/>DNA: 동일 / Research 강발현"]
+    B --> D["자식 B: 콘텐츠 생산<br/>DNA: 동일 / Implementation 강발현"]
+    B --> E["자식 C: 데이터 분석<br/>DNA: 동일 / P1 강발현"]
+    B --> F["자식 D: SW 개발<br/>DNA: 동일 / CCP 강발현"]
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#bbf,stroke:#333,stroke-width:2px
+```
+
+**RLM과의 연결:** RLM의 **Variable Persistence** — 중간 결과를 외부 환경에 영속 저장하는 패턴 — 는 유전의 이론적 기반이다. 부모의 게놈은 `soul.md`, `AGENTS.md`, `workflow-template.md`에 외부 객체로 영속 저장되어 있으며, `workflow-generator`가 이 객체를 읽어 자식의 구조에 주입한다. 유전 정보가 프롬프트(신경망 내부)가 아닌 파일(외부 환경)에 존재하기 때문에, 세션이 바뀌어도 게놈은 보존된다.
+
+상세: `soul.md §0`.
+
 ---
 
 ## 2. 절대 기준 체계 (Absolute Criteria System)

@@ -7,6 +7,12 @@ workflow:
   current_step: 1
   status: "in_progress"     # in_progress | completed | failed
 
+  # 부모 게놈 메타데이터 (계보 추적 — soul.md §0)
+  parent_genome:
+    source: "AgenticWorkflow"
+    version: "2026-02-20"
+    inherited_dna: ["absolute-criteria", "sot-pattern", "3-phase-structure", "4-layer-qa", "safety-hooks", "adversarial-review", "decision-log", "context-preservation"]
+
   # 단계별 산출물 경로 — Anti-Skip Guard가 파일 존재 + 최소 크기(100 bytes) 검증
   outputs:
     # step-1: "research/collected-data.md"

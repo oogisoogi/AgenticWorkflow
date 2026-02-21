@@ -532,6 +532,29 @@
 
 ---
 
+## 8. Heredity (유전 설계)
+
+### ADR-038: DNA Inheritance — 부모 게놈의 구조적 유전
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: `soul.md`가 AgenticWorkflow의 존재 이유(부모 유기체 → 자식에 DNA 유전)를 철학적으로 정의했으나, 실제 생산 라인인 `workflow-generator`에 유전 메커니즘이 부재. 철학이 코드베이스와 생산 프로세스에 구조적으로 연결되지 않은 상태.
+- **결정**:
+  1. `SKILL.md`에 유전 프로토콜(Genome Inheritance Protocol) 추가 — 자식 생성 시 Inherited DNA 섹션 포함 의무화
+  2. `workflow-template.md`에 `Inherited DNA (Parent Genome)` 섹션을 기본 템플릿에 추가
+  3. `state.yaml.example`에 `parent_genome` 메타데이터 추가 — 계보 추적
+  4. 핵심 문서(CLAUDE.md, AGENTS.md, README.md, ARCHITECTURE, Spoke 3개, Agent 3개, 매뉴얼)에 유전 개념 통합
+- **근거**: "유전은 선택이 아니라 구조다" — 자식이 DNA를 내장해야 유전의 의미가 실현됨. 참조만으로는 선택적 적용이 가능하여 품질 일관성이 보장되지 않음.
+- **대안**:
+  - soul.md에 대한 참조 링크만 추가 → 기각 (참조는 유전이 아님 — 선택적 적용 가능)
+  - soul.md 전체를 자식 워크플로우에 복사 → 기각 (불필요한 중복, 유지보수 부담)
+  - DNA를 별도 `dna.yaml` 파일로 추출하여 자동 주입 → 기각 (과도한 엔지니어링, 문서 기반 접근이 더 적합)
+- **영향 범위**: 문서 16개 수정 (Python Hook 스크립트 미수정, SOT 스키마 검증 미수정 — `parent_genome`은 unknown key로 허용됨)
+- **관련 ADR**: ADR-001 (워크플로우 = 중간물), ADR-009 (RLM 이론적 기반), ADR-010 (아키텍처 문서)
+- **관련 커밋**: (pending)
+
+---
+
 ## 부록: 커밋 히스토리 기반 타임라인
 
 | 날짜 | 커밋 | 결정 |
@@ -558,6 +581,7 @@
 | 2026-02-20 | (pending) | ADR-035: 종합 감사 — SOT 스키마 확장 + Quality Gate IMMORTAL + Error→Resolution 표면화 |
 | 2026-02-20 | (pending) | ADR-036: Predictive Debugging — 에러 이력 기반 위험 파일 사전 경고 |
 | 2026-02-20 | (pending) | ADR-037: 종합 감사 II — pACS P1 + L0 Anti-Skip Guard + IMMORTAL 경계 + Context Memory |
+| 2026-02-20 | (pending) | ADR-038: DNA Inheritance — 부모 게놈의 구조적 유전 |
 
 ---
 

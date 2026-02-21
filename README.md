@@ -6,6 +6,10 @@
 줄기세포가 어떤 세포로든 분화하듯, 이 프레임워크는 하나의 코드베이스에서 연구·분석·개발·자동화 등
 어떤 도메인의 에이전트 워크플로우든 생성하고 실행할 수 있습니다.
 
+그리고 줄기세포의 분화에서 가장 중요한 사실 — **분화된 모든 세포는 부모의 전체 게놈을 그대로 갖고 있습니다.**
+이 코드베이스에서 태어나는 모든 자식 시스템은, 목적은 다르지만, 부모의 전체 DNA(절대 기준, 품질 보장, 안전장치, 기억 체계 등)를
+구조적으로 내장합니다. 상세: [`soul.md`](soul.md)
+
 ## 프로젝트 목표
 
 ```
@@ -33,6 +37,7 @@ AgenticWorkflow/
 ├── AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md  # 설계 철학 및 아키텍처 전체 조감도
 ├── DECISION-LOG.md            # 프로젝트 설계 결정 로그 (ADR)
 ├── COPYRIGHT.md              # 저작권
+├── soul.md                   # 프로젝트 영혼 (자식 시스템에 유전되는 DNA 정의)
 ├── .claude/
 │   ├── settings.json      # Hook 설정 (Setup + SessionEnd)
 │   ├── commands/           # Slash Commands (/install, /maintenance)
@@ -150,6 +155,7 @@ AgenticWorkflow/
 | 순서 | 문서 | 목적 |
 |------|------|------|
 | 1 | **README.md** (이 파일) | 프로젝트 개요 파악 |
+| 1.5 | [`soul.md`](soul.md) | 프로젝트 영혼 — 규칙 아래의 이유, DNA 유전 철학 |
 | 2 | [`AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`](AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md) | 설계 철학과 아키텍처 이해 |
 | 2.5 | [`DECISION-LOG.md`](DECISION-LOG.md) | 모든 설계 결정의 맥락과 근거 추적 |
 | 3 | [`AGENTICWORKFLOW-USER-MANUAL.md`](AGENTICWORKFLOW-USER-MANUAL.md) | 실제 사용법 학습 |

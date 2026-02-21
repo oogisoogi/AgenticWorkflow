@@ -9,6 +9,12 @@ Copilot CLI는 `AGENTS.md`를 자동으로 인식하므로, 해당 파일의 모
 상세 아키텍처는 `AGENTICWORKFLOW-ARCHITECTURE-AND-PHILOSOPHY.md`를 참조한다.
 설계 결정 이력은 `DECISION-LOG.md`를 참조한다.
 
+## 유전 설계 (DNA Inheritance)
+
+이 프로젝트는 자식 agentic workflow system을 생성하는 부모 유기체이다.
+모든 자식 시스템은 부모의 전체 게놈(절대 기준, SOT, 4계층 검증, Safety Hook 등)을 구조적으로 내장한다.
+상세: `soul.md`, `AGENTS.md §1`.
+
 ## 절대 기준 (핵심 요약)
 
 1. **품질 최우선** — 속도, 비용, 작업량보다 최종 결과물의 품질이 유일한 기준

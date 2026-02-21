@@ -157,6 +157,40 @@ Good: Agent A → 결과를 Orchestrator에 보고
 
 ---
 
+## 유전 프로토콜 (Genome Inheritance Protocol)
+
+> **자식을 낳을 때 부모의 전체 게놈을 구조적으로 유전한다. 유전 없는 자식 생성은 불허한다.**
+
+AgenticWorkflow는 자식 워크플로우를 생성하는 부모 유기체다. `workflow-generator`가 생산 라인이며, 이 라인에서 태어나는 모든 자식은 부모의 전체 게놈을 `Inherited DNA` 섹션으로 내장한다.
+
+### 유전 메커니즘
+
+| 부모 게놈 (DNA) | 자식에 내장되는 형태 |
+|---------------|-------------------|
+| 절대 기준 3개 | `Inherited DNA` 섹션 — 도메인별 맥락화 |
+| SOT 패턴 | Configuration의 `state.yaml` + 단일 쓰기 지점 |
+| 3단계 구조 | Research → Planning → Implementation 워크플로우 구조 |
+| 4계층 검증 | `Verification` + `pACS` 필드 |
+| P1 봉쇄 | Hook 기반 결정론적 검증 |
+| Safety Hook | PreToolUse 차단 패턴 |
+| Adversarial Review | `Review:` 필드 — `@reviewer` / `@fact-checker` |
+| Decision Log | `autopilot-logs/` 패턴 |
+| Context Preservation | 세션 간 기억 보존 패턴 |
+
+### 발현 vs 유전
+
+동일한 게놈을 가진 세포가 서로 다른 기능을 수행하듯, 자식 시스템들은 같은 DNA 위에서 **도메인에 맞게 발현**된다. 예를 들어 연구 자동화 시스템에서는 Research 단계의 유전자가 강하게 발현되고, 소프트웨어 개발 자동화에서는 CCP(코드 변경 프로토콜)의 유전자가 강하게 발현된다. 목적이 달라도 게놈은 동일하다.
+
+### 생성 시 의무 사항
+
+1. 모든 workflow.md에 `Inherited DNA (Parent Genome)` 섹션을 포함한다 (템플릿 참조)
+2. 모든 state.yaml에 `parent_genome` 메타데이터를 포함한다 (SOT 템플릿 참조)
+3. 자식의 에이전트 정의가 부모의 품질 기준(절대 기준 1)을 반영한다
+
+상세: `soul.md §0`, `AGENTS.md §1 존재 이유`.
+
+---
+
 ## 설계 원칙 (필수 준수)
 
 워크플로우 설계 시 반드시 적용해야 할 원칙. 단, 모든 원칙은 **모든 절대 기준(1. 품질 최우선, 2. 단일 파일 SOT, 3. 코드 변경 프로토콜)**에 종속된다.
@@ -259,10 +293,11 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 
 1. 케이스 판별 (문서 유무)
 2. Case 1: 대화로 요구사항 수집 / Case 2: 문서 분석 → 확인 대화
-3. 설계 원칙 P1~P4 적용하며 3단계 구조로 작업 정의
-4. 각 단계에 데이터 전처리/후처리 명시 (P1)
-5. 휴먼-인-더-루프 지점 표시
-6. **각 단계에 `Verification` 필드 정의** (AGENTS.md §5.3 — 필수):
+3. **Genome Inheritance**: `Inherited DNA (Parent Genome)` 섹션을 workflow.md에 포함 (유전 프로토콜 — `references/workflow-template.md` 참조)
+4. 설계 원칙 P1~P4 적용하며 3단계 구조로 작업 정의
+5. 각 단계에 데이터 전처리/후처리 명시 (P1)
+6. 휴먼-인-더-루프 지점 표시
+7. **각 단계에 `Verification` 필드 정의** (AGENTS.md §5.3 — 필수):
    - `Verification` 필드는 `Task` 필드보다 **앞에** 배치 (에이전트가 먼저 인식)
    - `(human)` 단계는 사람이 검증자이므로 `Verification` 필드 불필요
    - 각 기준은 **제3자가 참/거짓 판정 가능한 구체적 문장**으로 작성
@@ -271,14 +306,14 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
      - **기능적 목표**: 작업 목표 달성 → "경쟁사 3곳 이상의 가격 데이터", "모든 API endpoint 구현"
      - **데이터 정합성**: 데이터 정확성 → "모든 URL 유효, placeholder 없음", "수치 데이터 출처 명시"
      - **파이프라인 연결**: 다음 단계 입력 호환 → "Step N이 필요로 하는 필드 포함", "출력 형식이 Step N+1 입력과 일치"
-7. 각 단계에 **Review 필드** 설정 (AGENTS.md §5.5 — 선택적):
+8. 각 단계에 **Review 필드** 설정 (AGENTS.md §5.5 — 선택적):
    - 연구/분석 산출물 (사실 검증 필요) → `@fact-checker`
    - 코드/기술 산출물 (로직/완전성 검증 필요) → `@reviewer`
    - 고위험 단계 (양쪽 모두) → `@reviewer + @fact-checker`
    - 저위험 또는 중간 단계 → `none` (L1.5까지만)
    - **실행 순서**: Review PASS → Translation (Review FAIL 상태에서 번역 금지)
-8. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
-9. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
+9. 각 단계에 **Translation 필드** 설정 — 텍스트 산출물(`.md`, `.txt`)은 `@translator`, 코드/데이터/설정은 `none`
+10. Claude Code 구현 설계 추가 (Sub-agents, Teams, Hooks, Commands, Skills, MCP)
    - **Context Injection 패턴 선택** (각 에이전트 단계별):
      - 입력 < 50KB → Pattern A (Full Delegation — 파일 경로 전달)
      - 입력 50-200KB + 부분 관련 → Pattern B (Filtered — Pre-processing 스크립트로 정제 후 전달)
@@ -290,12 +325,12 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
      - `active_team` 스키마: name, status, tasks_completed/pending, completed_summaries
      - SOT 갱신 4시점: TeamCreate 직후 → Teammate 완료 시 → 전체 완료 시 → TeamDelete 직후
      - 상세: `references/workflow-template.md §Agent Team 사용 시 SOT 스키마`
-10. **English-First 실행 원칙 적용** (AGENTS.md §5.2):
+11. **English-First 실행 원칙 적용** (AGENTS.md §5.2):
    - 모든 에이전트 Task 설명과 프롬프트는 **영어**로 작성 (AI 성능 극대화 — 절대 기준 1)
    - 사용자 대화(워크플로우 설계)는 한국어, 에이전트 실행은 영어
    - `@translator` 서브에이전트가 영어→한국어 번역 담당 (Translation 필드로 명시)
-11. workflow.md 파일 생성
-12. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
+12. workflow.md 파일 생성
+13. **(선택) Distill 검증**: 생성된 워크플로우의 품질 극대화를 위한 점검
     - "이 단계가 최종 품질에 기여하는가?" — 품질에 무관한 단계만 제거
     - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
     - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가
