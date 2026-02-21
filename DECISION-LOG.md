@@ -551,7 +551,21 @@
   - DNA를 별도 `dna.yaml` 파일로 추출하여 자동 주입 → 기각 (과도한 엔지니어링, 문서 기반 접근이 더 적합)
 - **영향 범위**: 문서 16개 수정 (Python Hook 스크립트 미수정, SOT 스키마 검증 미수정 — `parent_genome`은 unknown key로 허용됨)
 - **관련 ADR**: ADR-001 (워크플로우 = 중간물), ADR-009 (RLM 이론적 기반), ADR-010 (아키텍처 문서)
-- **관련 커밋**: (pending)
+- **관련 커밋**: `9b99e36`
+
+### ADR-039: Workflow.md P1 Validation — DNA 유전의 코드 수준 검증
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: ADR-038에서 DNA Inheritance를 문서 기반 접근으로 구현했으나, Critical Reflection에서 P1 검증 공백이 식별됨. 기존 P1 체계(pACS/Review/Translation/Verification/L0)는 모두 결정론적 코드 검증을 갖추고 있으나, 생성된 workflow.md의 Inherited DNA 존재 여부는 프롬프트 기반 강제만 존재. P1 철학("code doesn't lie")과 모순.
+- **결정**:
+  1. `_context_lib.py`에 `validate_workflow_md()` 함수 추가 — W1-W5 결정론적 검증 (파일 존재, 최소 크기, Inherited DNA 헤더, Inherited Patterns 테이블 ≥ 3행, Constitutional Principles)
+  2. `validate_workflow.py` 독립 실행 스크립트 생성 — 기존 `validate_*.py` 패턴과 동일
+  3. `SKILL.md` Step 13(Distill 검증)에서 호출 권고
+  4. `REQUIRED_SCRIPTS`에 추가 (D-7 동기화: setup_init.py + setup_maintenance.py)
+- **근거**: ~80줄 추가로 P1 일관성을 회복. "과도한 엔지니어링"이 아닌 기존 패턴의 자연스러운 확장. Autopilot에서의 silent failure 방지.
+- **ADR-038 관계**: ADR-038의 "Python Hook 미수정" 결정을 부분 수정 — Hook은 여전히 미수정이나, 독립 검증 스크립트를 추가하여 P1 공백을 폐쇄.
+- **관련 ADR**: ADR-038 (DNA Inheritance)
 
 ---
 
@@ -582,6 +596,7 @@
 | 2026-02-20 | (pending) | ADR-036: Predictive Debugging — 에러 이력 기반 위험 파일 사전 경고 |
 | 2026-02-20 | (pending) | ADR-037: 종합 감사 II — pACS P1 + L0 Anti-Skip Guard + IMMORTAL 경계 + Context Memory |
 | 2026-02-20 | (pending) | ADR-038: DNA Inheritance — 부모 게놈의 구조적 유전 |
+| 2026-02-20 | (pending) | ADR-039: Workflow.md P1 Validation — DNA 유전의 코드 수준 검증 |
 
 ---
 

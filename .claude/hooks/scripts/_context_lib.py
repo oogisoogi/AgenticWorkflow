@@ -4885,3 +4885,92 @@ def _normalize_to_relative(filename, project_dir, modified_files):
             return filename
 
     return filename
+
+
+# ---------------------------------------------------------------------------
+# Workflow.md DNA Inheritance P1 Validation (W1-W5)
+# ---------------------------------------------------------------------------
+
+# Module-level compiled regex for W3/W4 checks (process-lifetime, one-time cost)
+_WORKFLOW_INHERITED_DNA_RE = re.compile(
+    r"^##\s+Inherited DNA", re.MULTILINE
+)
+_WORKFLOW_INHERITED_TABLE_RE = re.compile(
+    r"Inherited Patterns[^\n]*\n(?:\s*\n)?"  # header line + optional blank
+    r"(\|[^\n]+\n)"                           # table header row
+    r"(\|[-| :]+\n)"                          # separator row
+    r"((?:\|[^\n]+\n)*)",                     # data rows
+    re.MULTILINE,
+)
+_WORKFLOW_CONSTITUTIONAL_RE = re.compile(
+    r"Constitutional Principles", re.IGNORECASE
+)
+
+
+def validate_workflow_md(workflow_path):
+    """W1-W5: Generated workflow.md structural integrity for DNA inheritance.
+
+    P1 Compliance: All validation is deterministic (regex + string checks).
+    SOT Compliance: Read-only — no file writes.
+
+    Checks:
+      W1: Workflow file exists and is readable
+      W2: Minimum file size (≥ 500 bytes — workflow files are substantial)
+      W3: '## Inherited DNA' header present
+      W4: Inherited Patterns table present (≥ 3 data rows)
+      W5: Constitutional Principles section present
+
+    Args:
+        workflow_path: Absolute path to generated workflow.md
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+    """
+    warnings = []
+
+    # W1: File exists
+    if not os.path.exists(workflow_path):
+        return (False, [f"W1 FAIL: Workflow file not found: {workflow_path}"])
+
+    try:
+        with open(workflow_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        return (False, [f"W1 FAIL: Cannot read workflow: {e}"])
+
+    # W2: Minimum size
+    if len(content.strip()) < 500:
+        warnings.append(
+            f"W2 FAIL: Workflow too small ({len(content)} bytes, min 500)"
+        )
+
+    # W3: Inherited DNA header
+    if not _WORKFLOW_INHERITED_DNA_RE.search(content):
+        warnings.append(
+            "W3 FAIL: '## Inherited DNA' section not found in workflow"
+        )
+
+    # W4: Inherited Patterns table (≥ 3 data rows)
+    table_match = _WORKFLOW_INHERITED_TABLE_RE.search(content)
+    if table_match:
+        data_rows_text = table_match.group(3)
+        data_rows = [
+            line for line in data_rows_text.split("\n")
+            if line.strip().startswith("|")
+        ]
+        if len(data_rows) < 3:
+            warnings.append(
+                f"W4 FAIL: Inherited Patterns table has {len(data_rows)} "
+                f"data rows, expected ≥ 3"
+            )
+    else:
+        warnings.append("W4 FAIL: Inherited Patterns table not found")
+
+    # W5: Constitutional Principles
+    if not _WORKFLOW_CONSTITUTIONAL_RE.search(content):
+        warnings.append(
+            "W5 FAIL: Constitutional Principles section not found"
+        )
+
+    has_fail = any("FAIL" in w for w in warnings)
+    return (not has_fail, warnings)

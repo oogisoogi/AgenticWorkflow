@@ -51,6 +51,7 @@ REQUIRED_SCRIPTS = [
     "validate_review.py",
     "validate_translation.py",
     "validate_verification.py",
+    "validate_workflow.py",
 ]
 
 # Severity levels

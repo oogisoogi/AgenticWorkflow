@@ -40,6 +40,7 @@ workflow.md 파일의 표준 구조.
 | P1 Hallucination Prevention | Deterministic validation scripts (`validate_*.py`) |
 | P2 Expert Delegation | Specialized sub-agents for each task |
 | Safety Hooks | `block_destructive_commands.py` — dangerous command blocking |
+| Adversarial Review | `@reviewer` + `@fact-checker` — Enhanced L2 independent quality critique |
 | Decision Log | `autopilot-logs/` — transparent decision tracking |
 | Context Preservation | Snapshot + Knowledge Archive + RLM restoration |
 
@@ -476,7 +477,7 @@ pacs_logging:
 
 - **Quality Gene**: 각 단계의 컨텐츠 품질이 유일한 기준 (속도·분량 무시)
 - **SOT Gene**: `.claude/state.yaml`로 파이프라인 상태 집중 관리
-- **QA Gene**: L0(파일 존재) → L1(Verification 기준) → L1.5(pACS 자기 평가) 검증 스택
+- **QA Gene**: L0(파일 존재) → L1(Verification 기준) → L1.5(pACS 자기 평가) → L2(Adversarial Review) 검증 스택
 - **Strongly Expressed**: P1(데이터 정제 — RSS 노이즈 제거), P2(전문가 위임 — 수집·분석·작문 분리)
 
 ---
