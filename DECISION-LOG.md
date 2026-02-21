@@ -567,6 +567,25 @@
 - **ADR-038 관계**: ADR-038의 "Python Hook 미수정" 결정을 부분 수정 — Hook은 여전히 미수정이나, 독립 검증 스크립트를 추가하여 P1 공백을 폐쇄.
 - **관련 ADR**: ADR-038 (DNA Inheritance)
 
+### ADR-040: 종합 감사 III — 4계층 QA 집행력 강화 (C1r/C2/W4/C4s/W7)
+
+- **날짜**: 2026-02-20
+- **상태**: Accepted
+- **맥락**: 종합 코드베이스 감사(1차) + 적대적 자기 검증(2차)에서 4계층 QA의 "설계 의도 vs 코드 집행력" 불일치 5건 식별. 1차 감사에서 15건 보고 → 2차 성찰에서 오진 2건(C1 원안, W2) 제거, 보류 2건(C3, W3) 판정 → 최종 5건 확정.
+- **결정**:
+  1. **C1r**: `validate_translation.py`에서 Review verdict=PASS를 `--check-sequence` 없이도 항상 검증 (기존 `validate_review_sequence()` 미수정 — 타임스탬프 책임 유지)
+  2. **C2**: `validate_pacs_output()`에 PA7 추가 — pACS < 50(RED)이면 FAIL 반환, 단계 진행 차단
+  3. **W4**: `validate_review.py`에서 pACS Delta ≥ 15 시 warnings[]에 경고 메시지 표면화
+  4. **C4s**: `generate_context_summary.py`에 `_check_missing_verifications()` 추가 — pacs-log 있는데 verification-log 없으면 stderr 경고 (기존 `_check_missing_reviews()` 패턴 따름)
+  5. **W7**: `SKILL.md` Step 7에 "모든 에이전트 실행 단계에 Verification 필수, (human)만 예외" 명시
+- **근거**: ~41줄 추가로 프롬프트 수준 규칙을 코드 수준 집행으로 전환. 기존 함수의 책임 변경 없음 — 보강만. SOT 스키마 변경 없음.
+- **기각된 항목**:
+  - C1 원안(validate_review_sequence 수정) → 오진 — 함수가 이미 verdict 검사. 호출이 선택적인 것이 문제
+  - W2(Quality Gate IMMORTAL 승격) → 이미 구현됨
+  - C3(SOT retry_count) → SOT 범위 초과 — 파일 카운팅이 적합
+  - W3(KI 품질 메트릭) → 현재 pacs_min 충분 — RLM 수요 시 재검토
+- **관련 ADR**: ADR-022 (Verification Protocol), ADR-037 (pACS P1), ADR-034 (Adversarial Review)
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -597,6 +616,7 @@
 | 2026-02-20 | (pending) | ADR-037: 종합 감사 II — pACS P1 + L0 Anti-Skip Guard + IMMORTAL 경계 + Context Memory |
 | 2026-02-20 | (pending) | ADR-038: DNA Inheritance — 부모 게놈의 구조적 유전 |
 | 2026-02-20 | (pending) | ADR-039: Workflow.md P1 Validation — DNA 유전의 코드 수준 검증 |
+| 2026-02-20 | (pending) | ADR-040: 종합 감사 III — 4계층 QA 집행력 강화 (C1r/C2/W4/C4s/W7) |
 
 ---
 

@@ -91,6 +91,15 @@ def main():
         "warnings": warnings,
     }
 
+    # pACS Delta reconciliation warning
+    if pacs_data["needs_reconciliation"]:
+        delta_msg = (
+            f"pACS Delta: |{pacs_data['generator_score'] or '?'} - "
+            f"{pacs_data['reviewer_score'] or '?'}| = {pacs_data['delta']} "
+            f"(>= 15) — reconciliation recommended"
+        )
+        output["warnings"].append(delta_msg)
+
     # Optional: T9 — pACS arithmetic verification (generator + reviewer logs)
     if args.check_pacs_arithmetic:
         # Verify generator pACS

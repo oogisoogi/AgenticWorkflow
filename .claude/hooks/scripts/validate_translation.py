@@ -31,6 +31,7 @@ from _context_lib import (
     check_glossary_freshness,
     verify_pacs_arithmetic,
     validate_review_sequence,
+    parse_review_verdict,
 )
 
 
@@ -61,6 +62,20 @@ def main():
 
     # Core validation: T1-T7
     is_valid, warnings = validate_translation_output(project_dir, step)
+
+    # Mandatory: Review verdict PASS check (CLAUDE.md — Review FAIL 상태에서 Translation 금지)
+    # This runs unconditionally, unlike --check-sequence which also checks timestamps.
+    review_path = os.path.join(
+        project_dir, "review-logs", f"step-{step}-review.md"
+    )
+    if os.path.exists(review_path):
+        verdict_data = parse_review_verdict(review_path)
+        if verdict_data["verdict"] and verdict_data["verdict"] != "PASS":
+            is_valid = False
+            warnings = list(warnings)
+            warnings.append(
+                f"Review verdict is {verdict_data['verdict']} (must be PASS before translation)"
+            )
 
     # T8: Glossary freshness
     glossary_valid, glossary_warning = check_glossary_freshness(project_dir, step)

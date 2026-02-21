@@ -4248,7 +4248,7 @@ def verify_pacs_arithmetic(pacs_log_path):
 
 
 def validate_pacs_output(project_dir, step_number, pacs_type="general"):
-    """PA1-PA5: pACS log structural integrity + arithmetic validation.
+    """PA1-PA7: pACS log structural integrity + arithmetic + RED threshold.
 
     P1 Compliance: All validation is deterministic (regex + arithmetic).
     SOT Compliance: Read-only — no file writes.
@@ -4259,6 +4259,7 @@ def validate_pacs_output(project_dir, step_number, pacs_type="general"):
       PA3: Dimension scores present (F/C/L or Ft/Ct/Nt, each 0-100)
       PA4: Pre-mortem section present (mandatory before scoring)
       PA5: pACS = min(dimensions) arithmetic correctness (delegates to verify_pacs_arithmetic)
+      PA7: RED threshold — pACS < 50 blocks step advancement (FAIL)
 
     Optional:
       PA6: Color zone validation — score vs declared zone (RED/YELLOW/GREEN)
@@ -4323,7 +4324,14 @@ def validate_pacs_output(project_dir, step_number, pacs_type="general"):
                 reported_pacs = int(simple_matches[0])
 
         if reported_pacs is not None:
-            # Check zone consistency
+            # PA7: RED threshold — score < 50 blocks step advancement
+            if reported_pacs < 50:
+                warnings.append(
+                    f"PA7 FAIL: pACS={reported_pacs} (RED zone, < 50) — "
+                    f"rework required before step advancement"
+                )
+
+            # PA6 (optional): Check zone consistency
             content_upper = content.upper()
             if reported_pacs < 50 and "GREEN" in content_upper:
                 warnings.append(

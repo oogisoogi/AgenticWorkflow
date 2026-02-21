@@ -299,7 +299,8 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 6. 휴먼-인-더-루프 지점 표시
 7. **각 단계에 `Verification` 필드 정의** (AGENTS.md §5.3 — 필수):
    - `Verification` 필드는 `Task` 필드보다 **앞에** 배치 (에이전트가 먼저 인식)
-   - `(human)` 단계는 사람이 검증자이므로 `Verification` 필드 불필요
+   - **모든 에이전트 실행 단계에 `Verification` 필수** — Research/Planning/Implementation 구분 없음 (Research 단계도 "완전성" 검증 필요: 예 "5개 경쟁사 모두 분석 완료")
+   - `(human)` 단계만 예외 — 사람이 검증자이므로 `Verification` 필드 불필요
    - 각 기준은 **제3자가 참/거짓 판정 가능한 구체적 문장**으로 작성
    - 4가지 기준 유형을 조합하여 포함:
      - **구조적 완전성**: 산출물 내부 구조 → "5개 섹션 모두 포함", "각 항목에 3개 이상 하위 항목"

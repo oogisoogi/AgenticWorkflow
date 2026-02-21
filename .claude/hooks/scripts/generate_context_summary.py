@@ -142,6 +142,14 @@ def main():
     except Exception:
         pass  # Non-blocking — never fail the hook
 
+    # --- Verification safety net ---
+    # Detect steps with pACS logs but no corresponding verification reports.
+    # Non-blocking: only logs warning, does not fail the hook.
+    try:
+        _check_missing_verifications(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
     # Cleanup old snapshots
     cleanup_snapshots(snapshot_dir)
 
@@ -330,6 +338,40 @@ def _check_missing_translations(project_dir):
             print(
                 f"[Translation Safety Net] Step {step_num}: translation pACS log "
                 f"exists but no .ko.md file found",
+                file=sys.stderr,
+            )
+
+
+def _check_missing_verifications(project_dir):
+    """Detect steps with pACS logs but no corresponding verification reports.
+
+    Safety net: If a step has pacs-logs/step-N-pacs.md but no
+    verification-logs/step-N-verify.md, log a warning to stderr.
+    This catches cases where the Verification Gate was skipped
+    but pACS was still scored (L1 should precede L1.5).
+
+    P1 Compliance: File existence check (deterministic).
+    SOT Compliance: Read-only.
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    pacs_dir = os.path.join(project_dir, "pacs-logs")
+    verify_dir = os.path.join(project_dir, "verification-logs")
+
+    if not os.path.isdir(pacs_dir):
+        return
+
+    step_pattern = re.compile(r"^step-(\d+)-pacs\.md$")
+
+    for fname in os.listdir(pacs_dir):
+        match = step_pattern.match(fname)
+        if not match:
+            continue
+        step_num = match.group(1)
+        verify_file = os.path.join(verify_dir, f"step-{step_num}-verify.md")
+        if not os.path.exists(verify_file):
+            print(
+                f"[Verification Safety Net] Step {step_num}: pACS log exists but "
+                f"no verification report found at verification-logs/step-{step_num}-verify.md",
                 file=sys.stderr,
             )
 
