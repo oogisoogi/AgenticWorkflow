@@ -666,6 +666,21 @@
 - **대안**: (1) 전체 KG DB 인프라 — 기각 (과도한 의존성). (2) 자연어 검증만 — 기각 (P1 결정론적 검증 불가). (3) 필수 패턴 — 기각 (코드 생성·블로그 등 불필요한 도메인에 부담)
 - **관련 파일**: `_context_lib.py`, `validate_domain_knowledge.py`, `generate_context_summary.py`, `setup_init.py`, `setup_maintenance.py`, `state.yaml.example`, `AGENTS.md`, `soul.md`
 
+### ADR-048: 전수조사 기반 시스템 일관성 강화
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: 코드베이스 전수조사에서 문서-코드 불일치(NEVER DO 충돌, 미문서화 D-7 인스턴스, I-3과 품질 게이트 재시도 한도의 논리적 모순)를 발견. LLM이 문서를 코드보다 우선하여 잘못된 행동을 할 수 있는 구조적 취약점이 확인됨.
+- **결정**:
+  1. 품질 게이트 재시도 한도를 DEFAULT 2→10, ULW 3→15로 상향 (경로 B: 충분한 끈기 + Abductive Diagnosis 필수)
+  2. P1 doc-code sync 검증 함수(`_check_doc_code_sync()`)를 `setup_maintenance.py`에 추가: DC-1(NEVER DO ↔ 코드 상수), DC-2(D-7 Risk 상수), DC-3(D-7 ULW 패턴), DC-4(D-7 재시도 한도)
+  3. I-3 Bounded Retry Escalation에 "(품질 게이트는 별도 예산 적용)" 예외 명시
+  4. D-7 인스턴스 #5 문서화: 재시도 한도 3-file sync (`validate_retry_budget.py` ↔ `_context_lib.py` ↔ `restore_context.py`)
+  5. 에이전트 보강: translator Review 컨텍스트 인식, fact-checker Pre-mortem→pACS 연결
+- **근거**: "문서 = 사양"인 시스템에서 문서-코드 불일치는 런타임 행동 오류와 동일. 재시도 한도 상향은 "스캐닝 성공이 워크플로우의 가장 중요한 목적"이라는 사용자 요구사항 반영. P1 doc-code sync는 동일 클래스의 버그 재발 방지
+- **대안**: (1) 무한 재시도(경로 C) — 기각 (I-3 안전장치 해제, 무한 루프 위험). (2) 중간 상향(경로 A, 5/7) — 기각 (사용자가 경로 B 선택)
+- **관련 파일**: `validate_retry_budget.py`, `_context_lib.py`, `restore_context.py`, `setup_maintenance.py`, `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md`, Spoke 3개, `translator.md`, `fact-checker.md`, `maintenance.md`, `claude-code-patterns.md`, `state.yaml.example`
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -704,6 +719,7 @@
 | 2026-02-23 | (pending) | ADR-045: G2 — 팀 중간 체크포인트 패턴 (Dense Checkpoint Pattern) |
 | 2026-02-23 | (pending) | ADR-046: G3 — 도메인 지식 구조 (Domain Knowledge Structure) |
 | 2026-02-23 | (pending) | ADR-047: Abductive Diagnosis Layer — 품질 게이트 FAIL 시 구조화된 진단 |
+| 2026-02-23 | accepted | ADR-048: 전수조사 기반 시스템 일관성 강화 — 재시도 한도 10/15 + P1 doc-code sync + D-7 #5 |
 
 ---
 

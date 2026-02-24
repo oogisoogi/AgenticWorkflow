@@ -590,7 +590,7 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 
 **L1: Verification Gate (의미론적 — `Verification` 필드 있는 단계만)**
 4. 산출물이 `Verification` 기준을 100% 달성했는지 에이전트가 자기 검증
-5. 실패 기준 발견 시 재시도 전 **Abductive Diagnosis** 수행(P1 사전 증거 수집 → LLM 원인 분석 → P1 사후 검증) 후 진단 기반 재실행 (최대 2회 재시도, ULW 시 3회)
+5. 실패 기준 발견 시 재시도 전 **Abductive Diagnosis** 수행(P1 사전 증거 수집 → LLM 원인 분석 → P1 사후 검증) 후 진단 기반 재실행 (최대 10회 재시도, ULW 시 15회)
 6. `verification-logs/step-N-verify.md`에 기준별 PASS/FAIL + Evidence 기록. 진단 로그는 `diagnosis-logs/step-N-{gate}-{timestamp}.md`에 기록
 
 **L1.5: pACS — predicted Agent Confidence Score (자기 신뢰 평가)**
@@ -674,9 +674,9 @@ ulw 리팩토링해줘
 
 | 강화 규칙 | 설명 | 대화형 효과 | Autopilot 결합 효과 |
 |----------|------|-----------|-------------------|
-| **I-1. Sisyphus Persistence** | 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고 | 에러 시 3회까지 대안 시도 | 품질 게이트 재시도 한도 2→3회 상향 |
+| **I-1. Sisyphus Persistence** | 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고 | 에러 시 3회까지 대안 시도 | 품질 게이트(Verification/pACS) 재시도 한도 10→15회 상향 |
 | **I-2. Mandatory Task Decomposition** | TaskCreate → TaskUpdate → TaskList 필수 | 비-trivial 작업 시 태스크 분해 강제 | 변경 없음 (Autopilot은 이미 SOT 기반 추적) |
-| **I-3. Bounded Retry Escalation** | 동일 대상 3회 초과 재시도 금지 — 초과 시 사용자 에스컬레이션 | 무한 루프 방지 | Safety Hook 차단은 항상 존중 |
+| **I-3. Bounded Retry Escalation** | 동일 대상 3회 초과 재시도 금지(품질 게이트는 별도 예산 적용) — 초과 시 사용자 에스컬레이션 | 무한 루프 방지 | Safety Hook 차단은 항상 존중 |
 
 ### 런타임 강화 (Claude Code)
 
@@ -693,7 +693,7 @@ Hook 시스템이 ULW의 3개 강화 규칙을 결정론적으로 강화합니�
 
 ### Autopilot과의 결합
 
-Autopilot과 ULW가 동시에 활성화되면 **ULW가 Autopilot을 강화**합니다: 품질 게이트 재시도 한도를 2→3회로 상향하고, Safety Hook 차단은 항상 존중합니다.
+Autopilot과 ULW가 동시에 활성화되면 **ULW가 Autopilot을 강화**합니다: 품질 게이트 재시도 한도를 10→15회로 상향하고, Safety Hook 차단은 항상 존중합니다.
 
 > 다른 AI 도구에서는 ULW의 Hook 기반 강화가 없으므로, TaskCreate/TaskUpdate/TaskList를 수동으로 사용하여 ULW의 강화 규칙을 준수해야 합니다.
 
@@ -752,7 +752,7 @@ Anti-Skip Guard — 파일 존재 + ≥ 100 bytes
   ↓
 Verification Gate — 산출물을 각 기준 대비 자기 검증
   ├─ 모든 기준 PASS → verification-logs/step-N-verify.md 생성 → 진행
-  └─ FAIL → 실패 부분만 재실행 (최대 2회) → 초과 시 사용자 에스컬레이션
+  └─ FAIL → 실패 부분만 재실행 (최대 10회) → 초과 시 사용자 에스컬레이션
 ```
 
 ### Team 단계의 3계층 검증

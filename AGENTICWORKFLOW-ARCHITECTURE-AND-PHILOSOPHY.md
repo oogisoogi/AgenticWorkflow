@@ -1203,7 +1203,7 @@ ULW는 Autopilot과 **직교하는 철저함 강도(thoroughness intensity) 오�
 **3가지 강화 규칙 (Intensifiers):**
 1. **I-1. Sisyphus Persistence** — 최대 3회 재시도, 각 시도는 다른 접근법
 2. **I-2. Mandatory Task Decomposition** — TaskCreate → TaskUpdate → TaskList 필수
-3. **I-3. Bounded Retry Escalation** — 동일 대상 3회 초과 재시도 금지
+3. **I-3. Bounded Retry Escalation** — 동일 대상 3회 초과 재시도 금지(품질 게이트는 별도 예산 적용)
 
 **결정론적 강화 (Claude Code 구현):**
 
