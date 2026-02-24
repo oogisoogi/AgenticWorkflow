@@ -60,7 +60,7 @@ workflow:
   # --- Verification 이력 (AGENTS.md §5.3) ---
   # verification:
   #   last_verified_step: 2            # 마지막 검증 통과 단계
-  #   retries:                         # 재시도 이력 (최대 2회)
+  #   retries:                         # 재시도 이력 (최대 10회, ULW 시 15회)
   #     step-2: 1                      # step-2에서 1회 재시도 발생
 
   # --- Domain Knowledge Structure (optional — Research 단계에서 구축 시 활성화) ---

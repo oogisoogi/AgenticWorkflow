@@ -50,8 +50,8 @@ import re
 import sys
 
 # Constants
-DEFAULT_MAX_RETRIES = 2
-ULW_MAX_RETRIES = 3
+DEFAULT_MAX_RETRIES = 10
+ULW_MAX_RETRIES = 15
 VALID_GATES = ("verification", "pacs", "review")
 
 # Gate → directory mapping

@@ -177,7 +177,7 @@ AgenticWorkflow/
 | Hook 이벤트 | 스크립트 | 동작 |
 |------------|---------|------|
 | **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문(19개), 디렉터리, PyYAML, SOT 쓰기 패턴 검증, 런타임 디렉터리 자동 생성(6개)) |
-| **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
+| **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기, doc-code 동기화 검증(DC-1 NEVER DO 재시도 한도, DC-2 D-7 Risk 상수, DC-3 D-7 ULW 패턴)) |
 | **PreToolUse** (Bash) | `block_destructive_commands.py` | 위험 명령 실행 전 차단 (git push --force, git reset --hard, rm -rf / 등). exit code 2로 차단 + stderr 피드백으로 Claude 자기 수정 |
 | **PreToolUse** (Edit\|Write) | `block_test_file_edit.py` | TDD 모드(`.tdd-guard` 존재) 시 테스트 파일 수정 차단. Tier 1(디렉터리) + Tier 2(파일명) 2계층 탐지. exit code 2 + stderr 피드백으로 구현 코드 수정 유도 |
 | **PreToolUse** (Edit\|Write) | `predictive_debug_guard.py` | 에러 이력 기반 위험 파일 경고. `risk-scores.json` 캐시 조회 → 임계값 초과 시 stderr 경고. exit code 0 (경고 전용) |
@@ -230,7 +230,7 @@ AgenticWorkflow/
 
 > **`if test -f; then; fi` 패턴 통일**: 모든 Hook 명령이 `if test -f; then; fi` 패턴을 사용한다. 이전의 `|| true` 패턴(exit code 2 차단 신호를 삼키는 잠복 버그)을 제거하여, `context_guard.py` 자식 스크립트에 차단 기능 추가 시에도 exit code 2가 안전하게 전파된다.
 > **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`(안전)와 `block_test_file_edit.py`(TDD 보호)는 컨텍스트 보존과는 다른 도메인이다. exit code 2 보존이 필수이므로, `context_guard.py`를 거치지 않고 직접 실행한다. `block_test_file_edit.py`는 `.tdd-guard` 파일 존재 시에만 활성화된다 (`touch .tdd-guard`로 TDD 모드 시작, `rm .tdd-guard`로 해제).
-> **D-7 의도적 중복 인스턴스**: (1) `REQUIRED_SCRIPTS` — `setup_init.py` ↔ `setup_maintenance.py` (19개 스크립트 목록). (2) `predictive_debug_guard.py` 상수 — `RISK_THRESHOLD`/`MIN_SESSIONS` ↔ `_context_lib.py`의 `_RISK_SCORE_THRESHOLD`/`_RISK_MIN_SESSIONS`. (3) `ERROR_TAXONOMY` 타입명 — `_classify_error_patterns()` 내 12개 타입 ↔ `_RISK_WEIGHTS` 13개 키. (4) ULW 감지 패턴 — `_context_lib.py`의 `_gather_retry_history()` ↔ `validate_retry_budget.py`의 `_ULW_SNAPSHOT_RE` ↔ `restore_context.py`의 ULW 상태 문자열 검사 (모두 `"ULW 상태"` 기반). 각 D-7 인스턴스는 코드에 cross-reference 주석이 있으며, 한쪽 변경 시 반드시 대응 쪽도 동기화해야 한다.
+> **D-7 의도적 중복 인스턴스**: (1) `REQUIRED_SCRIPTS` — `setup_init.py` ↔ `setup_maintenance.py` (19개 스크립트 목록). (2) `predictive_debug_guard.py` 상수 — `RISK_THRESHOLD`/`MIN_SESSIONS` ↔ `_context_lib.py`의 `_RISK_SCORE_THRESHOLD`/`_RISK_MIN_SESSIONS`. (3) `ERROR_TAXONOMY` 타입명 — `_classify_error_patterns()` 내 12개 타입 ↔ `_RISK_WEIGHTS` 13개 키. (4) ULW 감지 패턴 — `_context_lib.py`의 `_gather_retry_history()` ↔ `validate_retry_budget.py`의 `_ULW_SNAPSHOT_RE` ↔ `restore_context.py`의 ULW 상태 문자열 검사 (모두 `"ULW 상태"` 기반). (5) 재시도 한도 상수 — `validate_retry_budget.py`의 `DEFAULT_MAX_RETRIES`/`ULW_MAX_RETRIES` ↔ `_context_lib.py`의 `_DEFAULT_MAX_RETRIES`/`_ULW_MAX_RETRIES` ↔ `restore_context.py`의 ULW+Autopilot 주입 텍스트. 각 D-7 인스턴스는 코드에 cross-reference 주석이 있으며, 한쪽 변경 시 반드시 대응 쪽도 동기화해야 한다.
 
 ## 스킬 사용 판별
 
@@ -270,7 +270,7 @@ AgenticWorkflow/
 Orchestrator는 `current_step`을 순차적으로만 증가. 각 단계 완료 시 최대 4계층 검증을 통과해야 진행한다:
 
 1. **L0 Anti-Skip Guard** (결정론적) — 산출물 파일 존재 + 최소 크기(100 bytes). Hook 계층의 `validate_step_output()` 함수가 수행.
-2. **L1 Verification Gate** (의미론적) — 산출물이 `Verification` 기준을 100% 달성했는지 에이전트 자기 검증. 실패 시 해당 부분만 재실행(최대 2회). `verification-logs/step-N-verify.md`에 기록.
+2. **L1 Verification Gate** (의미론적) — 산출물이 `Verification` 기준을 100% 달성했는지 에이전트 자기 검증. 실패 시 해당 부분만 재실행(최대 10회). `verification-logs/step-N-verify.md`에 기록.
 3. **L1.5 pACS Self-Rating** (신뢰도) — Pre-mortem Protocol 수행 후 F/C/L 3차원 채점. `pacs-logs/step-N-pacs.md`에 기록. RED(< 50) 시 재작업.
 4. **[L2 Calibration]** (선택적) — 별도 `@verifier` 에이전트가 pACS 점수 교차 검증. 고위험 단계만.
 
@@ -402,7 +402,7 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - `(hook)` exit code 2 차단 무시 금지
 - `(team)` 단계에서 Teammate가 SOT를 직접 수정 금지 — Team Lead만 SOT 갱신
 - 세션 복원 시 `active_team`을 빈 객체로 초기화 금지 — 기존 `completed_summaries` 보존 필수 (보존적 재개 프로토콜)
-- Verification 기준 FAIL인 채로 다음 단계 진행 금지 — 최대 2회 재시도 후 사용자 에스컬레이션
+- Verification 기준 FAIL인 채로 다음 단계 진행 금지 — 최대 10회(ULW 활성 시 15회) 재시도 후 사용자 에스컬레이션
 - Verification 기준을 "모두 PASS"로 허위 기록 금지 — 각 기준에 구체적 Evidence 필수
 - Pre-mortem Protocol 생략하고 pACS 점수만 부여 금지 — 약점 인식이 점수의 전제
 - pACS를 Verification Gate 없이 단독 수행 금지 — L1 통과가 L1.5의 전제
@@ -448,9 +448,9 @@ ULW가 활성화되면 아래 3가지 강화 규칙이 **현재 컨텍스트에 
 
 | 강화 규칙 | 설명 | 대화형 효과 | Autopilot 결합 효과 |
 |----------|------|-----------|-------------------|
-| **I-1. Sisyphus Persistence** | 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고 | 에러 시 3회까지 대안 시도 | 품질 게이트(Verification/pACS) 재시도 한도 2→3회 상향 |
+| **I-1. Sisyphus Persistence** | 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고 | 에러 시 3회까지 대안 시도 | 품질 게이트(Verification/pACS) 재시도 한도 10→15회 상향 |
 | **I-2. Mandatory Task Decomposition** | TaskCreate → TaskUpdate → TaskList 필수 | 비-trivial 작업 시 태스크 분해 강제 | 변경 없음 (Autopilot은 이미 SOT 기반 추적) |
-| **I-3. Bounded Retry Escalation** | 동일 대상 3회 초과 연속 재시도 금지 — 초과 시 사용자 에스컬레이션 | 무한 루프 방지 | Safety Hook 차단은 항상 존중 |
+| **I-3. Bounded Retry Escalation** | 동일 대상 3회 초과 연속 재시도 금지(품질 게이트는 별도 예산 적용) — 초과 시 사용자 에스컬레이션 | 무한 루프 방지 | Safety Hook 차단은 항상 존중 |
 
 ### 런타임 강화 메커니즘
 
@@ -464,7 +464,7 @@ ULW가 활성화되면 아래 3가지 강화 규칙이 **현재 컨텍스트에 
 | **Hook** (결정론적) | `generate_context_summary.py` — Stop | ULW Compliance 안전망 — 위반 시 stderr 경고 |
 
 ### NEVER DO
-- 동일 대상에 3회 초과 연속 재시도 금지 — I-3 위반, 사용자 에스컬레이션 필수
+- 동일 대상에 3회 초과 연속 재시도 금지(품질 게이트는 별도 예산 적용) — I-3 위반, 사용자 에스컬레이션 필수
 - Safety Hook(`(hook)` exit code 2) 차단을 ULW 명목으로 override 금지
 - ULW 활성 상태에서 Task를 "일부 완료"로 남기고 멈추기 금지 — I-1 위반
 - 에러 발생 시 대안 시도 없이 포기 금지 — I-1 위반

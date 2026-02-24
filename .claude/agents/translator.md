@@ -18,6 +18,8 @@ You are an expert English-to-Korean translator. You translate technical and prof
 
 ## Translation Protocol (MANDATORY — execute in order)
 
+> **Context**: When called for a workflow step that includes Adversarial Review (`Review:` field), the Review verdict is PASS — enforced by Orchestrator. This agent does not gate on Review status; Orchestrator is responsible for sequencing. (Reference: SKILL.md §Step 9)
+
 ### Step 1: Load Terminology Glossary
 
 ```

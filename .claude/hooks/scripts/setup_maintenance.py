@@ -21,6 +21,7 @@ Quality Impact Path (절대 기준 1):
 import ast
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -94,6 +95,9 @@ def main():
     scripts_dir = os.path.join(project_dir, ".claude", "hooks", "scripts")
     for script_name in REQUIRED_SCRIPTS:
         results.append(_check_script_syntax(scripts_dir, script_name))
+
+    # 5. Documentation-code synchronization (P1 drift prevention)
+    results.extend(_check_doc_code_sync(project_dir))
 
     # Write log file
     log_path = os.path.join(
@@ -279,6 +283,284 @@ def _check_script_syntax(scripts_dir, script_name):
             WARNING, "FAIL", f"Script: {script_name}",
             f"cannot read: {e}",
         )
+
+
+def _check_doc_code_sync(project_dir):
+    """P1: Verify critical documentation-code synchronization points.
+
+    Deterministic regex-based extraction and comparison.
+    Prevents documentation drift where LLM follows outdated doc
+    instead of correct code (NEVER DO override risk).
+
+    DC-1: CLAUDE.md NEVER DO retry limits ↔ validate_retry_budget.py constants
+    DC-2: D-7 Risk score constants (_context_lib.py ↔ predictive_debug_guard.py)
+    DC-3: D-7 ULW detection pattern (validate_retry_budget.py ↔ _context_lib.py)
+
+    Read-only: no SOT access, no RLM data mutation, no atomic_write calls.
+    Returns list of _result() dicts (extends results, not appends single).
+    """
+    results = []
+    scripts_dir = os.path.join(project_dir, ".claude", "hooks", "scripts")
+
+    # --- DC-1: NEVER DO retry limits ↔ code constants ---
+    budget_path = os.path.join(scripts_dir, "validate_retry_budget.py")
+    claude_path = os.path.join(project_dir, "CLAUDE.md")
+
+    dc1_ok = True
+    if os.path.isfile(budget_path) and os.path.isfile(claude_path):
+        try:
+            with open(budget_path, "r", encoding="utf-8") as f:
+                budget_src = f.read()
+            with open(claude_path, "r", encoding="utf-8") as f:
+                claude_src = f.read()
+
+            # Extract code constants
+            m_default = re.search(
+                r"DEFAULT_MAX_RETRIES\s*=\s*(\d+)", budget_src
+            )
+            m_ulw = re.search(
+                r"ULW_MAX_RETRIES\s*=\s*(\d+)", budget_src
+            )
+
+            if m_default and m_ulw:
+                code_default = int(m_default.group(1))
+                code_ulw = int(m_ulw.group(1))
+
+                # Extract from CLAUDE.md NEVER DO section
+                # Pattern: "최대 N회(ULW 활성 시 M회) 재시도"
+                m_doc = re.search(
+                    r"최대\s*(\d+)회\s*\(ULW\s*활성\s*시\s*(\d+)회\)\s*재시도",
+                    claude_src,
+                )
+
+                if m_doc:
+                    doc_default = int(m_doc.group(1))
+                    doc_ulw = int(m_doc.group(2))
+
+                    if doc_default != code_default or doc_ulw != code_ulw:
+                        dc1_ok = False
+                        results.append(_result(
+                            WARNING, "WARN", "Doc-code sync: DC-1",
+                            f"NEVER DO retry limits mismatch — "
+                            f"doc: {doc_default}/{doc_ulw}, "
+                            f"code: {code_default}/{code_ulw}",
+                        ))
+                else:
+                    dc1_ok = False
+                    results.append(_result(
+                        WARNING, "WARN", "Doc-code sync: DC-1",
+                        "cannot extract retry limits from CLAUDE.md NEVER DO "
+                        "(expected pattern: '최대 N회(ULW 활성 시 M회) 재시도')",
+                    ))
+            else:
+                dc1_ok = False
+                results.append(_result(
+                    WARNING, "WARN", "Doc-code sync: DC-1",
+                    "cannot extract DEFAULT_MAX_RETRIES or ULW_MAX_RETRIES "
+                    "from validate_retry_budget.py",
+                ))
+        except Exception as e:
+            dc1_ok = False
+            results.append(_result(
+                WARNING, "FAIL", "Doc-code sync: DC-1", f"read error: {e}"
+            ))
+
+    if dc1_ok and os.path.isfile(budget_path) and os.path.isfile(claude_path):
+        results.append(_result(
+            INFO, "PASS", "Doc-code sync: DC-1",
+            "NEVER DO retry limits match code constants",
+        ))
+
+    # --- DC-2: D-7 Risk score constants sync ---
+    lib_path = os.path.join(scripts_dir, "_context_lib.py")
+    guard_path = os.path.join(scripts_dir, "predictive_debug_guard.py")
+
+    dc2_ok = True
+    if os.path.isfile(lib_path) and os.path.isfile(guard_path):
+        try:
+            with open(lib_path, "r", encoding="utf-8") as f:
+                lib_src = f.read()
+            with open(guard_path, "r", encoding="utf-8") as f:
+                guard_src = f.read()
+
+            # _context_lib.py constants
+            m_lib_thresh = re.search(
+                r"_RISK_SCORE_THRESHOLD\s*=\s*([0-9.]+)", lib_src
+            )
+            m_lib_min = re.search(
+                r"_RISK_MIN_SESSIONS\s*=\s*(\d+)", lib_src
+            )
+
+            # predictive_debug_guard.py constants
+            m_guard_thresh = re.search(
+                r"RISK_THRESHOLD\s*=\s*([0-9.]+)", guard_src
+            )
+            m_guard_min = re.search(
+                r"MIN_SESSIONS\s*=\s*(\d+)", guard_src
+            )
+
+            if m_lib_thresh and m_lib_min and m_guard_thresh and m_guard_min:
+                lib_thresh = float(m_lib_thresh.group(1))
+                lib_min = int(m_lib_min.group(1))
+                guard_thresh = float(m_guard_thresh.group(1))
+                guard_min = int(m_guard_min.group(1))
+
+                mismatches = []
+                if lib_thresh != guard_thresh:
+                    mismatches.append(
+                        f"RISK_THRESHOLD: lib={lib_thresh}, guard={guard_thresh}"
+                    )
+                if lib_min != guard_min:
+                    mismatches.append(
+                        f"MIN_SESSIONS: lib={lib_min}, guard={guard_min}"
+                    )
+
+                if mismatches:
+                    dc2_ok = False
+                    results.append(_result(
+                        WARNING, "WARN", "Doc-code sync: DC-2",
+                        f"D-7 Risk constants out of sync — {'; '.join(mismatches)}",
+                    ))
+            else:
+                dc2_ok = False
+                results.append(_result(
+                    WARNING, "WARN", "Doc-code sync: DC-2",
+                    "cannot extract Risk constants from one or both scripts",
+                ))
+        except Exception as e:
+            dc2_ok = False
+            results.append(_result(
+                WARNING, "FAIL", "Doc-code sync: DC-2", f"read error: {e}"
+            ))
+
+    if dc2_ok and os.path.isfile(lib_path) and os.path.isfile(guard_path):
+        results.append(_result(
+            INFO, "PASS", "Doc-code sync: DC-2",
+            "D-7 Risk constants synchronized",
+        ))
+
+    # --- DC-3: D-7 ULW detection pattern sync ---
+    # D-7 verifier: This canonical string must match the ULW detection pattern
+    # in _context_lib.py and validate_retry_budget.py.
+    # If those files change their pattern, this must change too.
+    # We search for this exact substring rather than parsing quoted strings,
+    # which avoids fragile quote-matching across r-strings and compiled patterns.
+    _ULW_CANONICAL = "ULW 상태|Ultrawork Mode State"
+
+    dc3_ok = True
+    if os.path.isfile(budget_path) and os.path.isfile(lib_path):
+        try:
+            # budget_src and lib_src may already be loaded from DC-1/DC-2
+            try:
+                _ = budget_src  # noqa: F841
+            except NameError:
+                with open(budget_path, "r", encoding="utf-8") as f:
+                    budget_src = f.read()
+            try:
+                _ = lib_src  # noqa: F841
+            except NameError:
+                with open(lib_path, "r", encoding="utf-8") as f:
+                    lib_src = f.read()
+
+            budget_has = _ULW_CANONICAL in budget_src
+            lib_has = _ULW_CANONICAL in lib_src
+
+            if not budget_has or not lib_has:
+                dc3_ok = False
+                missing = []
+                if not budget_has:
+                    missing.append("validate_retry_budget.py")
+                if not lib_has:
+                    missing.append("_context_lib.py")
+                results.append(_result(
+                    WARNING, "WARN", "Doc-code sync: DC-3",
+                    f"D-7 ULW canonical pattern not found in: "
+                    f"{', '.join(missing)}",
+                ))
+        except Exception as e:
+            dc3_ok = False
+            results.append(_result(
+                WARNING, "FAIL", "Doc-code sync: DC-3", f"read error: {e}"
+            ))
+
+    if dc3_ok and os.path.isfile(budget_path) and os.path.isfile(lib_path):
+        results.append(_result(
+            INFO, "PASS", "Doc-code sync: DC-3",
+            "D-7 ULW detection pattern synchronized",
+        ))
+
+    # --- DC-4: D-7 Retry limit constants sync ---
+    # _context_lib.py has _DEFAULT_MAX_RETRIES / _ULW_MAX_RETRIES
+    # that must match validate_retry_budget.py's constants.
+    dc4_ok = True
+    if os.path.isfile(budget_path) and os.path.isfile(lib_path):
+        try:
+            # budget_src / lib_src may already be loaded
+            try:
+                _ = budget_src  # noqa: F841
+            except NameError:
+                with open(budget_path, "r", encoding="utf-8") as f:
+                    budget_src = f.read()
+            try:
+                _ = lib_src  # noqa: F841
+            except NameError:
+                with open(lib_path, "r", encoding="utf-8") as f:
+                    lib_src = f.read()
+
+            # Extract from validate_retry_budget.py
+            m_b_default = re.search(
+                r"DEFAULT_MAX_RETRIES\s*=\s*(\d+)", budget_src
+            )
+            m_b_ulw = re.search(
+                r"ULW_MAX_RETRIES\s*=\s*(\d+)", budget_src
+            )
+
+            # Extract from _context_lib.py (_gather_retry_history locals)
+            m_l_default = re.search(
+                r"_DEFAULT_MAX_RETRIES\s*=\s*(\d+)", lib_src
+            )
+            m_l_ulw = re.search(
+                r"_ULW_MAX_RETRIES\s*=\s*(\d+)", lib_src
+            )
+
+            if m_b_default and m_b_ulw and m_l_default and m_l_ulw:
+                mismatches = []
+                if int(m_b_default.group(1)) != int(m_l_default.group(1)):
+                    mismatches.append(
+                        f"DEFAULT: budget={m_b_default.group(1)}, "
+                        f"lib={m_l_default.group(1)}"
+                    )
+                if int(m_b_ulw.group(1)) != int(m_l_ulw.group(1)):
+                    mismatches.append(
+                        f"ULW: budget={m_b_ulw.group(1)}, "
+                        f"lib={m_l_ulw.group(1)}"
+                    )
+                if mismatches:
+                    dc4_ok = False
+                    results.append(_result(
+                        WARNING, "WARN", "Doc-code sync: DC-4",
+                        f"D-7 Retry limits out of sync — "
+                        f"{'; '.join(mismatches)}",
+                    ))
+            else:
+                dc4_ok = False
+                results.append(_result(
+                    WARNING, "WARN", "Doc-code sync: DC-4",
+                    "cannot extract retry limit constants from one or both scripts",
+                ))
+        except Exception as e:
+            dc4_ok = False
+            results.append(_result(
+                WARNING, "FAIL", "Doc-code sync: DC-4", f"read error: {e}"
+            ))
+
+    if dc4_ok and os.path.isfile(budget_path) and os.path.isfile(lib_path):
+        results.append(_result(
+            INFO, "PASS", "Doc-code sync: DC-4",
+            "D-7 Retry limit constants synchronized",
+        ))
+
+    return results
 
 
 # =============================================================================

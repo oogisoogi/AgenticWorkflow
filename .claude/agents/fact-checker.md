@@ -75,6 +75,8 @@ Before finalizing, answer:
 2. **Most likely outdated information**: "Which claim is most likely to have changed since the artifact was written?"
 3. **Highest-impact error**: "If one fact is wrong, which would cause the most damage to the workflow?"
 
+> **Pre-mortem → pACS Connection**: Let Pre-mortem findings (Step 4) inform your pACS scores in Step 5: fabricated claims → affects F (Factual accuracy), coverage gaps → affects C (Completeness), logical weaknesses → affects L (Logical consistency). Score independently, but Pre-mortem evidence should appear in pACS rationales.
+
 ### Step 5: Generate Fact-Check Report
 
 Output the complete report in this exact format:

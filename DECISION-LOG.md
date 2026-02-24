@@ -699,7 +699,7 @@
 | 2026-02-20 | (pending) | ADR-040: 종합 감사 III — 4계층 QA 집행력 강화 (C1r/C2/W4/C4s/W7) |
 | 2026-02-23 | (pending) | ADR-041: 코딩 기준점 (Coding Anchor Points, CAP-1~4) |
 | 2026-02-23 | (pending) | ADR-042: Hook 설정 Global → Project 통합 |
-| 2026-02-23 | (pending) | ADR-043: ULW 재설계 — 직교 철저함 오버레이 (Supersedes ADR-023) |
+| 2026-02-23 | accepted | ADR-043: ULW 재설계 — 직교 철저함 오버레이 (Supersedes ADR-023) |
 | 2026-02-23 | (pending) | ADR-044: G1 — 교차 단계 추적성 (Cross-Step Traceability) |
 | 2026-02-23 | (pending) | ADR-045: G2 — 팀 중간 체크포인트 패턴 (Dense Checkpoint Pattern) |
 | 2026-02-23 | (pending) | ADR-046: G3 — 도메인 지식 구조 (Domain Knowledge Structure) |

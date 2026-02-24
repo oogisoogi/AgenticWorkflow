@@ -475,7 +475,7 @@ workflow:
 |------|----------|
 | **단계 시작 전** | SOT `current_step` 확인, 이전 단계 산출물 파일 존재 + 비어있지 않음 검증, `Verification` 기준 읽기 |
 | **단계 실행 중** | 모든 작업 완전 실행 (축약 금지 — 절대 기준 1), 완전한 품질의 산출물 생성 |
-| **단계 완료 후** | 산출물 디스크 저장, `Verification` 기준 대비 자기 검증, 실패 시 해당 부분만 재실행(최대 2회), SOT `outputs`에 경로 기록, `current_step` +1, Decision Log 생성 |
+| **단계 완료 후** | 산출물 디스크 저장, `Verification` 기준 대비 자기 검증, 실패 시 해당 부분만 재실행(최대 10회, ULW 활성 시 15회 — §5.1.1), SOT `outputs`에 경로 기록, `current_step` +1, Decision Log 생성 |
 | **절대 금지** | `current_step` 2이상 한 번에 증가, 산출물 없이 진행, "자동이니까 간략하게" 축약, Verification FAIL인 채로 진행 |
 
 > **Claude Code 상세**: CLAUDE.md의 Autopilot Execution Checklist에 `(team)` 단계, 번역, Hook 연동 등 Claude Code 전용 체크리스트가 추가로 정의되어 있다.
@@ -499,11 +499,11 @@ workflow:
 **3가지 강화 규칙 (Intensifiers):**
 1. **I-1. Sisyphus Persistence** — 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고
 2. **I-2. Mandatory Task Decomposition** — TaskCreate → TaskUpdate → TaskList 필수
-3. **I-3. Bounded Retry Escalation** — 동일 대상 3회 초과 재시도 금지, 초과 시 사용자 에스컬레이션
+3. **I-3. Bounded Retry Escalation** — 동일 대상 3회 초과 재시도 금지(품질 게이트는 별도 예산 적용), 초과 시 사용자 에스컬레이션
 
 **결정론적 강화:** Python Hook이 3개 강화 규칙의 준수를 결정론적으로 검증 (Compliance Guard). 위반 시 스냅샷 IMMORTAL 섹션에 경고 기록.
 
-> **결합 규칙**: ULW는 Autopilot을 **강화**한다 — Autopilot의 품질 게이트 재시도 한도를 2→3회로 상향. Safety Hook 차단은 항상 존중.
+> **결합 규칙**: ULW는 Autopilot을 **강화**한다 — Autopilot의 품질 게이트 재시도 한도를 10→15회로 상향. Safety Hook 차단은 항상 존중.
 
 상세: `CLAUDE.md` ULW Mode 섹션
 
@@ -684,8 +684,8 @@ Anti-Skip Guard(파일 존재 + 100 bytes 이상)가 **물리적 존재**를 보
    ├─ 모든 기준 PASS → verification-logs/step-N-verify.md 생성 → SOT 갱신 → 진행
    └─ 1개라도 FAIL:
        ├─ 실패 원인 식별 + 해당 부분만 재실행 (전체 재작업 아님)
-       ├─ 재검증 (최대 2회 재시도)
-       └─ 2회 후에도 FAIL → 사용자에게 에스컬레이션
+       ├─ 재검증 (최대 10회 재시도)
+       └─ 10회 후에도 FAIL → 사용자에게 에스컬레이션
 5. SOT 갱신 — outputs 기록, current_step +1
 ```
 
@@ -873,7 +873,7 @@ Translation pACS = min(Ft, Ct, Nt). 행동 트리거는 동일 (GREEN/YELLOW/RED
 
 - pACS GREEN → 자동 진행
 - pACS YELLOW → 자동 진행 + Decision Log에 약점 차원 기록
-- pACS RED → 자동 재작업 (최대 2회). 재작업 후에도 RED → 사용자 에스컬레이션
+- pACS RED → 자동 재작업 (최대 10회). 재작업 후에도 RED → 사용자 에스컬레이션
 - Autopilot Decision Log에 `pacs_score`, `weak_dimension` 필드 추가
 
 #### 하위 호환성
@@ -923,8 +923,8 @@ L2   Adversarial Review (Enhanced L2) ← 이 섹션
 
 ```
 PASS → Translation (있는 경우) → SOT update → 다음 단계
-FAIL → Rework (최대 2회) → Re-review
-       ↓ 2회 초과
+FAIL → Rework (최대 10회) → Re-review
+       ↓ 10회 초과
        사용자 에스컬레이션
 ```
 
@@ -1049,7 +1049,7 @@ Delta = |Reviewer - Generator| = {N}
 #### Autopilot에서의 Adversarial Review
 
 - Review PASS → 자동 진행 (Translation 포함)
-- Review FAIL → 자동 재작업 (최대 2회, 초과 시 사용자 에스컬레이션)
+- Review FAIL → 자동 재작업 (최대 10회, 초과 시 사용자 에스컬레이션)
 - pACS Delta ≥ 15 → Decision Log에 기록 + 재조정 권고
 - Review Decision Log: `autopilot-logs/step-N-decision.md`에 리뷰 결과 포함
 

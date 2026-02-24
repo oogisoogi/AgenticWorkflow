@@ -975,7 +975,7 @@ def execute_workflow_step(step, sot):
 - **배치**: pACS(#6b) 이후, Translation(#6d) 이전 — 리뷰 통과 후에만 번역 실행
 - **하위 호환**: `step.review_agent`가 `None`이면 Review를 건너뛰어 기존 동작 유지
 - **P1 검증**: `validate_review.py`가 리뷰 보고서의 구조적 무결성을 결정론적으로 검증
-- **Rework 루프**: Review FAIL 시 Critical 이슈만 보완 후 재리뷰 (최대 2회)
+- **Rework 루프**: Review FAIL 시 Critical 이슈만 보완 후 재리뷰 (최대 10회)
 
 ### Anti-Abbreviation Rule
 
@@ -1627,8 +1627,8 @@ pACS 50-69 (YELLOW):
 pACS < 50 (RED):
   → 약점 차원 식별
   → 해당 부분만 재작업 (전체 재작업 아님)
-  → 재채점 (최대 2회)
-  → 2회 후에도 RED → 사용자 에스컬레이션
+  → 재채점 (최대 10회)
+  → 10회 후에도 RED → 사용자 에스컬레이션
 ```
 
 ### Translation pACS 패턴

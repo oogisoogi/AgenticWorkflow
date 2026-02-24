@@ -959,7 +959,7 @@ Anti-Skip Guard가 **물리적 존재**를, Verification Gate가 **내용적 완
 3. Anti-Skip Guard (결정론적)
 4. Verification Gate (의미론적 자기 검증)
    ├─ 모든 기준 PASS → verification-logs/step-N-verify.md → SOT 갱신
-   └─ FAIL → 해당 부분만 재실행 (최대 2회) → 초과 시 사용자 에스컬레이션
+   └─ FAIL → 해당 부분만 재실행 (최대 10회) → 초과 시 사용자 에스컬레이션
 ```
 
 **Team 단계 3계층 검증:**
@@ -1131,7 +1131,7 @@ L0: Anti-Skip Guard (결정론적)
 
 L1: Verification Gate (의미론적 — Verification 필드 있는 단계만)
   4. 산출물이 Verification 기준을 100% 달성했는가
-  5. 실패 기준 있으면 해당 부분만 재실행 (최대 2회)
+  5. 실패 기준 있으면 해당 부분만 재실행 (최대 10회)
   6. verification-logs/step-N-verify.md에 기록
 
 L1.5: pACS Self-Rating (신뢰도 — Verification 통과 후)
@@ -1223,7 +1223,7 @@ Stop ─────────────→ Compliance Guard 검증       �
                   └────────────────────────────┘
 ```
 
-> **Autopilot과의 결합**: ULW는 Autopilot을 **강화**한다 — 품질 게이트 재시도 한도 2→3회 상향. Safety Hook 차단은 항상 존중.
+> **Autopilot과의 결합**: ULW는 Autopilot을 **강화**한다 — 품질 게이트 재시도 한도 10→15회 상향. Safety Hook 차단은 항상 존중.
 
 상세: `CLAUDE.md` ULW Mode 섹션
 
@@ -1560,7 +1560,7 @@ error_handling:
 | **Decision Log** | Autopilot이 자동 승인한 결정의 투명성을 보장하는 기록. `autopilot-logs/step-N-decision.md` 형식 |
 | **Task System** | Agent Team에서 작업 할당·추적·의존성 관리를 위한 내장 도구 (TaskCreate/TaskUpdate/TaskList). SOT를 대체하지 않음 |
 | **Verification Protocol** | 워크플로우 각 단계의 산출물이 기능적 목표를 100% 달성했는지 검증하는 에이전트 실행 프로토콜. AGENTS.md §5.3에 정의 |
-| **Verification Gate** | Anti-Skip Guard(물리적) 위에 동작하는 의미론적 검증 계층. 에이전트가 산출물을 Verification 기준 대비 자기 검증 수행. 실패 시 최대 2회 재실행 |
+| **Verification Gate** | Anti-Skip Guard(물리적) 위에 동작하는 의미론적 검증 계층. 에이전트가 산출물을 Verification 기준 대비 자기 검증 수행. 실패 시 최대 10회 재실행 |
 | **Verification Log** | Verification Gate 통과 기록. `verification-logs/step-N-verify.md` 형식. 기준별 PASS/FAIL + Evidence 포함 |
 | **pACS (predicted Agent Confidence Score)** | Verification Gate 통과 후 에이전트가 F(Factual Grounding)/C(Completeness)/L(Logical Coherence) 3차원으로 자기 평가. pACS = min(F,C,L). GREEN(≥70)/YELLOW(50-69)/RED(<50) |
 | **E5 Guard (Empty Snapshot Guard)** | 다중 신호 감지(크기 ≥3KB OR ≥2개 섹션 마커)로 풍부한 latest.md가 빈 스냅샷에 덮어쓰이는 것을 방지하는 보호 메커니즘 |

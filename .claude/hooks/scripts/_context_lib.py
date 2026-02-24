@@ -1729,7 +1729,7 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
             # Show Autopilot combination state
             ap_state = read_autopilot_state(project_dir)
             if ap_state:
-                sections.append(f"- **Autopilot 결합**: Yes (ULW가 Autopilot을 강화 — 재시도 한도 2→3회)")
+                sections.append(f"- **Autopilot 결합**: Yes (ULW가 Autopilot을 강화 — 재시도 한도 10→15회)")
             else:
                 sections.append(f"- **Autopilot 결합**: No (대화형 + ULW)")
             sections.append("")
@@ -5650,9 +5650,14 @@ def _gather_retry_history(project_dir, step, gate):
         dict with keys: retries_used (int), max_retries (int),
                         previous_diagnoses (list of dicts).
     """
+    # D-7: Retry limit constants must match validate_retry_budget.py
+    # DEFAULT_MAX_RETRIES and ULW_MAX_RETRIES. Change both files together.
+    _DEFAULT_MAX_RETRIES = 10
+    _ULW_MAX_RETRIES = 15
+
     result = {
         "retries_used": 0,
-        "max_retries": 2,
+        "max_retries": _DEFAULT_MAX_RETRIES,
         "previous_diagnoses": [],
     }
 
@@ -5666,7 +5671,7 @@ def _gather_retry_history(project_dir, step, gate):
         except (ValueError, OSError):
             pass
 
-    # Detect ULW mode for max_retries adjustment (2 → 3)
+    # Detect ULW mode for max_retries adjustment (10 → 15)
     # D-7: ULW detection pattern must match validate_retry_budget.py _ULW_SNAPSHOT_RE
     # and restore_context.py — all use "ULW 상태" section header presence.
     snapshot_path = os.path.join(
@@ -5677,7 +5682,7 @@ def _gather_retry_history(project_dir, step, gate):
             with open(snapshot_path, "r", encoding="utf-8") as f:
                 content = f.read(8000)  # First 8KB only
             if re.search(r"ULW 상태|Ultrawork Mode State", content):
-                result["max_retries"] = 3
+                result["max_retries"] = _ULW_MAX_RETRIES
         except OSError:
             pass
 

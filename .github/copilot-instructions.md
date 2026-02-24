@@ -36,7 +36,7 @@ Copilot CLI는 `AGENTS.md`를 자동으로 인식하므로, 해당 파일의 모
 | SOT 상태관리 | `state.yaml` 파일 — 단일 쓰기 지점 원칙 동일 적용. SOT 파일 형식: `state.yaml`, `state.yml`, `state.json` |
 | Autopilot Mode | SOT의 `autopilot.enabled` 필드로 제어. `(human)` 단계 자동 승인. Anti-Skip Guard: 산출물 파일 존재 + 최소 100 bytes 검증. `AGENTS.md §5.1` 참조 |
 | ULW (Ultrawork) Mode | 프롬프트에 `ulw` 포함 시 활성화. Autopilot과 직교하는 철저함 강도 오버레이. 3가지 강화 규칙(Intensifiers): Sisyphus Persistence(3회 재시도) + Mandatory Task Decomposition + Bounded Retry Escalation. `AGENTS.md §5.1.1` 참조 |
-| Verification Protocol | 각 단계 산출물의 기능적 목표 100% 달성 검증. Anti-Skip Guard(물리적) 위에 의미론적 Verification Gate 계층. 검증 기준은 Task 앞에 선언, 실패 시 최대 2회 재시도. `AGENTS.md §5.3` 참조 |
+| Verification Protocol | 각 단계 산출물의 기능적 목표 100% 달성 검증. Anti-Skip Guard(물리적) 위에 의미론적 Verification Gate 계층. 검증 기준은 Task 앞에 선언, 실패 시 최대 10회 재시도(ULW 활성 시 15회). `AGENTS.md §5.3` 참조 |
 | pACS (자체 신뢰 평가) | Verification Gate 통과 후 에이전트가 F/C/L 3차원 자기 평가. Pre-mortem Protocol 필수. min-score 원칙. GREEN(≥70): 자동 진행, YELLOW(50-69): 플래그 후 진행, RED(<50): 재작업. `AGENTS.md §5.4` 참조 |
 | Adversarial Review (Enhanced L2) | 기존 L2 Calibration을 대체하는 강화된 품질 검증. `@reviewer`(코드/산출물 비판적 분석) + `@fact-checker`(외부 사실 검증). P1 검증(`validate_review.py` R1-R5)으로 리뷰 품질 보장. `AGENTS.md §5.5` 참조 |
 | Translation Protocol | 영어 산출물 → 한국어 번역. `@translator` 서브에이전트가 `glossary.yaml` 기반 용어 일관성 유지. P1 검증(`validate_translation.py` T1-T9, `validate_verification.py` V1a-V1c). Review PASS가 Translation의 전제. `AGENTS.md §5.2` 참조 |
