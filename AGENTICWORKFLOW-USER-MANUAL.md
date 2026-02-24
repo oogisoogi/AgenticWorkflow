@@ -640,18 +640,24 @@ Claude Code에서는 Hook 시스템이 Autopilot의 설계 의도를 런타임�
 
 ## 12-1. ULW (Ultrawork) Mode
 
-Autopilot이 워크플로우 단계 실행에 한정된다면, ULW는 **범용 작업에서 SOT 없이** 동작하는 집중 작업 모드입니다. 프롬프트에 `ulw`를 포함하면 활성화됩니다.
+ULW는 Autopilot과 **직교하는 철저함 강도(thoroughness intensity) 오버레이**입니다. 프롬프트에 `ulw`를 포함하면 활성화됩니다.
 
-### Autopilot과의 차이
+- **Autopilot** = 자동화 축(HOW) — `(human)` 승인 건너뛰기
+- **ULW** = 철저함 축(HOW THOROUGHLY) — 빠짐없이, 에러 해결까지 완벽 수행
 
-| 항목 | Autopilot | ULW |
-|------|-----------|-----|
-| **대상** | 워크플로우 단계 실행 | 범용 작업 |
-| **상태 관리** | SOT (`state.yaml`) | 스냅샷 IMMORTAL (SOT 불필요) |
-| **활성화** | SOT `autopilot.enabled: true` | 프롬프트에 `ulw` 포함 |
-| **비활성화** | SOT 변경 | 암묵적 (새 세션에서 `ulw` 없으면 비활성) |
-| **병렬 실행** | `(team)` 단계 지원 | 미지원 |
-| **Verification Gate** | L0-L2 4계층 | 해당 없음 (TaskList 기반 완료 확인) |
+### 2x2 매트릭스
+
+|  | **ULW OFF** (보통) | **ULW ON** (최대 철저함) |
+|---|---|---|
+| **Autopilot OFF** | 표준 대화형 | 대화형 + Sisyphus Persistence(3회 재시도) + 필수 태스크 분해 |
+| **Autopilot ON** | 표준 자동 워크플로우 | 자동 워크플로우 + Sisyphus 강화(재시도 3회) + 팀 철저함 |
+
+### 2축 비교
+
+| 축 | 관심사 | 활성화 | 비활성화 | 적용 범위 |
+|----|--------|--------|---------|----------|
+| **Autopilot** | 자동화(HOW) | SOT `autopilot.enabled: true` | SOT 변경 | 워크플로우 단계 |
+| **ULW** | 철저함(HOW THOROUGHLY) | 프롬프트에 `ulw` | 암묵적 (새 세션 시 `ulw` 없으면 비활성) | 모든 작업 |
 
 ### 활성화
 
@@ -664,38 +670,32 @@ ulw 리팩토링해줘
 
 새 세션에서 `ulw` 없이 프롬프트를 입력하면 자동으로 비활성화됩니다 (암묵적 해제). 명시적 해제 명령은 불필요합니다.
 
-### 핵심 기능
+### 3가지 강화 규칙 (Intensifiers)
 
-| 기능 | 설명 |
-|------|------|
-| **Sisyphus Mode** | 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도 |
-| **Auto Task Tracking** | 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증 |
-
-### 5가지 실행 규칙
-
-1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음
-2. **Auto Task Tracking** — 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증
-3. **Error Recovery** — 에러 발생 시 대안을 시도하고, 대안도 실패하면 사용자에게 보고
-4. **No Partial Completion** — "일부만 완료"는 미완료와 동일 — 전체 완료까지 계속
-5. **Progress Reporting** — 각 Task 완료 시 TaskUpdate로 상태 갱신
+| 강화 규칙 | 설명 | 대화형 효과 | Autopilot 결합 효과 |
+|----------|------|-----------|-------------------|
+| **I-1. Sisyphus Persistence** | 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고 | 에러 시 3회까지 대안 시도 | 품질 게이트 재시도 한도 2→3회 상향 |
+| **I-2. Mandatory Task Decomposition** | TaskCreate → TaskUpdate → TaskList 필수 | 비-trivial 작업 시 태스크 분해 강제 | 변경 없음 (Autopilot은 이미 SOT 기반 추적) |
+| **I-3. Bounded Retry Escalation** | 동일 대상 3회 초과 재시도 금지 — 초과 시 사용자 에스컬레이션 | 무한 루프 방지 | Safety Hook 차단은 항상 존중 |
 
 ### 런타임 강화 (Claude Code)
 
-Hook 시스템이 ULW의 5개 실행 규칙을 결정론적으로 강화합니다:
+Hook 시스템이 ULW의 3개 강화 규칙을 결정론적으로 강화합니다:
 
 | 시점 | 메커니즘 | 효과 |
 |------|---------|------|
 | 트랜스크립트 파싱 | `detect_ulw_mode()` — word-boundary 정규식 | 오탐 없이 `ulw` 키워드 감지 |
 | 매 응답 후 | 스냅샷에 ULW 상태 섹션 보존 (IMMORTAL) | 세션 경계에서 ULW 상태 유실 방지 |
-| 세션 시작/복원 | SessionStart가 ULW 실행 규칙 주입 | `clear`/`compact`/`resume` 시 규칙 재주입 (`startup` 제외 — 암묵적 해제) |
-| 매 응답 후 | `check_ulw_compliance()` — Compliance Guard | 5개 규칙 준수를 결정론적으로 검증, 위반 시 IMMORTAL 경고 |
+| 세션 시작/복원 | SessionStart가 ULW 강화 규칙 주입 | `clear`/`compact`/`resume` 시 규칙 재주입 (`startup` 제외 — 암묵적 해제) |
+| 매 응답 후 | `check_ulw_compliance()` — Compliance Guard | 3개 강화 규칙 준수를 결정론적으로 검증, 위반 시 IMMORTAL 경고 |
+| 매 응답 후 | `generate_context_summary.py` — ULW 안전망 | 위반 시 stderr 경고 |
 | 세션 종료 | Knowledge Archive에 `ulw_active: true` 태깅 | 크로스세션 RLM 쿼리 가능 |
 
-### Autopilot과의 공존
+### Autopilot과의 결합
 
-Autopilot과 ULW가 동시에 활성화되면 **Autopilot이 우선**합니다. ULW는 Autopilot을 override하지 않습니다.
+Autopilot과 ULW가 동시에 활성화되면 **ULW가 Autopilot을 강화**합니다: 품질 게이트 재시도 한도를 2→3회로 상향하고, Safety Hook 차단은 항상 존중합니다.
 
-> 다른 AI 도구에서는 ULW의 Hook 기반 강화가 없으므로, TaskCreate/TaskUpdate/TaskList를 수동으로 사용하여 ULW의 실행 규칙을 준수해야 합니다.
+> 다른 AI 도구에서는 ULW의 Hook 기반 강화가 없으므로, TaskCreate/TaskUpdate/TaskList를 수동으로 사용하여 ULW의 강화 규칙을 준수해야 합니다.
 
 상세: `CLAUDE.md` ULW Mode 섹션, `AGENTS.md §5.1.1`
 

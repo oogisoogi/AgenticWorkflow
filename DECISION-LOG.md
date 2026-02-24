@@ -295,7 +295,7 @@
 ### ADR-023: ULW (Ultrawork) Mode — SOT 없이 동작하는 범용 모드
 
 - **날짜**: 2026-02-20
-- **상태**: Accepted
+- **상태**: Superseded by ADR-043
 - **맥락**: Autopilot은 워크플로우 전용(SOT 기반)이지만, 워크플로우가 아닌 일반 작업(리팩토링, 문서 업데이트 등)에서도 "멈추지 않고 끝까지 완료하는" 모드가 필요했다.
 - **결정**: `ulw`를 프롬프트에 포함하면 활성화되는 ULW 모드를 만든다. SOT 없이 5개 실행 규칙(Sisyphus, Auto Task Tracking, Error Recovery, No Partial Completion, Progress Reporting)으로 동작한다. 새 세션에서는 암묵적으로 해제된다 (명시적 해제 불필요).
 - **근거**: Autopilot은 SOT 의존적이라 일반 작업에 부적합하다. ULW는 TaskCreate/TaskList 기반으로 경량화하여, 워크플로우 인프라 없이도 완료 보장을 제공한다.
@@ -612,6 +612,20 @@
 - **대안**: 글로벌 설치 스크립트 제공 → 기각 (추가 설치 단계 필요, 자동 적용이 아님)
 - **관련 ADR**: ADR-012 (Hook 기반 컨텍스트 보존), ADR-015 (context_guard.py 통합 디스패처)
 
+### ADR-043: ULW 재설계 — 직교 철저함 오버레이
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **Supersedes**: ADR-023
+- **맥락**: ADR-023은 ULW를 Autopilot의 "대안(alternative)"으로 설계하여 배타적 관계(동시 활성화 시 Autopilot 우선)를 규정했다. 그러나 사용자의 의도는 "완전성(completeness) 오버레이"였다. Autopilot은 자동화(HOW)를 다루고, ULW는 철저함(HOW THOROUGHLY)을 다루므로 두 축은 직교한다.
+- **결정**: ULW를 Autopilot과 **직교하는 2축 모델**로 재설계한다. 기존 5개 실행 규칙을 3개 강화 규칙(Intensifiers)으로 통합한다:
+  1. **I-1. Sisyphus Persistence** — 기존 Sisyphus Mode + Error Recovery + No Partial Completion 통합. 최대 3회 재시도, 각 시도는 다른 접근법
+  2. **I-2. Mandatory Task Decomposition** — 기존 Auto Task Tracking + Progress Reporting 통합
+  3. **I-3. Bounded Retry Escalation** — 신규. 동일 대상 3회 초과 재시도 금지, 초과 시 사용자 에스컬레이션
+- **근거**: (1) "Autopilot이 우선" 규칙이 ULW의 강화 목적과 충돌했다. (2) ULW가 Autopilot보다 검증이 약함(L0-L2 없음)은 직교 모델에서 자연 해소 — ULW는 기존 품질 게이트에 추가 재시도를 부여. (3) 5→3 규칙 통합은 개념적 중복 제거 + 3회 제한이라는 명확한 경계 부여
+- **대안**: 기존 ADR-023 유지 → 기각 (2축 직교가 실제 사용 패턴과 부합), 제한 없는 재시도 → 기각 (무한 루프 위험)
+- **영향 범위**: CLAUDE.md, AGENTS.md, `_context_lib.py`, `restore_context.py`, `generate_context_summary.py`, DECISION-LOG.md, README.md, USER-MANUAL.md, ARCHITECTURE.md, GEMINI.md, copilot-instructions.md, agenticworkflow.mdc, soul.md — 총 13개 파일. 추가: `validate_retry_budget.py`(P1 재시도 예산 봉쇄 — RB1-RB3, --check-and-increment atomic 모드), `setup_init.py`/`setup_maintenance.py`(REQUIRED_SCRIPTS D-7 동기화) — 총 16개 파일
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -645,6 +659,7 @@
 | 2026-02-20 | (pending) | ADR-040: 종합 감사 III — 4계층 QA 집행력 강화 (C1r/C2/W4/C4s/W7) |
 | 2026-02-23 | (pending) | ADR-041: 코딩 기준점 (Coding Anchor Points, CAP-1~4) |
 | 2026-02-23 | (pending) | ADR-042: Hook 설정 Global → Project 통합 |
+| 2026-02-23 | (pending) | ADR-043: ULW 재설계 — 직교 철저함 오버레이 (Supersedes ADR-023) |
 
 ---
 

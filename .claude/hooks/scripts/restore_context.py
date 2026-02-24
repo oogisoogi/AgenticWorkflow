@@ -450,12 +450,16 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
         output_lines.append("")
         output_lines.append("━━━ ULTRAWORK (ULW) MODE ACTIVE ━━━")
         output_lines.append("")
-        output_lines.append("■ ULW EXECUTION RULES (MANDATORY):")
-        output_lines.append("  1. Sisyphus Mode — 모든 Task가 100% 완료될 때까지 멈추지 않음")
-        output_lines.append("  2. Auto Task Tracking — 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증")
-        output_lines.append("  3. Error Recovery — 에러 발생 시 대안 시도, 대안도 실패하면 사용자에게 보고")
-        output_lines.append("  4. No Partial Completion — '일부만 완료'는 미완료와 동일, 전체 완료까지 계속")
-        output_lines.append("  5. Progress Reporting — 각 Task 완료 시 TaskUpdate로 상태 갱신")
+        output_lines.append("■ ULW INTENSIFIERS (MANDATORY — thoroughness overlay):")
+        output_lines.append("  1. Sisyphus Persistence — 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고")
+        output_lines.append("  2. Mandatory Task Decomposition — 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증")
+        output_lines.append("  3. Bounded Retry Escalation — 동일 대상 3회 초과 재시도 금지, 초과 시 사용자 에스컬레이션")
+
+        # Detect Autopilot combination state
+        ap_state = read_autopilot_state(project_dir)
+        if ap_state:
+            output_lines.append("")
+            output_lines.append("■ ULW + AUTOPILOT COMBINED: 품질 게이트 재시도 한도 2→3회 상향")
 
     # Predictive Debugging: Surface high-risk files
     if risk_data and isinstance(risk_data, dict):

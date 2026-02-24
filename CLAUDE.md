@@ -130,12 +130,13 @@ AgenticWorkflow/
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터 + 동적 RLM 쿼리 힌트 + Error→Resolution 자동 표면화 + Predictive Debugging 위험 점수 캐시 생성)
 │   │   ├── update_work_log.py             (PostToolUse 작업 로그 누적 — Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate 9개 도구 추적)
-│   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망 + Adversarial Review 누락 감지 + Verification 누락 감지)
+│   │   ├── generate_context_summary.py    (Stop 증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망 + Adversarial Review 누락 감지 + Verification 누락 감지 + ULW Compliance 안전망)
 │   │   ├── validate_pacs.py               (pACS P1 검증 독립 스크립트 — PA1-PA7 구조적 무결성(PA7: RED < 50 차단) + L0 Anti-Skip Guard, JSON 출력, Hook 아님 — Orchestrator가 수동 호출)
 │   │   ├── validate_review.py             (Adversarial Review P1 검증 독립 스크립트 — JSON 출력, Hook 아님 — Orchestrator가 수동 호출)
 │   │   ├── validate_translation.py        (Translation P1 검증 독립 스크립트 — T1-T9 + glossary 검증 + Review verdict 필수 체크, JSON 출력, Hook 아님 — Orchestrator가 수동 호출)
 │   │   ├── validate_verification.py       (Verification Log P1 검증 독립 스크립트 — V1a-V1c 구조적 무결성, JSON 출력, Hook 아님 — Orchestrator가 수동 호출)
 │   │   ├── validate_workflow.py           (Workflow.md DNA Inheritance P1 검증 독립 스크립트 — W1-W6 구조적 무결성, JSON 출력, Hook 아님 — workflow-generator 완료 후 수동 호출)
+│   │   ├── validate_retry_budget.py       (Retry Budget P1 검증 독립 스크립트 — RB1-RB3 재시도 예산 판정(ULW-aware), JSON 출력, Hook 아님 — Orchestrator가 재시도 전후 수동 호출)
 │   │   ├── setup_init.py                  (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄) + 런타임 디렉터리 자동 생성(SOT 존재 시), --init 트리거)
 │   │   ├── setup_maintenance.py           (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   │   ├── block_destructive_commands.py  (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
@@ -171,7 +172,7 @@ AgenticWorkflow/
 
 | Hook 이벤트 | 스크립트 | 동작 |
 |------------|---------|------|
-| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문(13개), 디렉터리, PyYAML, SOT 쓰기 패턴 검증, 런타임 디렉터리 자동 생성(5개)) |
+| **Setup** (`--init`) | `setup_init.py` | 세션 시작 전 인프라 건강 검증 (Python 버전, 스크립트 구문(15개), 디렉터리, PyYAML, SOT 쓰기 패턴 검증, 런타임 디렉터리 자동 생성(5개)) |
 | **Setup** (`--maintenance`) | `setup_maintenance.py` | 주기적 건강 검진 (stale archives, knowledge-index 무결성, work_log 크기) |
 | **PreToolUse** (Bash) | `block_destructive_commands.py` | 위험 명령 실행 전 차단 (git push --force, git reset --hard, rm -rf / 등). exit code 2로 차단 + stderr 피드백으로 Claude 자기 수정 |
 | **PreToolUse** (Edit\|Write) | `block_test_file_edit.py` | TDD 모드(`.tdd-guard` 존재) 시 테스트 파일 수정 차단. Tier 1(디렉터리) + Tier 2(파일명) 2계층 탐지. exit code 2 + stderr 피드백으로 구현 코드 수정 유도 |
@@ -180,7 +181,7 @@ AgenticWorkflow/
 | **PreCompact** | `save_context.py` | 컨텍스트 압축 전 스냅샷 저장 + Knowledge Archive 아카이빙 |
 | **SessionStart** | `restore_context.py` | RLM 패턴: 포인터 + 요약 + 과거 세션 인덱스 포인터 출력 + Error→Resolution 자동 표면화 + Predictive Debugging 캐시 생성 |
 | **PostToolUse** | `update_work_log.py` | 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate) 작업 로그 누적. 토큰 75% 초과 시 proactive 저장 |
-| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) + Autopilot Decision Log 안전망 + ULW 상태 IMMORTAL 보존 |
+| **Stop** | `generate_context_summary.py` | 매 응답 후 증분 스냅샷 + Knowledge Archive 아카이빙 (30초 throttling, 5KB growth threshold) + Autopilot Decision Log 안전망 + ULW 상태 IMMORTAL 보존 + ULW Compliance 안전망 |
 
 ### Claude의 활용 방법
 
@@ -194,7 +195,7 @@ AgenticWorkflow/
 - **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션(IMMORTAL 우선순위)은 품질 태그 기반으로 정렬된다 — `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 15개 슬롯을 채워, 일상적 의도 선언(`하겠습니다` 패턴)이 실제 설계 결정을 밀어내지 않는다. 비교·트레이드오프·선택 패턴도 추출한다.
 - **IMMORTAL-aware 압축**: 스냅샷 크기 초과 시 Phase 7 hard truncate에서 IMMORTAL 섹션을 우선 보존한다. 비-IMMORTAL 콘텐츠를 먼저 절삭하고, IMMORTAL 자체가 한계를 초과하는 극단적 경우에도 IMMORTAL 텍스트의 시작 부분을 보존한다. **압축 감사 추적**: 각 압축 Phase가 제거한 문자 수를 HTML 주석(`<!-- compression-audit: ... -->`)으로 스냅샷 끝에 기록한다 (Phase 1~7 단계별 delta + 최종 크기). 렌더링에 영향 없이 Grep으로 디버깅 가능.
 - **Error Taxonomy**: 도구 에러를 12개 패턴(file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found)으로 분류한다. Knowledge Archive의 error_patterns 필드에 기록되어, "unknown" 분류를 ~30%로 감소시킨다. False positive 방지를 위해 negative lookahead, 한정어 매칭 등을 적용한다. **Error→Resolution 매칭**: 에러 발생 후 5 entries 이내의 성공적 도구 호출을 file-aware 매칭으로 탐지하여 `resolution` 필드에 기록한다 (도구명 + 파일명). 매칭 실패 시 `null`. `Grep "resolution" knowledge-index.jsonl`로 해결 패턴을 cross-session 탐색 가능.
-- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지 (Tier 1: 비-SOT 스크립트의 SOT 참조 차단, Tier 2: SOT-aware 스크립트의 함수별 쓰기 패턴 검사). (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 8항목(S1-S6: current_step 타입·범위, outputs 타입·키 형식, 미래 단계 산출물 탐지, workflow_status 유효값, auto_approved_steps 정합성 + S7: pacs 5개 필드 검증(S7a dimensions F/C/L 0-100, S7b current_step_score 0-100, S7c weak_dimension F/C/L, S7d history dict→{score, weak}, S7e pre_mortem_flag string) + S8: active_team 5개 필드 검증(S8a name string, S8b status partial|all_completed, S8c tasks_completed list, S8d tasks_pending list, S8e completed_summaries dict→dict))으로 검증 — SessionStart와 Stop hook 양쪽에서 실행. (5) **Adversarial Review P1 검증**: `validate_review_output()`이 리뷰 보고서의 구조적 무결성(파일 존재 R1, 최소 크기 R2, 필수 섹션 4개 R3, PASS/FAIL 명시적 추출 R4, 이슈 테이블 ≥ 1행 R5)을 결정론적으로 검증. `parse_review_verdict()`가 regex로 이슈 심각도(Critical/Warning/Suggestion) 카운트 추출. `calculate_pacs_delta()`가 Generator-Reviewer pACS 차이(Delta ≥ 15 → 재조정 필요)를 산술 연산. `validate_review_sequence()`가 Review PASS → Translation 순서를 파일 타임스탬프로 강제. 독립 실행 스크립트: `validate_review.py`. (6) **Translation P1 검증**: `validate_translation_output()`이 번역 산출물의 구조적 무결성을 7항목(파일 존재 T1, 최소 크기 T2, 영어 원본 존재 T3, .ko.md 확장자 T4, 비-공백 T5, 헤딩 수 ±20% T6, 코드 블록 수 일치 T7)으로 검증. `check_glossary_freshness()`가 glossary 타임스탬프 신선도(T8). `verify_pacs_arithmetic()`이 모든 pACS 로그의 min() 산술 정확성(T9 — 범용). `validate_verification_log()`이 검증 로그 구조적 무결성(V1a-V1c: 파일 존재, 기준별 PASS/FAIL, 논리적 일관성). `validate_translation.py`는 Review verdict=PASS를 필수 체크(--check-sequence 없이도 항상 실행). 독립 실행 스크립트: `validate_translation.py`. (7) **pACS P1 검증**: `validate_pacs_output()`이 pACS 로그의 구조적 무결성을 6항목(PA1 파일 존재, PA2 최소 크기 50 bytes, PA3 차원 점수 ≥ 3개(0-100 범위), PA4 Pre-mortem 섹션 존재, PA5 min() 산술 정확성(verify_pacs_arithmetic 위임), PA7 RED 차단(pACS < 50 → FAIL — 단계 진행 차단))으로 검증. PA6(선택): 점수-색상 영역 정합성(RED/YELLOW/GREEN). 독립 실행 스크립트: `validate_pacs.py`. (8) **L0 Anti-Skip Guard 코드 구현**: `validate_step_output()`이 산출물 파일의 L0 검증을 3항목(L0a SOT outputs.step-N 경로의 파일 존재, L0b 파일 크기 ≥ MIN_OUTPUT_SIZE(100 bytes), L0c 비-공백 확인)으로 수행. Orchestrator가 current_step 증가 전 호출. `validate_pacs.py --check-l0`으로 pACS + L0 동시 검증 가능. (9) **Predictive Debugging P1 검증**: `validate_risk_scores()`가 risk-scores.json의 구조적 무결성을 6항목(RS1 필수 키, RS2 data_sessions 정수, RS3 risk_score 범위, RS4 error_count 산술 정합, RS5 resolution_rate 범위, RS6 top_risk_files 정렬+존재)으로 검증. `aggregate_risk_scores()`가 생성 직후 자기 검증 호출.
+- **P1 할루시네이션 봉쇄 (Hallucination Prevention)**: 반복적으로 100% 정확해야 하는 작업을 Python 코드로 강제한다. (1) **KI 스키마 검증**: `_validate_session_facts()`가 knowledge-index 쓰기 직전 RLM 필수 키(session_id, tags, final_status 등 10개) 존재를 보장 — 누락 시 안전 기본값 채움. (2) **부분 실패 격리**: `archive_and_index_session()`에서 archive 파일 쓰기 실패가 knowledge-index 갱신을 차단하지 않음 — RLM 핵심 자산 보호. (3) **SOT 쓰기 패턴 검증**: `setup_init.py`의 `_check_sot_write_safety()`가 Hook 스크립트에서 SOT 파일명 + 쓰기 패턴 공존을 AST 함수 경계 기반으로 탐지 (Tier 1: 비-SOT 스크립트의 SOT 참조 차단, Tier 2: SOT-aware 스크립트의 함수별 쓰기 패턴 검사). (4) **SOT 스키마 검증**: `validate_sot_schema()`가 워크플로우 state.yaml의 구조적 무결성을 8항목(S1-S6: current_step 타입·범위, outputs 타입·키 형식, 미래 단계 산출물 탐지, workflow_status 유효값, auto_approved_steps 정합성 + S7: pacs 5개 필드 검증(S7a dimensions F/C/L 0-100, S7b current_step_score 0-100, S7c weak_dimension F/C/L, S7d history dict→{score, weak}, S7e pre_mortem_flag string) + S8: active_team 5개 필드 검증(S8a name string, S8b status partial|all_completed, S8c tasks_completed list, S8d tasks_pending list, S8e completed_summaries dict→dict))으로 검증 — SessionStart와 Stop hook 양쪽에서 실행. (5) **Adversarial Review P1 검증**: `validate_review_output()`이 리뷰 보고서의 구조적 무결성(파일 존재 R1, 최소 크기 R2, 필수 섹션 4개 R3, PASS/FAIL 명시적 추출 R4, 이슈 테이블 ≥ 1행 R5)을 결정론적으로 검증. `parse_review_verdict()`가 regex로 이슈 심각도(Critical/Warning/Suggestion) 카운트 추출. `calculate_pacs_delta()`가 Generator-Reviewer pACS 차이(Delta ≥ 15 → 재조정 필요)를 산술 연산. `validate_review_sequence()`가 Review PASS → Translation 순서를 파일 타임스탬프로 강제. 독립 실행 스크립트: `validate_review.py`. (6) **Translation P1 검증**: `validate_translation_output()`이 번역 산출물의 구조적 무결성을 7항목(파일 존재 T1, 최소 크기 T2, 영어 원본 존재 T3, .ko.md 확장자 T4, 비-공백 T5, 헤딩 수 ±20% T6, 코드 블록 수 일치 T7)으로 검증. `check_glossary_freshness()`가 glossary 타임스탬프 신선도(T8). `verify_pacs_arithmetic()`이 모든 pACS 로그의 min() 산술 정확성(T9 — 범용). `validate_verification_log()`이 검증 로그 구조적 무결성(V1a-V1c: 파일 존재, 기준별 PASS/FAIL, 논리적 일관성). `validate_translation.py`는 Review verdict=PASS를 필수 체크(--check-sequence 없이도 항상 실행). 독립 실행 스크립트: `validate_translation.py`. (7) **pACS P1 검증**: `validate_pacs_output()`이 pACS 로그의 구조적 무결성을 6항목(PA1 파일 존재, PA2 최소 크기 50 bytes, PA3 차원 점수 ≥ 3개(0-100 범위), PA4 Pre-mortem 섹션 존재, PA5 min() 산술 정확성(verify_pacs_arithmetic 위임), PA7 RED 차단(pACS < 50 → FAIL — 단계 진행 차단))으로 검증. PA6(선택): 점수-색상 영역 정합성(RED/YELLOW/GREEN). 독립 실행 스크립트: `validate_pacs.py`. (8) **L0 Anti-Skip Guard 코드 구현**: `validate_step_output()`이 산출물 파일의 L0 검증을 3항목(L0a SOT outputs.step-N 경로의 파일 존재, L0b 파일 크기 ≥ MIN_OUTPUT_SIZE(100 bytes), L0c 비-공백 확인)으로 수행. Orchestrator가 current_step 증가 전 호출. `validate_pacs.py --check-l0`으로 pACS + L0 동시 검증 가능. (9) **Predictive Debugging P1 검증**: `validate_risk_scores()`가 risk-scores.json의 구조적 무결성을 6항목(RS1 필수 키, RS2 data_sessions 정수, RS3 risk_score 범위, RS4 error_count 산술 정합, RS5 resolution_rate 범위, RS6 top_risk_files 정렬+존재)으로 검증. `aggregate_risk_scores()`가 생성 직후 자기 검증 호출. (10) **Retry Budget P1 검증**: `validate_retry_budget.py`가 재시도 예산을 결정론적으로 판정한다. RB1(카운터 파일 읽기 — 정수, 없으면 0), RB2(ULW 활성 감지 — 스냅샷 regex), RB3(예산 비교 — `retries_used < max_retries`). `max_retries`는 ULW 활성 시 3, 비활성 시 2. `--increment` 모드로 카운터를 atomic write로 증가. Orchestrator가 Verification Gate/pACS RED/Review FAIL 재시도 전후에 호출. 카운터 파일: `{gate}-logs/.step-N-retry-count`.
 - **Workflow.md DNA Inheritance P1 검증**: `validate_workflow_md()`가 생성된 workflow.md의 DNA 유전 구조적 무결성을 6항목(W1 파일 존재, W2 최소 크기 500 bytes, W3 `## Inherited DNA` 헤더 존재, W4 Inherited Patterns 테이블 ≥ 3행, W5 Constitutional Principles 섹션 존재, W6 Coding Anchor Points(CAP) 참조 존재)으로 검증. 독립 실행 스크립트: `validate_workflow.py`. workflow-generator 완료 후(SKILL.md Step 13) 수동 호출.
 - **Quality Gate 상태 IMMORTAL 보존**: `_extract_quality_gate_state()` 함수가 `pacs-logs/`, `review-logs/`, `verification-logs/`에서 최신 단계의 품질 게이트 결과(pACS 점수·약점 차원, Review verdict·이슈 카운트, Verification PASS/FAIL)를 추출하여 스냅샷에 IMMORTAL 섹션으로 보존한다. 세션 경계(compact/clear)에서 Verification Gate/pACS/Adversarial Review 재개 맥락이 유실되지 않는다.
 - **Phase Transition 스냅샷 헤더**: 다단계 전환이 감지된 세션에서는 스냅샷 헤더에 단일 phase 대신 `Phase flow: research(12) → implementation(25)` 형식의 전환 흐름을 표시한다. 각 단계의 도구 호출 수가 괄호 안에 포함되어 세션 복원 시 작업 흐름 맥락을 즉시 파악할 수 있다.
@@ -202,7 +203,7 @@ AgenticWorkflow/
 - **런타임 디렉터리 자동 생성**: `setup_init.py`의 `_check_runtime_dirs()` 함수가 SOT 파일 존재 시 `verification-logs/`, `pacs-logs/`, `review-logs/`, `autopilot-logs/`, `translations/` 5개 디렉터리를 자동 생성한다. 워크플로우 실행 중 디렉터리 부재로 인한 silent failure를 방지한다.
 - **시스템 명령 필터링**: 스냅샷의 "현재 작업" 섹션에서 `/clear`, `/help` 등 시스템 명령을 자동 필터링하여 실제 사용자 작업 의도만 캡처한다.
 - **Autopilot 런타임 강화**: Autopilot 활성 시 SessionStart가 실행 규칙을 컨텍스트에 주입하고, 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하며, Stop hook이 Decision Log 누락을 감지·보완한다. PostToolUse는 work_log에 autopilot_step 필드를 추가하여 단계 진행을 추적한다.
-- **ULW 모드 감지·보존**: `detect_ulw_mode()` 함수가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지한다. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 5개 실행 규칙을 컨텍스트에 주입한다. **암묵적 해제**: 새 세션(`source=startup`)에서는 이전 스냅샷에 ULW 상태가 있어도 규칙을 주입하지 않는다 — `clear`/`compact`/`resume` source만 ULW를 계승한다. `check_ulw_compliance()` 함수가 5개 실행 규칙의 준수를 결정론적으로 검증하여 스냅샷 IMMORTAL에 경고를 포함한다. Knowledge Archive에 `ulw_active: true`로 태깅되어 `Grep "ulw_active" knowledge-index.jsonl`로 RLM 쿼리 가능하다.
+- **ULW 모드 감지·보존**: `detect_ulw_mode()` 함수가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지한다. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 3개 강화 규칙(Intensifiers)을 컨텍스트에 주입한다. **암묵적 해제**: 새 세션(`source=startup`)에서는 이전 스냅샷에 ULW 상태가 있어도 규칙을 주입하지 않는다 — `clear`/`compact`/`resume` source만 ULW를 계승한다. `check_ulw_compliance()` 함수가 3개 강화 규칙의 준수를 결정론적으로 검증하여 스냅샷 IMMORTAL에 경고를 포함한다. Knowledge Archive에 `ulw_active: true`로 태깅되어 `Grep "ulw_active" knowledge-index.jsonl`로 RLM 쿼리 가능하다.
 - **Predictive Debugging**: `aggregate_risk_scores()`가 Knowledge Archive의 error_patterns를 파일별로 집계하여 위험 점수를 산출한다 (가중치 × 감쇠). SessionStart 시 1회 실행되어 `risk-scores.json` 캐시를 생성하고, `predictive_debug_guard.py`(PreToolUse Hook)가 매 Edit/Write마다 캐시를 읽어 임계값 초과 시 stderr 경고를 출력한다. **Startup 트레이드오프**: SessionStart matcher가 `clear|compact|resume`이므로 최초 startup에서는 캐시 미생성 — 이전 캐시(2시간 이내)에 의존하거나, 첫 compact/clear 시 생성 (ADR-036). **D-7 상수 동기화**: `predictive_debug_guard.py`의 `RISK_THRESHOLD`/`MIN_SESSIONS`는 `_context_lib.py`의 `_RISK_SCORE_THRESHOLD`/`_RISK_MIN_SESSIONS`와 D-7 의도적 중복이다 — 변경 시 양쪽 동기화 필수. **Basename merge**: bare name(`_context_lib.py`)과 relative path(`.claude/hooks/scripts/_context_lib.py`)가 혼재할 때, 동일 basename 엔트리를 자동 병합하여 risk score 과소평가를 방지한다.
 
 ### Hook 설정 위치
@@ -222,7 +223,7 @@ AgenticWorkflow/
 
 > **`if test -f; then; fi` 패턴 통일**: 모든 Hook 명령이 `if test -f; then; fi` 패턴을 사용한다. 이전의 `|| true` 패턴(exit code 2 차단 신호를 삼키는 잠복 버그)을 제거하여, `context_guard.py` 자식 스크립트에 차단 기능 추가 시에도 exit code 2가 안전하게 전파된다.
 > **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`(안전)와 `block_test_file_edit.py`(TDD 보호)는 컨텍스트 보존과는 다른 도메인이다. exit code 2 보존이 필수이므로, `context_guard.py`를 거치지 않고 직접 실행한다. `block_test_file_edit.py`는 `.tdd-guard` 파일 존재 시에만 활성화된다 (`touch .tdd-guard`로 TDD 모드 시작, `rm .tdd-guard`로 해제).
-> **D-7 의도적 중복 인스턴스**: (1) `REQUIRED_SCRIPTS` — `setup_init.py` ↔ `setup_maintenance.py` (13개 스크립트 목록). (2) `predictive_debug_guard.py` 상수 — `RISK_THRESHOLD`/`MIN_SESSIONS` ↔ `_context_lib.py`의 `_RISK_SCORE_THRESHOLD`/`_RISK_MIN_SESSIONS`. (3) `ERROR_TAXONOMY` 타입명 — `_classify_error_patterns()` 내 12개 타입 ↔ `_RISK_WEIGHTS` 13개 키. 각 D-7 인스턴스는 코드에 cross-reference 주석이 있으며, 한쪽 변경 시 반드시 대응 쪽도 동기화해야 한다.
+> **D-7 의도적 중복 인스턴스**: (1) `REQUIRED_SCRIPTS` — `setup_init.py` ↔ `setup_maintenance.py` (15개 스크립트 목록). (2) `predictive_debug_guard.py` 상수 — `RISK_THRESHOLD`/`MIN_SESSIONS` ↔ `_context_lib.py`의 `_RISK_SCORE_THRESHOLD`/`_RISK_MIN_SESSIONS`. (3) `ERROR_TAXONOMY` 타입명 — `_classify_error_patterns()` 내 12개 타입 ↔ `_RISK_WEIGHTS` 13개 키. 각 D-7 인스턴스는 코드에 cross-reference 주석이 있으며, 한쪽 변경 시 반드시 대응 쪽도 동기화해야 한다.
 
 ## 스킬 사용 판별
 
@@ -305,9 +306,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] 산출물 파일을 디스크에 저장
 - [ ] 산출물을 각 `Verification` 기준 대비 자기 검증
 - [ ] 실패 기준 있으면:
-  - [ ] 실패 원인·누락 식별
-  - [ ] 해당 부분만 재실행 (전체 재작업 아님)
-  - [ ] 재검증 (최대 2회 재시도, 초과 시 사용자 에스컬레이션)
+  - [ ] P1 재시도 예산 확인+소비: `python3 .claude/hooks/scripts/validate_retry_budget.py --step N --gate verification --project-dir . --check-and-increment`
+  - [ ] `can_retry: true` → 실패 원인·누락 식별 → 해당 부분만 재실행 (카운터는 스크립트가 atomic 증가 완료)
+  - [ ] `can_retry: false` → 사용자 에스컬레이션 (재시도 예산 소진, 카운터 미증가)
 - [ ] 모든 기준 PASS 확인
 - [ ] `verification-logs/step-N-verify.md` 생성
 - [ ] P1 검증 실행: `python3 .claude/hooks/scripts/validate_verification.py --step N --project-dir .`
@@ -319,8 +320,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] `pacs-logs/step-N-pacs.md` 생성
 - [ ] SOT `pacs` 필드 갱신 (current_step_score, dimensions, weak_dimension, history)
 - [ ] pACS RED(< 50) 시:
-  - [ ] 약점 차원 식별 + 해당 부분 재작업
-  - [ ] 재채점 (최대 2회, 초과 시 사용자 에스컬레이션)
+  - [ ] P1 재시도 예산 확인+소비: `python3 .claude/hooks/scripts/validate_retry_budget.py --step N --gate pacs --project-dir . --check-and-increment`
+  - [ ] `can_retry: true` → 약점 차원 식별 + 해당 부분 재작업 → 재채점 (카운터는 스크립트가 atomic 증가 완료)
+  - [ ] `can_retry: false` → 사용자 에스컬레이션 (재시도 예산 소진, 카운터 미증가)
 - [ ] pACS YELLOW(50-69) 시: Decision Log에 약점 차원 기록 후 진행
 - [ ] P1 검증 실행: `python3 .claude/hooks/scripts/validate_pacs.py --step N --check-l0 --project-dir .`
 - [ ] P1 검증 결과 `valid: true` 확인 (PA1-PA7 + L0 모두 통과)
@@ -347,7 +349,9 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 - [ ] P1 검증 결과 `valid: true` 확인 (R1-R5 모두 통과)
 - [ ] Verdict 확인:
   - [ ] PASS → 다음 단계 진행 (Translation 포함)
-  - [ ] FAIL → Critical 이슈 기반 재작업 (최대 2회, 초과 시 사용자 에스컬레이션)
+  - [ ] FAIL → P1 재시도 예산 확인+소비: `python3 .claude/hooks/scripts/validate_retry_budget.py --step N --gate review --project-dir . --check-and-increment`
+  - [ ] `can_retry: true` → Critical 이슈 기반 재작업 (카운터는 스크립트가 atomic 증가 완료)
+  - [ ] `can_retry: false` → 사용자 에스컬레이션 (재시도 예산 소진, 카운터 미증가)
 - [ ] pACS Delta ≥ 15 시 → Decision Log에 기록 + 재조정 사유 문서화
 - [ ] Review FAIL 상태에서 Translation 실행 금지
 
@@ -380,14 +384,24 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 
 ## ULW (Ultrawork) Mode
 
-프롬프트에 `ulw`를 포함하면 **Ultrawork 모드**가 활성화된다. Autopilot(워크플로우 전용, SOT 기반)과 달리 **범용 작업에서 SOT 없이** 동작하는 집중 작업 모드이다.
+프롬프트에 `ulw`를 포함하면 **Ultrawork 모드**가 활성화된다. ULW는 Autopilot과 **직교하는 철저함 강도(thoroughness intensity) 오버레이**이다.
 
-### 핵심 기능
+- **Autopilot** = 자동화 축(HOW) — `(human)` 승인 건너뛰기
+- **ULW** = 철저함 축(HOW THOROUGHLY) — 빠짐없이, 에러 해결까지 완벽 수행
 
-| 기능 | 설명 |
-|------|------|
-| **Sisyphus Mode** | 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도 |
-| **Auto Task Tracking** | 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증 |
+두 축은 독립적이므로, 어떤 조합이든 가능하다:
+
+|  | **ULW OFF** (보통) | **ULW ON** (최대 철저함) |
+|---|---|---|
+| **Autopilot OFF** | 표준 대화형 | 대화형 + Sisyphus Persistence(3회 재시도) + 필수 태스크 분해 |
+| **Autopilot ON** | 표준 자동 워크플로우 | 자동 워크플로우 + Sisyphus 강화(재시도 3회) + 팀 철저함 |
+
+### 2축 비교
+
+| 축 | 관심사 | 활성화 | 비활성화 | 적용 범위 |
+|----|--------|--------|---------|----------|
+| **Autopilot** | 자동화(HOW) | SOT `autopilot.enabled: true` | SOT 변경 | 워크플로우 단계 |
+| **ULW** | 철저함(HOW THOROUGHLY) | 프롬프트에 `ulw` | 암묵적 (새 세션 시 `ulw` 없으면 비활성) | 모든 작업 (대화형 + 워크플로우) |
 
 ### 활성화 패턴
 
@@ -396,23 +410,15 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 | "ulw 이거 해줘", "ulw 리팩토링해줘" | 트랜스크립트에서 `ulw` 감지 → ULW 모드 활성화 |
 | 새 세션에서 `ulw` 없는 프롬프트 | ULW 비활성 (암묵적 해제 — 명시적 해제 불필요) |
 
-### Autopilot과의 차이
+### 3가지 강화 규칙 (Intensifiers)
 
-| 항목 | Autopilot | ULW |
-|------|-----------|-----|
-| **대상** | 워크플로우 단계 실행 | 범용 작업 |
-| **상태 관리** | SOT (`state.yaml`) | 스냅샷 IMMORTAL (SOT 불필요) |
-| **병렬 실행** | `(team)` 단계 지원 | 미지원 (기존 워크플로우와 충돌 방지) |
-| **비활성화** | SOT `autopilot.enabled: false` | 암묵적 (새 세션 시 ulw 없으면 비활성) |
-| **Verification Gate** | L0-L2 4계층 | 해당 없음 (TaskList 기반 완료 확인) |
+ULW가 활성화되면 아래 3가지 강화 규칙이 **현재 컨텍스트에 오버레이**된다:
 
-### 5가지 실행 규칙
-
-1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음
-2. **Auto Task Tracking** — 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증
-3. **Error Recovery** — 에러 발생 시 대안을 시도하고, 대안도 실패하면 사용자에게 보고
-4. **No Partial Completion** — "일부만 완료"는 미완료와 동일 — 전체 완료까지 계속
-5. **Progress Reporting** — 각 Task 완료 시 TaskUpdate로 상태 갱신
+| 강화 규칙 | 설명 | 대화형 효과 | Autopilot 결합 효과 |
+|----------|------|-----------|-------------------|
+| **I-1. Sisyphus Persistence** | 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고 | 에러 시 3회까지 대안 시도 | 품질 게이트(Verification/pACS) 재시도 한도 2→3회 상향 |
+| **I-2. Mandatory Task Decomposition** | TaskCreate → TaskUpdate → TaskList 필수 | 비-trivial 작업 시 태스크 분해 강제 | 변경 없음 (Autopilot은 이미 SOT 기반 추적) |
+| **I-3. Bounded Retry Escalation** | 동일 대상 3회 초과 연속 재시도 금지 — 초과 시 사용자 에스컬레이션 | 무한 루프 방지 | Safety Hook 차단은 항상 존중 |
 
 ### 런타임 강화 메커니즘
 
@@ -421,14 +427,16 @@ Autopilot 모드에서 워크플로우를 실행할 때, 각 단계마다 아래
 | **Hook** (결정론적) | `_context_lib.py` — `detect_ulw_mode()` | 트랜스크립트 정규식으로 `ulw` 감지 |
 | **Hook** (결정론적) | `generate_snapshot_md()` — 스냅샷 | ULW 상태 섹션을 IMMORTAL 우선순위로 보존 |
 | **Hook** (결정론적) | `extract_session_facts()` — Knowledge Archive | `ulw_active: true` 태깅 → RLM 쿼리 가능 |
-| **Hook** (결정론적) | `restore_context.py` — SessionStart | ULW 활성 시 5개 실행 규칙을 컨텍스트에 주입 (startup source 제외 — 암묵적 해제) |
-| **Hook** (결정론적) | `_context_lib.py` — `check_ulw_compliance()` | 5개 실행 규칙 준수를 결정론적으로 검증 → 스냅샷 IMMORTAL에 경고 포함 |
+| **Hook** (결정론적) | `restore_context.py` — SessionStart | ULW 활성 시 3개 강화 규칙을 컨텍스트에 주입 (startup source 제외 — 암묵적 해제) |
+| **Hook** (결정론적) | `_context_lib.py` — `check_ulw_compliance()` | 3개 강화 규칙 준수를 결정론적으로 검증 → 스냅샷 IMMORTAL에 경고 포함 |
+| **Hook** (결정론적) | `generate_context_summary.py` — Stop | ULW Compliance 안전망 — 위반 시 stderr 경고 |
 
 ### NEVER DO
-- ULW 활성 상태에서 Task를 "일부 완료"로 남기고 멈추기 금지
-- 에러 발생 시 대안 시도 없이 포기 금지
-- TaskCreate 없이 암묵적으로 작업 진행 금지 (비-trivial 작업 시)
-- ULW와 Autopilot 동시 활성화 시 ULW가 Autopilot을 override 금지 — Autopilot이 우선
+- 동일 대상에 3회 초과 연속 재시도 금지 — I-3 위반, 사용자 에스컬레이션 필수
+- Safety Hook(`(hook)` exit code 2) 차단을 ULW 명목으로 override 금지
+- ULW 활성 상태에서 Task를 "일부 완료"로 남기고 멈추기 금지 — I-1 위반
+- 에러 발생 시 대안 시도 없이 포기 금지 — I-1 위반
+- TaskCreate 없이 암묵적으로 작업 진행 금지 (비-trivial 작업 시) — I-2 위반
 
 ## 언어 및 스타일 규칙
 

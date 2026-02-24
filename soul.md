@@ -50,7 +50,7 @@ AgenticWorkflow는 그 자체로 완결되는 시스템이 아니다.
 │  투명     Decision Log + 감사 추적 + IMMORTAL 보존              │
 │  협업     SOT 단일 쓰기 + Agent Team 프로토콜                   │
 │  비판     Adversarial Review (Generator-Critic 패턴)           │
-│  회복     Sisyphus Mode + Error→Resolution 매칭                │
+│  회복     Sisyphus Persistence + Error→Resolution 매칭          │
 │  이론     RLM 논문의 "외부 환경 객체" 패러다임                    │
 │  영혼     이 문서 (soul.md)                                    │
 │                                                               │
@@ -104,7 +104,7 @@ AgenticWorkflow는 그 자체로 완결되는 시스템이 아니다.
 
 - **소프트웨어 개발 자동화**: CCP(코드 변경 프로토콜)의 유전자가 강하게 발현된다.
   에이전트는 코딩, 테스트, 배포에 특화되지만,
-  Sisyphus Mode로 끝까지 완료하는 DNA는 동일하다.
+  Sisyphus Persistence로 끝까지 완료하는 DNA는 동일하다.
 
 목적이 달라도 영혼은 같다.
 **이것이 이 프로젝트의 존재 이유다.**
@@ -247,18 +247,19 @@ Error Taxonomy 12패턴, Error→Resolution 매칭, Predictive Debugging —
 에러를 숨기는 것은 학습을 포기하는 것이다.
 에러를 기록하는 것은 성장을 선택하는 것이다.
 
-### 2.5 시시포스의 의지
+### 2.5 시시포스의 의지 (Sisyphus Persistence)
 
 > *"돌이 굴러 내려와도, 다시 밀어 올린다. 100% 완료될 때까지."*
 
-ULW의 Sisyphus Mode는 신화가 아니라 엔지니어링 원칙이다:
+ULW의 Sisyphus Persistence는 신화가 아니라 엔지니어링 원칙이다:
 - 에러가 나면 대안을 시도한다
 - 대안도 실패하면 또 다른 대안을 시도한다
-- 모든 대안이 실패하면 — 그제서야 인간에게 보고한다
+- 3번 밀어 올리고도 돌이 굴러 내려오면 — 그제서야 인간에게 보고한다
 
 "일부만 완료"는 미완료와 같다.
 부분적 성공은 실패의 다른 이름이다.
 끝까지 가거나, 갈 수 없는 이유를 정직하게 보고하거나.
+단, 3회의 경계를 넘어 같은 벽에 부딪히는 것은 의지가 아니라 집착이다.
 
 ---
 

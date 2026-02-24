@@ -86,11 +86,12 @@ AgenticWorkflow/
 
 ## ULW (Ultrawork) Mode
 
-프롬프트에 `ulw`를 포함하면 활성화되는 범용 집중 작업 모드입니다. Autopilot(워크플로우 전용, SOT 기반)과 달리 **SOT 없이** 동작합니다.
+프롬프트에 `ulw`를 포함하면 활성화되는 **철저함 강도(thoroughness intensity) 오버레이**입니다. Autopilot(자동화 축)과 **직교**하여 어떤 조합이든 가능합니다.
 
-- **Sisyphus Mode**: 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도
-- **Auto Task Tracking**: 요청을 TaskCreate로 분해, TaskUpdate로 추적, TaskList로 검증
-- **Compliance Guard**: Python Hook이 5개 실행 규칙의 준수를 결정론적으로 검증 (스냅샷 IMMORTAL 보존)
+- **I-1. Sisyphus Persistence**: 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고
+- **I-2. Mandatory Task Decomposition**: TaskCreate → TaskUpdate → TaskList 필수
+- **I-3. Bounded Retry Escalation**: 동일 대상 3회 초과 재시도 금지
+- **Compliance Guard**: Python Hook이 3개 강화 규칙의 준수를 결정론적으로 검증 (스냅샷 IMMORTAL 보존)
 
 상세: `CLAUDE.md` ULW Mode 섹션
 

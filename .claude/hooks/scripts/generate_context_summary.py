@@ -43,6 +43,8 @@ from _context_lib import (
     read_autopilot_state,
     update_latest_with_guard,
     archive_and_index_session,
+    detect_ulw_mode,
+    check_ulw_compliance,
 )
 
 
@@ -147,6 +149,14 @@ def main():
     # Non-blocking: only logs warning, does not fail the hook.
     try:
         _check_missing_verifications(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
+    # --- ULW Compliance safety net ---
+    # Check ULW Intensifier compliance and warn on violations.
+    # Non-blocking: only logs warning to stderr, does not fail the hook.
+    try:
+        _check_ulw_compliance_safety_net(entries)
     except Exception:
         pass  # Non-blocking — never fail the hook
 
@@ -374,6 +384,25 @@ def _check_missing_verifications(project_dir):
                 f"no verification report found at verification-logs/step-{step_num}-verify.md",
                 file=sys.stderr,
             )
+
+
+def _check_ulw_compliance_safety_net(entries):
+    """Check ULW Intensifier compliance and warn on violations.
+
+    Safety net: If ULW is active and any of the 3 Intensifiers are violated,
+    log a warning to stderr. This catches compliance issues that might not
+    be visible in the snapshot alone.
+
+    P1 Compliance: Delegates to check_ulw_compliance() (deterministic).
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    ulw_compliance = check_ulw_compliance(entries)
+    if not ulw_compliance:
+        return  # ULW not active
+
+    warnings = ulw_compliance.get("warnings", [])
+    for w in warnings:
+        print(f"[ULW Compliance Safety Net] {w}", file=sys.stderr)
 
 
 if __name__ == "__main__":

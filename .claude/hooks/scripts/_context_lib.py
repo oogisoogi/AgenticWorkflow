@@ -965,18 +965,42 @@ def detect_ulw_mode(entries):
     return None
 
 
+def _extract_file_from_nearby_tool_use(entries, error_idx, window=3):
+    """Extract file path from tool_use entries near an error (private helper).
+
+    Looks backward from error_idx within `window` entries for Edit/Write
+    tool_use with a file_path field.
+
+    Note: parse_transcript() stores file_path at the entry's top level
+    (not nested under "parameters" or "input") — see line 341/345 of
+    _parse_assistant_entry().
+
+    Returns:
+        str or None: file path if found.
+    """
+    start = max(0, error_idx - window)
+    for i in range(error_idx - 1, start - 1, -1):
+        entry = entries[i]
+        if entry.get("type") == "tool_use":
+            name = entry.get("tool_name", "")
+            if name in ("Edit", "Write"):
+                # file_path is a top-level key set by parse_transcript()
+                fp = entry.get("file_path", "")
+                if fp:
+                    return fp
+    return None
+
+
 def check_ulw_compliance(entries):
-    """ULW 모드 활성 시 5개 실행 규칙의 준수 여부를 결정론적으로 검증.
+    """ULW 모드 활성 시 3개 강화 규칙(Intensifiers)의 준수 여부를 결정론적으로 검증.
 
     All checks are pure counting and pattern matching — P1 compliant.
     No heuristic inference. No AI judgment.
 
-    Checks:
-      1. Auto Task Tracking: TaskCreate used? (threshold: 5+ tool uses)
-      2. Progress Reporting: TaskUpdate used? (when TaskCreate exists)
-      3. Completion Verification: TaskList used? (when TaskCreate exists)
-      4. Error Recovery: post-error tool actions exist?
-      5. Sisyphus Mode: indirect — incomplete tasks at session end
+    Intensifiers:
+      I-1. Sisyphus Persistence: error recovery + no partial completion (max 3 retries)
+      I-2. Mandatory Task Decomposition: TaskCreate/TaskUpdate/TaskList usage
+      I-3. Bounded Retry Escalation: no more than 3 consecutive retries on same target
 
     Args:
         entries: List of parsed transcript entries.
@@ -994,7 +1018,6 @@ def check_ulw_compliance(entries):
     post_ulw_entries = entries[ulw_start_idx:]
 
     tool_uses = [e for e in post_ulw_entries if e.get("type") == "tool_use"]
-    tool_results = [e for e in post_ulw_entries if e.get("type") == "tool_result"]
 
     compliance = {
         "active": True,
@@ -1004,6 +1027,7 @@ def check_ulw_compliance(entries):
         "total_tool_uses": len(tool_uses),
         "errors_detected": 0,
         "post_error_actions": 0,
+        "max_consecutive_retries": 0,
         "warnings": [],
     }
 
@@ -1020,6 +1044,8 @@ def check_ulw_compliance(entries):
     # Detect errors and post-error recovery attempts
     # Uses module-level TOOL_ERROR_PATTERNS (DRY — shared with extract_completion_state)
     last_error_global_idx = -1
+    # Track consecutive retries on same file for I-3
+    error_file_sequence = []  # list of (file_path_or_None,)
 
     for i, entry in enumerate(post_ulw_entries):
         if entry.get("type") == "tool_result":
@@ -1028,6 +1054,8 @@ def check_ulw_compliance(entries):
             if is_error or any(sig in content for sig in TOOL_ERROR_PATTERNS):
                 compliance["errors_detected"] += 1
                 last_error_global_idx = i
+                fp = _extract_file_from_nearby_tool_use(post_ulw_entries, i)
+                error_file_sequence.append(fp)
 
     # Count tool uses that occurred AFTER the last error (recovery attempts)
     if last_error_global_idx >= 0:
@@ -1035,36 +1063,60 @@ def check_ulw_compliance(entries):
             if i > last_error_global_idx and entry.get("type") == "tool_use":
                 compliance["post_error_actions"] += 1
 
-    # Generate deterministic warnings
-    # W1: No task tracking despite significant tool usage
+    # I-3: Detect max consecutive retries on same file
+    if error_file_sequence:
+        max_consecutive = 1
+        current_run = 1
+        for j in range(1, len(error_file_sequence)):
+            prev_fp = error_file_sequence[j - 1]
+            curr_fp = error_file_sequence[j]
+            if prev_fp and curr_fp and prev_fp == curr_fp:
+                current_run += 1
+                if current_run > max_consecutive:
+                    max_consecutive = current_run
+            else:
+                current_run = 1
+        compliance["max_consecutive_retries"] = max_consecutive
+
+    # Generate deterministic warnings — mapped to 3 Intensifiers
+
+    # W1 (I-1 Sisyphus Persistence): Errors detected but no subsequent actions
+    if compliance["errors_detected"] > 0 and compliance["post_error_actions"] == 0:
+        compliance["warnings"].append(
+            "ULW_NO_SISYPHUS: 에러 {}건 감지, 후속 조치 0건 — I-1 Sisyphus Persistence 미준수".format(
+                compliance["errors_detected"]
+            )
+        )
+
+    # W2 (I-2 Mandatory Task Decomposition): No task tracking despite significant tool usage
     if compliance["task_creates"] == 0 and compliance["total_tool_uses"] >= 5:
         compliance["warnings"].append(
-            "ULW_NO_TASKS: 도구 {}회 사용, TaskCreate 0회 — Auto Task Tracking 미준수".format(
+            "ULW_NO_DECOMPOSITION: 도구 {}회 사용, TaskCreate 0회 — I-2 Mandatory Task Decomposition 미준수".format(
                 compliance["total_tool_uses"]
             )
         )
 
-    # W2: Tasks created but never updated (no progress reporting)
+    # W2a (I-2 sub): Tasks created but never updated (no progress tracking)
     if compliance["task_creates"] > 0 and compliance["task_updates"] == 0:
         compliance["warnings"].append(
-            "ULW_NO_PROGRESS: TaskCreate {}회, TaskUpdate 0회 — Progress Reporting 미준수".format(
+            "ULW_NO_PROGRESS: TaskCreate {}회, TaskUpdate 0회 — I-2 Progress Tracking 미준수".format(
                 compliance["task_creates"]
             )
         )
 
-    # W3: Tasks created but never listed (no completion verification)
+    # W2b (I-2 sub): Tasks created but never listed (no completion verification)
     if compliance["task_creates"] > 0 and compliance["task_lists"] == 0:
         compliance["warnings"].append(
-            "ULW_NO_VERIFY: TaskCreate {}회, TaskList 0회 — 완료 검증 미수행".format(
+            "ULW_NO_VERIFY: TaskCreate {}회, TaskList 0회 — I-2 완료 검증 미수행".format(
                 compliance["task_creates"]
             )
         )
 
-    # W4: Errors detected but no subsequent actions (no error recovery)
-    if compliance["errors_detected"] > 0 and compliance["post_error_actions"] == 0:
+    # W3 (I-3 Bounded Retry Escalation): Same target retried > 3 times consecutively
+    if compliance["max_consecutive_retries"] > 3:
         compliance["warnings"].append(
-            "ULW_NO_RECOVERY: 에러 {}건 감지, 후속 조치 0건 — Error Recovery 미준수".format(
-                compliance["errors_detected"]
+            "ULW_RETRY_EXCEEDED: 동일 대상 연속 재시도 {}회 — I-3 Bounded Retry 초과 (최대 3회)".format(
+                compliance["max_consecutive_retries"]
             )
         )
 
@@ -1653,13 +1705,19 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
             sections.append(f"- **활성화**: Yes")
             sections.append(f"- **감지 위치**: {ulw_state['detected_in']} user message (index {ulw_state['message_index']})")
             sections.append(f"- **원본 지시**: {_truncate(ulw_state['source_message'], 500)}")
+
+            # Show Autopilot combination state
+            ap_state = read_autopilot_state(project_dir)
+            if ap_state:
+                sections.append(f"- **Autopilot 결합**: Yes (ULW가 Autopilot을 강화 — 재시도 한도 2→3회)")
+            else:
+                sections.append(f"- **Autopilot 결합**: No (대화형 + ULW)")
             sections.append("")
-            sections.append("### ULW 실행 규칙 (Execution Rules)")
-            sections.append("1. **Sisyphus Mode**: 모든 Task가 100% 완료될 때까지 멈추지 않음")
-            sections.append("2. **Auto Task Tracking**: 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증")
-            sections.append("3. **Error Recovery**: 에러 발생 시 대안을 시도하고, 대안도 실패하면 사용자에게 보고")
-            sections.append("4. **No Partial Completion**: '일부만 완료'는 미완료와 동일 — 전체 완료까지 계속")
-            sections.append("5. **Progress Reporting**: 각 Task 완료 시 TaskUpdate로 상태 갱신")
+
+            sections.append("### ULW 강화 규칙 (Intensifiers)")
+            sections.append("1. **I-1. Sisyphus Persistence**: 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고")
+            sections.append("2. **I-2. Mandatory Task Decomposition**: TaskCreate → TaskUpdate → TaskList 필수")
+            sections.append("3. **I-3. Bounded Retry Escalation**: 동일 대상 3회 초과 재시도 금지 — 초과 시 사용자 에스컬레이션")
             sections.append("")
 
             # ULW Compliance Guard — deterministic rule compliance check
@@ -1673,15 +1731,17 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
                 if ulw_compliance["errors_detected"] > 0:
                     sections.append(f"- 에러 감지: {ulw_compliance['errors_detected']}건")
                     sections.append(f"- 에러 후 조치: {ulw_compliance['post_error_actions']}건")
+                if ulw_compliance["max_consecutive_retries"] > 0:
+                    sections.append(f"- 최대 연속 재시도: {ulw_compliance['max_consecutive_retries']}회")
                 warnings = ulw_compliance.get("warnings", [])
                 if warnings:
                     sections.append("")
-                    sections.append("**⚠ 규칙 위반 감지:**")
+                    sections.append("**⚠ 강화 규칙 위반 감지:**")
                     for w in warnings:
                         sections.append(f"- {w}")
                 else:
                     sections.append("")
-                    sections.append("✅ 모든 규칙 준수")
+                    sections.append("✅ 모든 강화 규칙 준수")
                 sections.append("")
     except Exception:
         pass  # Non-blocking — ULW section is supplementary

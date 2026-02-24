@@ -51,6 +51,7 @@ REQUIRED_SCRIPTS = [
     "save_context.py",
     "update_work_log.py",
     "validate_pacs.py",
+    "validate_retry_budget.py",
     "validate_review.py",
     "validate_translation.py",
     "validate_verification.py",

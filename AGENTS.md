@@ -283,7 +283,7 @@ AgenticWorkflow/
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태 + Predictive Debugging 위험 점수 캐시 생성)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
-│   │   ├── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망)
+│   │   ├── generate_context_summary.py (증분 스냅샷 + Knowledge Archive + E5 Guard + Autopilot Decision Log 안전망 + ULW Compliance 안전망)
 │   │   ├── setup_init.py      (Setup Init — 인프라 건강 검증 + SOT 쓰기 패턴 검증(P1 할루시네이션 봉쇄), --init 트리거)
 │   │   ├── setup_maintenance.py (Setup Maintenance — 주기적 건강 검진, --maintenance 트리거)
 │   │   ├── block_destructive_commands.py (PreToolUse Safety Hook — 위험 명령 차단(P1 할루시네이션 봉쇄), exit code 2로 차단 + Claude 자기 수정)
@@ -292,7 +292,8 @@ AgenticWorkflow/
 │   │   ├── validate_pacs.py    (pACS P1 검증 + L0 Anti-Skip Guard — 독립 실행 스크립트, JSON 출력)
 │   │   ├── validate_review.py (Adversarial Review P1 검증 — 독립 실행 스크립트, JSON 출력)
 │   │   ├── validate_translation.py (Translation P1 검증 — T1-T9 + glossary 검증, JSON 출력)
-│   │   └── validate_verification.py (Verification Log P1 검증 — V1a-V1c 구조적 무결성, JSON 출력)
+│   │   ├── validate_verification.py (Verification Log P1 검증 — V1a-V1c 구조적 무결성, JSON 출력)
+│   │   └── validate_retry_budget.py (Retry Budget P1 검증 — RB1-RB3 재시도 예산 판정(ULW-aware), JSON 출력)
 │   ├── context-snapshots/     ← 런타임 스냅샷 (gitignored)
 │   └── skills/
 │       ├── workflow-generator/   ← 워크플로우 설계·생성
@@ -319,7 +320,7 @@ AgenticWorkflow/
 - **Knowledge Archive**: 세션 간 지식 축적 — `knowledge-index.jsonl`에 세션 사실을 결정론적으로 추출·축적. Stop hook과 SessionEnd/PreCompact 모두에서 기록하여 세션의 100% 인덱싱 보장. 각 엔트리에 completion_summary(도구 성공/실패), git_summary(변경 상태), session_duration_entries(세션 길이), phase(세션 단계), phase_flow(다단계 전환 흐름), primary_language(주요 파일 확장자), error_patterns(Error Taxonomy 12패턴 분류 + resolution 매칭), tool_sequence(RLE 압축 도구 시퀀스), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑) 포함. AI가 Grep으로 프로그래밍적 탐색 (RLM 패턴)
 - **Resume Protocol**: 스냅샷에 결정론적 복원 지시 포함 — 수정/참조 파일 목록, 세션 메타데이터, 완료 상태(도구 성공/실패), Git 변경 상태. **동적 RLM 쿼리 힌트**: 수정 파일 경로에서 추출한 태그(`extract_path_tags()`)와 에러 정보를 기반으로 세션별 맞춤 Grep 쿼리 예시를 자동 생성. 복원 품질의 바닥선 보장
 - **Autopilot 런타임 강화**: Autopilot 활성 시 스냅샷에 Autopilot 상태 섹션(IMMORTAL 우선순위)을 포함하고, 세션 복원 시 실행 규칙을 컨텍스트에 주입. Stop hook이 Decision Log 누락을 감지·보완
-- **ULW 모드 감지·보존**: `detect_ulw_mode()`가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 5개 실행 규칙을 컨텍스트에 주입. `check_ulw_compliance()`가 준수를 결정론적으로 검증. Knowledge Archive에 `ulw_active: true` 태깅
+- **ULW 모드 감지·보존**: `detect_ulw_mode()`가 트랜스크립트에서 word-boundary 정규식으로 `ulw` 키워드를 감지. 활성 시 스냅샷에 ULW 상태 섹션(IMMORTAL 우선순위)을 포함하고, SessionStart가 3개 강화 규칙(Intensifiers)을 컨텍스트에 주입. `check_ulw_compliance()`가 준수를 결정론적으로 검증. Knowledge Archive에 `ulw_active: true` 태깅
 - **결정 품질 태그 정렬**: 스냅샷의 "주요 설계 결정" 섹션은 `[explicit]` > `[decision]` > `[rationale]` > `[intent]` 순으로 정렬하여, 15개 슬롯에 고신호 결정이 우선 배치됨. 비교·트레이드오프·선택 패턴도 추출
 - **IMMORTAL-aware 압축**: 스냅샷 크기 초과 시 IMMORTAL 섹션을 우선 보존하고 비-IMMORTAL 콘텐츠를 먼저 절삭. 극단적 경우에도 IMMORTAL 텍스트 시작 부분 보존. **압축 감사 추적**: 각 압축 Phase가 제거한 문자 수를 HTML 주석(`<!-- compression-audit: ... -->`)으로 스냅샷 끝에 기록 (Phase 1~7 단계별 delta + 최종 크기)
 - **Error Taxonomy**: 도구 에러를 12패턴으로 분류 (file_not_found, permission, syntax, timeout, dependency, edit_mismatch, type_error, value_error, connection, memory, git_error, command_not_found). False positive 방지를 위해 negative lookahead·한정어 매칭 적용. Knowledge Archive의 error_patterns 필드에 기록. **Error→Resolution 매칭**: 에러 발생 후 5 entries 이내의 성공적 도구 호출을 file-aware 매칭으로 탐지하여 `resolution` 필드에 기록 (도구명 + 파일명). `Grep "resolution" knowledge-index.jsonl`로 해결 패턴 cross-session 탐색 가능
@@ -481,24 +482,26 @@ workflow:
 
 ### 5.1.1 ULW Mode (Claude Code)
 
-Autopilot이 워크플로우 단계 실행에 한정된다면, **ULW(Ultrawork)**는 범용 작업에서 SOT 없이 동작하는 집중 모드이다. 프롬프트에 `ulw`를 포함하면 활성화된다.
+**ULW(Ultrawork)**는 Autopilot과 **직교하는 철저함 강도(thoroughness intensity) 오버레이**이다. 프롬프트에 `ulw`를 포함하면 활성화된다.
 
-**핵심 기능:**
-1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음. 에러 시 대안 시도
-2. **Auto Task Tracking** — 요청을 TaskCreate로 분해 → TaskUpdate로 추적 → TaskList로 검증
+- **Autopilot** = 자동화 축(HOW) — `(human)` 승인 건너뛰기
+- **ULW** = 철저함 축(HOW THOROUGHLY) — 빠짐없이, 에러 해결까지 완벽 수행
 
-**Autopilot과의 차이:**
+**2x2 매트릭스:**
 
-| 항목 | Autopilot | ULW |
-|------|-----------|-----|
-| 대상 | 워크플로우 단계 | 범용 작업 |
-| 상태 관리 | SOT (`state.yaml`) | 스냅샷 IMMORTAL |
-| 비활성화 | SOT 변경 | 암묵적 (새 세션 시 `ulw` 없으면 비활성) |
-| 병렬 실행 | `(team)` 지원 | 미지원 |
+|  | **ULW OFF** | **ULW ON** |
+|---|---|---|
+| **Autopilot OFF** | 표준 대화형 | 대화형 + Sisyphus Persistence(3회) + 필수 태스크 분해 |
+| **Autopilot ON** | 표준 자동 워크플로우 | 자동 워크플로우 + Sisyphus 강화(재시도 3회) + 팀 철저함 |
 
-**결정론적 강화:** Python Hook이 5개 실행 규칙의 준수를 결정론적으로 검증 (Compliance Guard). 위반 시 스냅샷 IMMORTAL 섹션에 경고 기록.
+**3가지 강화 규칙 (Intensifiers):**
+1. **I-1. Sisyphus Persistence** — 최대 3회 재시도, 각 시도는 다른 접근법. 100% 완료 또는 불가 사유 보고
+2. **I-2. Mandatory Task Decomposition** — TaskCreate → TaskUpdate → TaskList 필수
+3. **I-3. Bounded Retry Escalation** — 동일 대상 3회 초과 재시도 금지, 초과 시 사용자 에스컬레이션
 
-> **공존 규칙**: Autopilot과 ULW 동시 활성화 시 Autopilot이 우선. ULW는 Autopilot을 override하지 않는다.
+**결정론적 강화:** Python Hook이 3개 강화 규칙의 준수를 결정론적으로 검증 (Compliance Guard). 위반 시 스냅샷 IMMORTAL 섹션에 경고 기록.
+
+> **결합 규칙**: ULW는 Autopilot을 **강화**한다 — Autopilot의 품질 게이트 재시도 한도를 2→3회로 상향. Safety Hook 차단은 항상 존중.
 
 상세: `CLAUDE.md` ULW Mode 섹션
 

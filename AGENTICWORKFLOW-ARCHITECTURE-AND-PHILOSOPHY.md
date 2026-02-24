@@ -1180,20 +1180,28 @@ PostToolUse ──────→ autopilot_step 진행 추적     │  ← work
 
 상세: `AGENTS.md §5.1`
 
-### ULW Mode (범용 집중 작업 모드)
+### ULW Mode (철저함 강도 오버레이)
 
-Autopilot이 워크플로우 단계에 한정된다면, ULW는 **범용 작업**에서 SOT 없이 동작하는 집중 모드이다.
+ULW는 Autopilot과 **직교하는 철저함 강도(thoroughness intensity) 오버레이**이다.
 
-| 항목 | Autopilot | ULW |
-|------|-----------|-----|
-| 대상 | 워크플로우 단계 | 범용 작업 |
-| 상태 관리 | SOT (`state.yaml`) | 스냅샷 IMMORTAL (SOT 불필요) |
-| 활성화 | SOT `autopilot.enabled: true` | 프롬프트에 `ulw` 포함 |
-| 비활성화 | SOT 변경 | 암묵적 (새 세션 시 `ulw` 없으면 비활성) |
+**2x2 매트릭스:**
 
-**핵심 기능:**
-1. **Sisyphus Mode** — 모든 Task가 100% 완료될 때까지 멈추지 않음
-2. **Auto Task Tracking** — TaskCreate → TaskUpdate → TaskList
+|  | **ULW OFF** | **ULW ON** |
+|---|---|---|
+| **Autopilot OFF** | 표준 대화형 | 대화형 + Sisyphus Persistence(3회) + 필수 태스크 분해 |
+| **Autopilot ON** | 표준 자동 워크플로우 | 자동 워크플로우 + Sisyphus 강화(재시도 3회) |
+
+**2축 비교:**
+
+| 축 | 관심사 | 활성화 | 비활성화 |
+|----|--------|--------|---------|
+| **Autopilot** | 자동화(HOW) | SOT `autopilot.enabled: true` | SOT 변경 |
+| **ULW** | 철저함(HOW THOROUGHLY) | 프롬프트에 `ulw` | 암묵적 (새 세션 시) |
+
+**3가지 강화 규칙 (Intensifiers):**
+1. **I-1. Sisyphus Persistence** — 최대 3회 재시도, 각 시도는 다른 접근법
+2. **I-2. Mandatory Task Decomposition** — TaskCreate → TaskUpdate → TaskList 필수
+3. **I-3. Bounded Retry Escalation** — 동일 대상 3회 초과 재시도 금지
 
 **결정론적 강화 (Claude Code 구현):**
 
@@ -1204,15 +1212,16 @@ detect_ulw_mode ──→ 트랜스크립트 정규식 감지     │  ← word-
                   │                            │
 Snapshot ─────────→ ULW 상태 IMMORTAL 보존      │  ← 세션 경계에서 유실 방지
                   │                            │
-SessionStart ─────→ ULW 실행 규칙 주입          │  ← clear/compact/resume 시
+SessionStart ─────→ ULW 강화 규칙 주입          │  ← clear/compact/resume 시
                   │ (startup 제외 — 암묵적 해제) │
                   │                            │
-Stop ─────────────→ Compliance Guard 검증       │  ← 5개 규칙 준수 결정론적 체크
+Stop ─────────────→ Compliance Guard 검증       │  ← 3개 강화 규칙 결정론적 체크
+                  │ + ULW 안전망 (stderr 경고)  │
                   │ + Knowledge Archive 태깅    │
                   └────────────────────────────┘
 ```
 
-> **Autopilot과의 공존**: 양쪽 동시 활성화 시 Autopilot이 우선. ULW는 Autopilot을 override하지 않는다.
+> **Autopilot과의 결합**: ULW는 Autopilot을 **강화**한다 — 품질 게이트 재시도 한도 2→3회 상향. Safety Hook 차단은 항상 존중.
 
 상세: `CLAUDE.md` ULW Mode 섹션
 
@@ -1557,5 +1566,5 @@ error_handling:
 | **Error Taxonomy** | 도구 에러를 12개 패턴으로 결정론적 분류하는 체계. Error→Resolution 매칭으로 해결 패턴도 기록 |
 | **Predictive Debugging** | Error Taxonomy 데이터를 사전 예측에 활용하는 L-1 계층. `aggregate_risk_scores()`(집계) + `predictive_debug_guard.py`(PreToolUse 경고) + RS1-RS6 P1 검증. ADR-036 |
 | **IMMORTAL Section** | 스냅샷 압축 시 우선 보존되는 핵심 섹션. 사용자 작업 지시, Autopilot/ULW 상태 등을 포함 |
-| **ULW (Ultrawork) Mode** | SOT 없이 동작하는 범용 집중 작업 모드. Sisyphus Mode(100% 완료 추구) + Auto Task Tracking. 프롬프트에 `ulw` 포함 시 활성화 |
+| **ULW (Ultrawork) Mode** | Autopilot과 직교하는 철저함 강도 오버레이. 3가지 강화 규칙(Intensifiers): Sisyphus Persistence(3회 재시도) + Mandatory Task Decomposition + Bounded Retry Escalation. 프롬프트에 `ulw` 포함 시 활성화 |
 | **P1 Hallucination Prevention** | 반복 정확 작업(스키마 검증, 쓰기 패턴 검증 등)을 Python 코드로 강제하여 AI 할루시네이션을 봉쇄하는 메커니즘 |
