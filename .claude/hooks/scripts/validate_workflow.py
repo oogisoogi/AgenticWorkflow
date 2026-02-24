@@ -15,12 +15,13 @@ Exit codes:
     0 — validation completed (check "valid" field for result)
     1 — argument error or fatal failure
 
-Checks (W1-W5):
+Checks (W1-W6):
     W1: Workflow file exists and is readable
     W2: Minimum file size (≥ 500 bytes)
     W3: Inherited DNA header present
     W4: Inherited Patterns table present (≥ 3 data rows)
     W5: Constitutional Principles section present
+    W6: Coding Anchor Points (CAP) reference present
 
 P1 Compliance: All validation is deterministic (delegates to _context_lib).
 SOT Compliance: Read-only — no file writes.

@@ -4896,7 +4896,7 @@ def _normalize_to_relative(filename, project_dir, modified_files):
 
 
 # ---------------------------------------------------------------------------
-# Workflow.md DNA Inheritance P1 Validation (W1-W5)
+# Workflow.md DNA Inheritance P1 Validation (W1-W6)
 # ---------------------------------------------------------------------------
 
 # Module-level compiled regex for W3/W4 checks (process-lifetime, one-time cost)
@@ -4913,10 +4913,13 @@ _WORKFLOW_INHERITED_TABLE_RE = re.compile(
 _WORKFLOW_CONSTITUTIONAL_RE = re.compile(
     r"Constitutional Principles", re.IGNORECASE
 )
+_WORKFLOW_CAP_RE = re.compile(
+    r"CAP-[1-4]|코딩\s*기준점|Coding\s*Anchor\s*Points", re.IGNORECASE
+)
 
 
 def validate_workflow_md(workflow_path):
-    """W1-W5: Generated workflow.md structural integrity for DNA inheritance.
+    """W1-W6: Generated workflow.md structural integrity for DNA inheritance.
 
     P1 Compliance: All validation is deterministic (regex + string checks).
     SOT Compliance: Read-only — no file writes.
@@ -4927,6 +4930,7 @@ def validate_workflow_md(workflow_path):
       W3: '## Inherited DNA' header present
       W4: Inherited Patterns table present (≥ 3 data rows)
       W5: Constitutional Principles section present
+      W6: Coding Anchor Points (CAP) reference present
 
     Args:
         workflow_path: Absolute path to generated workflow.md
@@ -4978,6 +4982,12 @@ def validate_workflow_md(workflow_path):
     if not _WORKFLOW_CONSTITUTIONAL_RE.search(content):
         warnings.append(
             "W5 FAIL: Constitutional Principles section not found"
+        )
+
+    # W6: Coding Anchor Points (CAP) reference
+    if not _WORKFLOW_CAP_RE.search(content):
+        warnings.append(
+            "W6 FAIL: Coding Anchor Points (CAP) reference not found"
         )
 
     has_fail = any("FAIL" in w for w in warnings)

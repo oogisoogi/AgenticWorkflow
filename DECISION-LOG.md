@@ -559,7 +559,7 @@
 - **상태**: Accepted
 - **맥락**: ADR-038에서 DNA Inheritance를 문서 기반 접근으로 구현했으나, Critical Reflection에서 P1 검증 공백이 식별됨. 기존 P1 체계(pACS/Review/Translation/Verification/L0)는 모두 결정론적 코드 검증을 갖추고 있으나, 생성된 workflow.md의 Inherited DNA 존재 여부는 프롬프트 기반 강제만 존재. P1 철학("code doesn't lie")과 모순.
 - **결정**:
-  1. `_context_lib.py`에 `validate_workflow_md()` 함수 추가 — W1-W5 결정론적 검증 (파일 존재, 최소 크기, Inherited DNA 헤더, Inherited Patterns 테이블 ≥ 3행, Constitutional Principles)
+  1. `_context_lib.py`에 `validate_workflow_md()` 함수 추가 — W1-W6 결정론적 검증 (파일 존재, 최소 크기, Inherited DNA 헤더, Inherited Patterns 테이블 ≥ 3행, Constitutional Principles, Coding Anchor Points(CAP) 참조)
   2. `validate_workflow.py` 독립 실행 스크립트 생성 — 기존 `validate_*.py` 패턴과 동일
   3. `SKILL.md` Step 13(Distill 검증)에서 호출 권고
   4. `REQUIRED_SCRIPTS`에 추가 (D-7 동기화: setup_init.py + setup_maintenance.py)
@@ -585,6 +585,21 @@
   - C3(SOT retry_count) → SOT 범위 초과 — 파일 카운팅이 적합
   - W3(KI 품질 메트릭) → 현재 pacs_min 충분 — RLM 수요 시 재검토
 - **관련 ADR**: ADR-022 (Verification Protocol), ADR-037 (pACS P1), ADR-034 (Adversarial Review)
+
+### ADR-041: 코딩 기준점 (Coding Anchor Points, CAP-1~4)
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: CCP(절대 기준 3)는 코드 변경 시 "무엇을 수행하는가"(3단계 절차)를 정의하지만, "어떤 태도로 수행하는가"(사고방식)는 명시되어 있지 않았다. 코딩 전 사고, 단순성 우선, 목표 기반 실행, 외과적 변경 4가지 태도 규범이 CCP 실행의 전제 조건으로 필요.
+- **결정**: CCP 내부에 하위 섹션(`#### 코딩 기준점`)으로 CAP-1~4를 정의. AGENTS.md(Hub)에 완전 정의, CLAUDE.md/Spoke 3개에 압축 참조, reviewer.md의 기존 Technical Quality 렌즈에 CAP-2·CAP-4 관찰 항목 2개 추가, ARCHITECTURE.md에 1줄 참조, SKILL.md Genome Inheritance에 CAP 포함 1줄 추가.
+- **근거**: (1) CAP는 CCP의 태도적 표현(gene expression)이므로 독립 게놈 구성요소가 아님 — soul.md 게놈 테이블 변경 불필요 (cascade 0). (2) CAP **행동** 강제는 P1 불가 — 태도는 의미론적이며 결정론적 검증 불가. (3) 기존 Hook/SOT/검증 스크립트 변경 0건.
+- **대안**:
+  - 독립 §2.5 섹션 생성 → 기각 (phantom hierarchy, CCP와의 관계 불명확)
+  - soul.md 게놈 테이블에 행 추가 → 기각 (12→13 cascade, 6+ 파일 연쇄 변경)
+  - reviewer.md에 6번째 렌즈 추가 → 기각 (@reviewer는 산출물 검토, CAP-1/CAP-3은 프로세스 태도로 산출물에서 관찰 불가)
+  - P1 Python 강제 (행동 검증) → 기각 (태도 ≠ 구조, 의미론적 판단은 결정론적 코드로 검증 불가, false positive 양산)
+- **후속 수정**: Critical Reflection에서 Category Error 식별 — CAP **행동** 강제(의미론적, P1 불가)와 CAP **문서 전파** 검증(구조적, P1 가능)은 다른 문제. 생성된 workflow.md에 CAP 참조가 구조적으로 존재하는지는 결정론적으로 검증 가능하므로, ADR-039의 `validate_workflow_md()`에 W6(Coding Anchor Points 참조 존재) 검증을 추가. 이는 ADR-041의 "행동 P1 기각"과 모순하지 않음 — W6는 문서 전파의 P1이지 행동의 P1이 아님.
+- **관련 ADR**: ADR-005 (CCP), ADR-038 (DNA Inheritance), ADR-039 (W6 추가)
 
 ---
 
@@ -617,6 +632,7 @@
 | 2026-02-20 | (pending) | ADR-038: DNA Inheritance — 부모 게놈의 구조적 유전 |
 | 2026-02-20 | (pending) | ADR-039: Workflow.md P1 Validation — DNA 유전의 코드 수준 검증 |
 | 2026-02-20 | (pending) | ADR-040: 종합 감사 III — 4계층 QA 집행력 강화 (C1r/C2/W4/C4s/W7) |
+| 2026-02-23 | (pending) | ADR-041: 코딩 기준점 (Coding Anchor Points, CAP-1~4) |
 
 ---
 

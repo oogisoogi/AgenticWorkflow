@@ -76,6 +76,8 @@ Examine the artifact through these lenses:
 - Correct implementations (no off-by-one, edge cases, etc.)?
 - Security considerations addressed?
 - Error handling appropriate?
+- Change scope surgical — no unrelated modifications or "improvements" to untouched code? (CAP-4)
+- No speculative abstractions or premature generalization — minimum code for the requirement? (CAP-2)
 
 **Style & Consistency**:
 - Consistent terminology throughout?

@@ -293,7 +293,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 
 1. 케이스 판별 (문서 유무)
 2. Case 1: 대화로 요구사항 수집 / Case 2: 문서 분석 → 확인 대화
-3. **Genome Inheritance**: `Inherited DNA (Parent Genome)` 섹션을 workflow.md에 포함 (유전 프로토콜 — `references/workflow-template.md` 참조). `parent_genome.version`은 워크플로우 생성 시점의 날짜(YYYY-MM-DD)를 사용한다.
+3. **Genome Inheritance**: `Inherited DNA (Parent Genome)` 섹션을 workflow.md에 포함 (유전 프로토콜 — `references/workflow-template.md` 참조). `parent_genome.version`은 워크플로우 생성 시점의 날짜(YYYY-MM-DD)를 사용한다. CCP 맥락화 시 코딩 기준점(CAP-1~4)을 포함한다.
 4. 설계 원칙 P1~P4 적용하며 3단계 구조로 작업 정의
 5. 각 단계에 데이터 전처리/후처리 명시 (P1)
 6. 휴먼-인-더-루프 지점 표시
@@ -336,7 +336,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
     - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
     - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가
     - "각 `Verification` 기준이 **파이프라인 연결**을 포함하는가?" — 단계 간 데이터 흐름 검증
-    - **DNA Inheritance P1 검증**: `python3 .claude/hooks/scripts/validate_workflow.py --workflow-path ./workflow.md` 실행 → W1-W5 통과 확인
+    - **DNA Inheritance P1 검증**: `python3 .claude/hooks/scripts/validate_workflow.py --workflow-path ./workflow.md` 실행 → W1-W6 통과 확인
     - 참조: `prompt/distill-partner.md`
 
 ## Autopilot Mode 지원
