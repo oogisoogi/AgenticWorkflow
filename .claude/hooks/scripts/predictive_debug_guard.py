@@ -6,7 +6,7 @@ Warns Claude about historically error-prone files BEFORE editing.
 Does NOT block — exit code 0 always. Warnings via stderr.
 
 Triggered by: PreToolUse with matcher "Edit|Write"
-Location: ~/.claude/settings.json (Global)
+Location: .claude/settings.json (Project)
 Path: Direct execution (standalone, NOT through context_guard.py)
 
 P1 Hallucination Prevention:

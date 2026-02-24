@@ -601,6 +601,17 @@
 - **후속 수정**: Critical Reflection에서 Category Error 식별 — CAP **행동** 강제(의미론적, P1 불가)와 CAP **문서 전파** 검증(구조적, P1 가능)은 다른 문제. 생성된 workflow.md에 CAP 참조가 구조적으로 존재하는지는 결정론적으로 검증 가능하므로, ADR-039의 `validate_workflow_md()`에 W6(Coding Anchor Points 참조 존재) 검증을 추가. 이는 ADR-041의 "행동 P1 기각"과 모순하지 않음 — W6는 문서 전파의 P1이지 행동의 P1이 아님.
 - **관련 ADR**: ADR-005 (CCP), ADR-038 (DNA Inheritance), ADR-039 (W6 추가)
 
+### ADR-042: Hook 설정 Global → Project 통합
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: 기존 Hook 설정이 Global(`~/.claude/settings.json`)과 Project(`.claude/settings.json`)에 분산되어 있어, `git clone`한 사용자가 글로벌 Hook 7개를 수동 설치해야 코드베이스가 정상 동작했다. 에이전트(`.claude/agents/`)는 프로젝트 레벨로 자동 공유되는데, Hook만 글로벌 설치가 필요한 비대칭이 존재.
+- **결정**: 글로벌 Hook 7개(Stop, PostToolUse, PreCompact, SessionStart, PreToolUse ×3)를 모두 `.claude/settings.json`(Project)으로 이동. 글로벌 설정에서 hooks 섹션 제거. 동시에 `|| true` 패턴(exit code 2 삼킴 잠복 버그)을 `if test -f; then; fi` 패턴으로 통일.
+- **근거**: (1) `git clone`만으로 에이전트 + Hook + 스킬 전체가 자동 적용 — zero-config 온보딩. (2) Claude Code는 모든 Hook 이벤트를 프로젝트 레벨에서 지원 — 기능 제한 없음. (3) `|| true` → `if; fi` 패턴 전환으로 미래 차단 기능 추가 시 exit code 2가 안전하게 전파.
+- **영향 범위**: `.claude/settings.json`(Hook 병합), `~/.claude/settings.json`(hooks 제거), CLAUDE.md(Hook 위치 설명), ARCHITECTURE.md(설정 테이블), 4개 Python docstring, README.md, AGENTS.md, claude-code-patterns.md — 총 11개 파일
+- **대안**: 글로벌 설치 스크립트 제공 → 기각 (추가 설치 단계 필요, 자동 적용이 아님)
+- **관련 ADR**: ADR-012 (Hook 기반 컨텍스트 보존), ADR-015 (context_guard.py 통합 디스패처)
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -633,6 +644,7 @@
 | 2026-02-20 | (pending) | ADR-039: Workflow.md P1 Validation — DNA 유전의 코드 수준 검증 |
 | 2026-02-20 | (pending) | ADR-040: 종합 감사 III — 4계층 QA 집행력 강화 (C1r/C2/W4/C4s/W7) |
 | 2026-02-23 | (pending) | ADR-041: 코딩 기준점 (Coding Anchor Points, CAP-1~4) |
+| 2026-02-23 | (pending) | ADR-042: Hook 설정 Global → Project 통합 |
 
 ---
 

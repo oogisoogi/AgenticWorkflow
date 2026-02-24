@@ -125,7 +125,7 @@ AgenticWorkflow/
 │   │   ├── install.md                     (Setup Init 검증 결과 분석 — /install)
 │   │   └── maintenance.md                 (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/                     ← Context Preservation System + Setup Hooks + Safety Hooks
-│   │   ├── context_guard.py               (Global Hook 통합 디스패처 — 모든 Global Hook의 진입점)
+│   │   ├── context_guard.py               (Hook 통합 디스패처 — 4개 이벤트의 단일 진입점)
 │   │   ├── _context_lib.py                (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 구조(S7a-S7e: dimensions·score·weak_dimension·history·pre_mortem_flag) + S8 active_team 구조(S8a-S8e: name·status·tasks_completed·tasks_pending·completed_summaries)), Quality Gate 상태 추출(_extract_quality_gate_state — pacs/review/verification 로그에서 최신 단계 품질 게이트 상태를 IMMORTAL 스냅샷에 보존), Adversarial Review P1 검증(validate_review_output+parse_review_verdict+calculate_pacs_delta+validate_review_sequence — Enhanced L2 결정론적 검증), Translation P1 검증(validate_translation_output T1-T7 + check_glossary_freshness T8 + verify_pacs_arithmetic T9 범용 + validate_verification_log V1a-V1c), Predictive Debugging P1(aggregate_risk_scores+validate_risk_scores RS1-RS6+_RISK_WEIGHTS 13개 가중치+_RECENCY_DECAY_DAYS 감쇠), 모듈 레벨 regex 컴파일(9개+8개+8개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py                (SessionEnd/PreCompact 저장 엔진)
 │   │   ├── restore_context.py             (SessionStart 복원 — RLM 포인터 + 동적 RLM 쿼리 힌트 + Error→Resolution 자동 표면화 + Predictive Debugging 위험 점수 캐시 생성)
@@ -207,22 +207,21 @@ AgenticWorkflow/
 
 ### Hook 설정 위치
 
-- **Global** (`~/.claude/settings.json`): `context_guard.py` 통합 디스패처 4개 + 독립 Safety Hook 2개
-  - Stop → `context_guard.py --mode=stop` → `generate_context_summary.py`
-  - PostToolUse → `context_guard.py --mode=post-tool` → `update_work_log.py` (matcher: `Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate`)
-  - PreCompact → `context_guard.py --mode=pre-compact` → `save_context.py --trigger precompact`
-  - SessionStart → `context_guard.py --mode=restore` → `restore_context.py`
-  - **PreToolUse** → `block_destructive_commands.py` (matcher: `Bash`, 독립 실행 — `if test -f; then; fi` 패턴으로 exit code 2 보존)
-  - **PreToolUse** → `block_test_file_edit.py` (matcher: `Edit|Write`, 독립 실행 — `.tdd-guard` 토글 기반 TDD 테스트 파일 보호)
-  - **PreToolUse** → `predictive_debug_guard.py` (matcher: `Edit|Write`, 독립 실행 — `if test -f; then; fi` 패턴으로 경고 전용 exit code 0)
-- **Project** (`.claude/settings.json`): SessionEnd + Setup 이벤트
-  - SessionEnd → `save_context.py --trigger sessionend`
-  - Setup (init) → `setup_init.py` — 인프라 건강 검증 (`claude --init`)
-  - Setup (maintenance) → `setup_maintenance.py` — 주기적 건강 검진 (`claude --maintenance`)
+모든 Hook은 **Project** (`.claude/settings.json`)에 통합 정의되어 있다. `git clone`만으로 Hook 인프라가 자동 적용된다.
 
-> **Setup Hook의 context_guard.py 우회 근거**: Setup은 세션 시작 **전**에 실행되는 프로젝트 고유 인프라 검증이므로, Global 디스패처와 독립적으로 Project 설정에서 직접 실행한다. SOT에 접근하지 않는다.
-> **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`(안전)와 `block_test_file_edit.py`(TDD 보호)는 컨텍스트 보존과는 다른 도메인이다. exit code 2 보존이 필수이므로, `|| true` 패턴을 사용하는 `context_guard.py`를 거치지 않고 `if test -f; then; fi` 패턴으로 직접 실행한다. `block_test_file_edit.py`는 `.tdd-guard` 파일 존재 시에만 활성화된다 (`touch .tdd-guard`로 TDD 모드 시작, `rm .tdd-guard`로 해제).
-> **WARNING — `|| true` 잠복 버그**: 기존 Global Hook 4개(`context_guard.py` 경유)는 `test -f ... && python3 ... || true` 패턴을 사용한다. `|| true`는 모든 non-zero exit code를 0으로 변환하므로, **exit code 2(차단 신호)도 삼킨다.** `context_guard.py` line 78의 exit code 2 패스스루 로직은 현재 dead code이다 (어떤 자식 스크립트도 exit 2를 반환하지 않음). 미래에 `context_guard.py` 자식 스크립트에 차단 기능을 추가할 경우, **반드시 해당 Hook 엔트리의 `|| true`를 `if test -f; then; fi` 패턴으로 교체**해야 한다.
+- Stop → `context_guard.py --mode=stop` → `generate_context_summary.py`
+- PostToolUse → `context_guard.py --mode=post-tool` → `update_work_log.py` (matcher: `Edit|Write|Bash|Task|NotebookEdit|TeamCreate|SendMessage|TaskCreate|TaskUpdate`)
+- PreCompact → `context_guard.py --mode=pre-compact` → `save_context.py --trigger precompact`
+- SessionStart → `context_guard.py --mode=restore` → `restore_context.py` (matcher: `clear|compact|resume`)
+- **PreToolUse** → `block_destructive_commands.py` (matcher: `Bash`, 독립 실행 — exit code 2 보존)
+- **PreToolUse** → `block_test_file_edit.py` (matcher: `Edit|Write`, 독립 실행 — `.tdd-guard` 토글 기반 TDD 테스트 파일 보호)
+- **PreToolUse** → `predictive_debug_guard.py` (matcher: `Edit|Write`, 독립 실행 — 경고 전용 exit code 0)
+- SessionEnd → `save_context.py --trigger sessionend` (matcher: `clear`)
+- Setup (init) → `setup_init.py` — 인프라 건강 검증 (`claude --init`)
+- Setup (maintenance) → `setup_maintenance.py` — 주기적 건강 검진 (`claude --maintenance`)
+
+> **`if test -f; then; fi` 패턴 통일**: 모든 Hook 명령이 `if test -f; then; fi` 패턴을 사용한다. 이전의 `|| true` 패턴(exit code 2 차단 신호를 삼키는 잠복 버그)을 제거하여, `context_guard.py` 자식 스크립트에 차단 기능 추가 시에도 exit code 2가 안전하게 전파된다.
+> **PreToolUse Safety Hook의 독립 실행 근거**: `block_destructive_commands.py`(안전)와 `block_test_file_edit.py`(TDD 보호)는 컨텍스트 보존과는 다른 도메인이다. exit code 2 보존이 필수이므로, `context_guard.py`를 거치지 않고 직접 실행한다. `block_test_file_edit.py`는 `.tdd-guard` 파일 존재 시에만 활성화된다 (`touch .tdd-guard`로 TDD 모드 시작, `rm .tdd-guard`로 해제).
 > **D-7 의도적 중복 인스턴스**: (1) `REQUIRED_SCRIPTS` — `setup_init.py` ↔ `setup_maintenance.py` (13개 스크립트 목록). (2) `predictive_debug_guard.py` 상수 — `RISK_THRESHOLD`/`MIN_SESSIONS` ↔ `_context_lib.py`의 `_RISK_SCORE_THRESHOLD`/`_RISK_MIN_SESSIONS`. (3) `ERROR_TAXONOMY` 타입명 — `_classify_error_patterns()` 내 12개 타입 ↔ `_RISK_WEIGHTS` 13개 키. 각 D-7 인스턴스는 코드에 cross-reference 주석이 있으며, 한쪽 변경 시 반드시 대응 쪽도 동기화해야 한다.
 
 ## 스킬 사용 판별

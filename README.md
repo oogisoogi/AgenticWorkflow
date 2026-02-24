@@ -64,7 +64,7 @@ AgenticWorkflow/
 
 | 스크립트 | 트리거 | 역할 |
 |---------|--------|------|
-| `context_guard.py` | (Global Hook 디스패처) | Global Hook의 통합 진입점. `--mode`에 따라 적절한 스크립트로 라우팅 |
+| `context_guard.py` | (Hook 디스패처) | Hook 통합 진입점. `--mode`에 따라 적절한 스크립트로 라우팅 |
 | `save_context.py` | SessionEnd, PreCompact | 전체 스냅샷 저장 |
 | `restore_context.py` | SessionStart | 포인터+요약으로 복원 |
 | `update_work_log.py` | PostToolUse | 9개 도구(Edit, Write, Bash, Task, NotebookEdit, TeamCreate, SendMessage, TaskCreate, TaskUpdate) 작업 로그 누적, 75% threshold 시 자동 저장 |

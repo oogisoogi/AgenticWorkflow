@@ -2,8 +2,8 @@
 """
 Context Preservation System — context_guard.py
 
-Unified entry point dispatching global Hook events to specialized handlers.
-This file is referenced by ~/.claude/settings.json (global hooks).
+Unified entry point dispatching Hook events to specialized handlers.
+This file is referenced by .claude/settings.json (project hooks).
 
 Dispatch table:
   --mode=stop        → generate_context_summary.py   (Stop hook: incremental snapshot)

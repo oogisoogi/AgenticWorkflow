@@ -6,7 +6,7 @@ Blocks dangerous commands BEFORE execution via exit code 2.
 Claude receives stderr feedback and self-corrects.
 
 Triggered by: PreToolUse with matcher "Bash"
-Location: ~/.claude/settings.json (Global)
+Location: .claude/settings.json (Project)
 Path: Direct execution (standalone, NOT through context_guard.py)
 
 P1 Hallucination Prevention: Destructive command detection is deterministic

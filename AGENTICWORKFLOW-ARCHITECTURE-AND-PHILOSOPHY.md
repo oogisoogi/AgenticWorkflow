@@ -690,7 +690,7 @@ graph TB
     end
 
     subgraph "디스패처"
-        CG["context_guard.py<br/>Global Hook 통합 진입점"]
+        CG["context_guard.py<br/>Hook 통합 진입점"]
     end
 
     subgraph "Safety + Warning"
@@ -812,12 +812,17 @@ graph TB
 - **Non-blocking**: 모든 Hook은 exit 0 반환 — 실패해도 Claude 동작을 차단하지 않음
 - **Knowledge Archive 로테이션**: `knowledge-index.jsonl` 최대 200 엔트리, `sessions/` 최대 20 파일 유지
 
-**Hook 설정 분리 (Global vs Project):**
+**Hook 설정 통합 (Project-only):**
 
-| 위치 | Hook 이벤트 | 근거 |
-|------|------------|------|
-| `~/.claude/settings.json` (Global) | PreCompact, SessionStart, PostToolUse, Stop | 모든 프로젝트에서 컨텍스트 보존 필요 |
-| `.claude/settings.json` (Project) | Setup (init), Setup (maintenance), SessionEnd | Setup: 프로젝트별 인프라 검증 (`--init`/`--maintenance`), SessionEnd: `/clear` 감지 — 모두 프로젝트별 설정으로 커밋 공유 |
+모든 Hook은 `.claude/settings.json` (Project)에 통합 정의되어 `git clone`만으로 자동 적용된다.
+
+| 이벤트 그룹 | Hook 이벤트 | 스크립트 |
+|------------|------------|---------|
+| Context Preservation | Stop, PostToolUse, PreCompact, SessionStart | `context_guard.py` → 4개 전문 스크립트로 디스패치 |
+| Safety | PreToolUse (Bash) | `block_destructive_commands.py` (독립 실행) |
+| TDD Guard | PreToolUse (Edit\|Write) | `block_test_file_edit.py` (독립 실행) |
+| Predictive Debug | PreToolUse (Edit\|Write) | `predictive_debug_guard.py` (독립 실행) |
+| Session Lifecycle | SessionEnd, Setup (init/maintenance) | `save_context.py`, `setup_init.py`, `setup_maintenance.py` |
 
 ---
 

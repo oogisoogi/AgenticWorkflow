@@ -348,7 +348,7 @@ Setup Hook은 Project 설정(`.claude/settings.json`)에서 직접 실행된다.
 Global 디스패처(`context_guard.py`)를 거치지 않는 이유:
 1. Setup은 프로젝트 고유 인프라 검증 — Global 관심사가 아님
 2. 세션 시작 **전**에 실행 — 세션 내 이벤트 라우팅과 무관
-3. `--init`/`--maintenance` 트리거는 Global Hook의 SessionStart/Stop과 독립
+3. `--init`/`--maintenance` 트리거는 SessionStart/Stop Hook과 독립
 
 **Slash Command 연동 (Level 2):**
 
