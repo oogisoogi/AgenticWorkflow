@@ -242,7 +242,7 @@ graph TB
         end
 
         subgraph "Context Preservation + Safety"
-            CPS["hooks/scripts/<br/>13개 Python 스크립트 + 1 라이브러리<br/>(절삭 상수 중앙화 + 다단계 전환 감지 + 결정 품질 태그 정렬<br/>+ E5 Guard + P1 할루시네이션 봉쇄 + Error→Resolution 매칭<br/>+ PreToolUse 위험 명령 차단/TDD Guard/Predictive Debug<br/>+ Adversarial Review P1 검증 + Translation P1 검증<br/>+ pACS P1 검증 + L0 Anti-Skip Guard)"]
+            CPS["hooks/scripts/<br/>19개 Python 스크립트 + 1 라이브러리 + Setup 2개<br/>(Context Preservation 6 + Safety 3 + P1 Validation 10 + Setup 2<br/>+ Abductive Diagnosis Layer)"]
             CSS["context-snapshots/<br/>런타임 스냅샷"]
         end
 
@@ -517,7 +517,7 @@ graph LR
 
 주황색 노드는 **차단 가능(blocking)** 이벤트 — exit code 2로 동작을 차단하고 피드백을 전달할 수 있다.
 
-> **Context Preservation System + Safety Hooks**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook으로 컨텍스트 보존 시스템을 운용하고, PreToolUse 2개 hook으로 위험 명령 차단(Safety Hook) + TDD 테스트 파일 보호(TDD Guard)를 수행한다 (총 7개 hook 이벤트). `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 위험한 Bash 명령(git push --force, git reset --hard 등)은 PreToolUse에서 정규식 기반으로 결정론적 차단된다. 상세는 `.claude/hooks/scripts/` 참조.
+> **Context Preservation System + Safety Hooks**: 이 프로젝트는 SessionStart, PostToolUse, Stop, PreCompact, SessionEnd 5개 hook으로 컨텍스트 보존 시스템을 운용하고, PreToolUse 3개 hook으로 위험 명령 차단(Safety Hook) + TDD 테스트 파일 보호(TDD Guard) + 에러 이력 기반 위험 파일 경고(Predictive Debugging)를 수행한다 (총 8개 hook 이벤트). `/clear` 또는 컨텍스트 압축 시 작업 내역을 자동 저장하고, 새 세션 시작 시 RLM 패턴(포인터 + 요약)으로 복원한다. 위험한 Bash 명령(git push --force, git reset --hard 등)은 PreToolUse에서 정규식 기반으로 결정론적 차단된다. 상세는 `.claude/hooks/scripts/` 참조.
 
 **Hook 3가지 타입:**
 
@@ -768,7 +768,7 @@ graph TB
 | `transcript.jsonl` | **읽기 전용** — 대화 내역 파싱 | Claude Code 시스템 파일, 수정 불가 |
 | `context-snapshots/` | **쓰기** — atomic write (temp → rename) | Hook 전용 산출물 디렉터리, SOT와 분리 |
 | `work_log.jsonl` | **쓰기** — append: fcntl.flock 파일 잠금, 절삭(proactive save): atomic write (temp → rename) | Hook 전용 로그, SOT와 분리 |
-| `knowledge-index.jsonl` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴). KI 스키마 검증(`_validate_session_facts` — 10개 필수 키 보장). 부분 실패 격리(archive 실패가 index 갱신 차단 안 함) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, session_duration_entries, phase, phase_flow, primary_language, error_patterns(Error Taxonomy 12패턴 + resolution 매칭), tool_sequence(RLE 압축), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑) 포함 |
+| `knowledge-index.jsonl` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출). fcntl.flock 파일 잠금 + os.fsync 내구성 보장. TOCTOU race 방지 (try/except FileNotFoundError 패턴). KI 스키마 검증(`_validate_session_facts` — 11개 필수 키 보장, diagnosis_patterns 포함). 부분 실패 격리(archive 실패가 index 갱신 차단 안 함) | 세션 간 축적 인덱스, SOT와 분리. session_id 기반 dedup (빈 ID/"unknown" 제외). completion_summary, git_summary, session_duration_entries, phase, phase_flow, primary_language, error_patterns(Error Taxonomy 12패턴 + resolution 매칭), tool_sequence(RLE 압축), final_status(success/incomplete/error/unknown), tags(경로 기반 검색 태그 — CamelCase/snake_case 분리 + 확장자 매핑) 포함 |
 | `sessions/` | **쓰기** — `archive_and_index_session()` (`save_context.py` + `generate_context_summary.py` + `update_work_log.py`에서 호출) | 세션 아카이브, SOT와 분리 |
 | `autopilot-logs/` | **쓰기** — Decision Log 안전망 (`generate_context_summary.py`, Autopilot 활성 시에만) | Autopilot 자동 승인 결정 로그, SOT와 분리 |
 | `.claude/hooks/setup.init.log` | **쓰기** — `setup_init.py` (Setup init Hook: Python 버전, PyYAML, 스크립트 구문×13, 디렉터리×3(context-snapshots, sessions, 런타임 5개), .gitignore, SOT 쓰기 패턴 검증) | 인프라 검증 결과 로그, `/install` 슬래시 커맨드가 분석 |
@@ -787,7 +787,7 @@ graph TB
 | 설계 결정 추출 + 품질 태그 정렬 | **Python** (`_context_lib.py`) | 결정론적 — 4개 패턴(`[explicit]`/`[decision]`/`[rationale]`/`[intent]`) 추출 후 품질 우선 정렬 |
 | 에러 패턴 분류 + 해결 매칭 (Error Taxonomy) | **Python** (`_context_lib.py`) | 결정론적 — 12개 regex 패턴으로 에러 유형 분류. false positive 방지. Error→Resolution 매칭: 에러 후 5 entries 이내 성공 호출을 file-aware 탐지 |
 | 경로 태그 추출 | **Python** (`_context_lib.py`) | 결정론적 — `extract_path_tags()` CamelCase/snake_case 분리 + `_EXT_TAGS` 확장자 매핑 |
-| KI 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `_validate_session_facts()` 10개 필수 키 보장 (누락 시 안전 기본값) |
+| KI 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `_validate_session_facts()` 11개 필수 키 보장 (누락 시 안전 기본값, diagnosis_patterns 포함) |
 | SOT 스키마 검증 | **Python** (`_context_lib.py`) | 결정론적 — `validate_sot_schema()` 8항목 구조 무결성 검증 (S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial\|all_completed), tasks_completed, tasks_pending, completed_summaries)) |
 | pACS P1 검증 | **Python** (`_context_lib.py` + `validate_pacs.py`) | 결정론적 — `validate_pacs_output()` PA1-PA6 pACS 로그 구조 무결성 검증 (파일 존재, 최소 크기, 차원 점수 0-100, Pre-mortem 존재, min() 산술, Color Zone 정합성) |
 | L0 Anti-Skip Guard | **Python** (`_context_lib.py` + `validate_pacs.py`) | 결정론적 — `validate_step_output()` L0a-L0c 산출물 물리적 존재 검증 (SOT outputs에서 경로 추출, 파일 존재, ≥100 bytes, 비공백) |
@@ -1145,6 +1145,8 @@ L2: Adversarial Review (Enhanced — Review: 필드 지정 단계만)
 ```
 
 > `Verification` 필드가 없는 단계는 L0(Anti-Skip Guard)만으로 진행 (하위 호환). 상세: §5.6, AGENTS.md §5.3~§5.5
+>
+> **Abductive Diagnosis Layer**: 품질 게이트(Verification/pACS/Review) FAIL → 재시도 사이에 3단계 구조화된 진단을 수행한다. Step A: P1 사전 증거 수집(`diagnose_context.py` — retry history, upstream evidence, hypothesis priority, fast-path 판정), Step B: LLM 원인 분석(가설 ≥ 2개 비교), Step C: P1 사후 검증(`validate_diagnosis.py` AD1-AD10 구조적 무결성). Fast-Path(FP1: 단순 누락, FP2: 기존 해결 패턴, FP3: 반복 실패 → 에스컬레이션)로 결정론적 단축 가능. 진단 로그는 `diagnosis-logs/step-N-{gate}-{timestamp}.md`에 기록되고, Knowledge Archive에 `diagnosis_patterns`로 아카이빙된다. 상세: AGENTS.md §5.6
 
 **Decision Log:**
 

@@ -590,13 +590,13 @@ Team Lead ─┬→ @researcher  [Hook: 출처 검증]
 
 **L1: Verification Gate (의미론적 — `Verification` 필드 있는 단계만)**
 4. 산출물이 `Verification` 기준을 100% 달성했는지 에이전트가 자기 검증
-5. 실패 기준 발견 시 해당 부분만 재실행 (최대 2회 재시도)
-6. `verification-logs/step-N-verify.md`에 기준별 PASS/FAIL + Evidence 기록
+5. 실패 기준 발견 시 재시도 전 **Abductive Diagnosis** 수행(P1 사전 증거 수집 → LLM 원인 분석 → P1 사후 검증) 후 진단 기반 재실행 (최대 2회 재시도, ULW 시 3회)
+6. `verification-logs/step-N-verify.md`에 기준별 PASS/FAIL + Evidence 기록. 진단 로그는 `diagnosis-logs/step-N-{gate}-{timestamp}.md`에 기록
 
 **L1.5: pACS — predicted Agent Confidence Score (자기 신뢰 평가)**
 7. Verification 통과 후, 에이전트가 F(Factual Grounding)/C(Completeness)/L(Logical Coherence) 3차원으로 자기 산출물을 채점
 8. pACS = min(F, C, L) — 가장 약한 차원이 전체 신뢰도 결정
-9. RED(< 50) → 해당 차원 재작업, YELLOW(50-69) → 경고 후 진행, GREEN(≥ 70) → 통과
+9. RED(< 50) → **Abductive Diagnosis** 수행 후 진단 기반 재작업, YELLOW(50-69) → 경고 후 진행, GREEN(≥ 70) → 통과
 10. `pacs-logs/step-N-pacs.md`에 Pre-mortem 답변 + 점수 기록
 
 **L2: Adversarial Review (Enhanced — `Review:` 필드 지정 단계만)**
