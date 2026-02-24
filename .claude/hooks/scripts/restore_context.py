@@ -370,6 +370,7 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
             output_lines.append(f'  - Grep "error_patterns" {ki_path} → 에러 패턴 포함 세션')
             output_lines.append(f'  - Grep "phase_flow.*implementation" {ki_path} → 구현 단계 세션')
             output_lines.append(f'  - Grep "ulw_active" {ki_path} → ULW 세션')
+            output_lines.append(f'  - Grep "diagnosis_patterns" {ki_path} → 진단 패턴 포함 세션')
             # C2: Dynamic RLM query hints (context-aware)
             file_paths = [c for l, c in summary if l == "수정_파일_경로"]
             if file_paths:
@@ -387,6 +388,15 @@ def _build_recovery_output(source, latest_path, summary, sot_warning, snapshot_a
                 output_lines.append("■ 최근 에러→해결 패턴 (자동 표면화):")
                 for er in error_resolutions[:3]:
                     output_lines.append(f"  - {er}")
+
+            # P1-2: Proactive Diagnosis Pattern surfacing
+            # Surface recent diagnosis patterns for cross-session learning
+            diagnosis_hints = _extract_recent_diagnosis_patterns(recent)
+            if diagnosis_hints:
+                output_lines.append("")
+                output_lines.append("■ 최근 진단 패턴 (자동 표면화):")
+                for dh in diagnosis_hints[:3]:
+                    output_lines.append(f"  - {dh}")
 
         if os.path.isdir(sessions_dir):
             output_lines.append(f"■ 세션 아카이브: {sessions_dir}")
@@ -550,6 +560,37 @@ def _extract_recent_error_resolutions(recent_sessions):
                 results.append(
                     f"{etype}{loc} ({tool}) → 해결: 미확인"
                 )
+        if len(results) >= 3:
+            break
+    return results[:3]
+
+
+def _extract_recent_diagnosis_patterns(recent_sessions):
+    """P1-2: Extract diagnosis patterns from recent Knowledge Archive sessions.
+
+    Proactively surfaces past diagnosis history (step, gate, hypothesis) at
+    SessionStart, enabling cross-session learning for retry quality improvement.
+    Symmetric with _extract_recent_error_resolutions (P1-1).
+
+    P1 Compliance: Deterministic extraction from structured JSON data.
+    Returns: list of human-readable strings (max 3).
+    """
+    results = []
+    for session in reversed(recent_sessions):
+        diagnosis_patterns = session.get("diagnosis_patterns", [])
+        if not isinstance(diagnosis_patterns, list):
+            continue
+        for dp in diagnosis_patterns:
+            if not isinstance(dp, dict):
+                continue
+            step = dp.get("step")
+            gate = dp.get("gate", "?")
+            hyp = dp.get("selected_hypothesis", "?")
+            ev_count = dp.get("evidence_count", 0)
+            step_str = f"Step {step}" if step else "Step ?"
+            results.append(
+                f"{step_str} {gate} → {hyp} (evidence: {ev_count}건)"
+            )
         if len(results) >= 3:
             break
     return results[:3]

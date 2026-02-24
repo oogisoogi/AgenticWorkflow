@@ -10,6 +10,8 @@ __pycache__/
 verification-logs/
 autopilot-logs/
 pacs-logs/
+review-logs/
+diagnosis-logs/
 translations/*
 !translations/glossary.yaml
 

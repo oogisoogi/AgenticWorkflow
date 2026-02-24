@@ -38,25 +38,25 @@ AgenticWorkflow는 그 자체로 완결되는 시스템이 아니다.
 그것이 무엇을 목적으로 하든, 부모의 **전체 게놈**을 물려받는다:
 
 ```
-┌─── AgenticWorkflow 게놈 (부모 DNA) ───────────────────────────┐
-│                                                               │
-│  헌법     절대 기준 3개 (품질 > SOT, CCP)                       │
-│  원칙     설계 원칙 4개 (P1 데이터 정제, P2 전문가 위임,          │
-│           P3 리소스 정확성, P4 질문 설계)                        │
-│  구조     Research → Planning → Implementation 3단계 제약       │
-│  기억     Context Preservation + Knowledge Archive + RLM 패턴   │
-│  검증     4계층 품질 보장 (L0 → L1 → L1.5 → L2)                │
-│  안전     P1 할루시네이션 봉쇄 + Safety Hook + 결정론적 검증      │
-│  투명     Decision Log + 감사 추적 + IMMORTAL 보존              │
-│  협업     SOT 단일 쓰기 + Agent Team 프로토콜                   │
-│  비판     Adversarial Review (Generator-Critic 패턴)           │
-│  추적     Cross-Step Traceability (교차 단계 논리적 연결)         │
-│  지식     Domain Knowledge Structure (도메인 특화 추론 구조)      │
-│  회복     Sisyphus Persistence + Error→Resolution 매칭          │
-│  이론     RLM 논문의 "외부 환경 객체" 패러다임                    │
-│  영혼     이 문서 (soul.md)                                    │
-│                                                               │
-└───────────────────────────────────────────────────────────────┘
+┌─── AgenticWorkflow 게놈 (부모 DNA) ─────────────────────────────────────┐
+│                                                                         │
+│  헌법     절대 기준 3개 (품질 > SOT, CCP)                                 │
+│  원칙     설계 원칙 4개 (P1 데이터 정제, P2 전문가 위임,                    │
+│           P3 리소스 정확성, P4 질문 설계)                                  │
+│  구조     Research → Planning → Implementation 3단계 제약                 │
+│  기억     Context Preservation + Knowledge Archive + RLM 패턴             │
+│  검증     4계층 품질 보장 (L0 → L1 → L1.5 → L2)                          │
+│  안전     P1 할루시네이션 봉쇄 + Safety Hook + 결정론적 검증                │
+│  투명     Decision Log + 감사 추적 + IMMORTAL 보존                        │
+│  협업     SOT 단일 쓰기 + Agent Team 프로토콜                             │
+│  비판     Adversarial Review (Generator-Critic 패턴)                     │
+│  추적     Cross-Step Traceability (교차 단계 논리적 연결)                   │
+│  지식     Domain Knowledge Structure (도메인 특화 추론 구조)                │
+│  회복     Sisyphus Persistence + Error→Resolution + Abductive Diagnosis   │
+│  이론     RLM 논문의 "외부 환경 객체" 패러다임                              │
+│  영혼     이 문서 (soul.md)                                              │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
          │              │              │              │
          ▼              ▼              ▼              ▼
     연구 자동화     콘텐츠 생산     데이터 분석     SW 개발

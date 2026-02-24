@@ -168,6 +168,14 @@ def main():
     except Exception:
         pass  # Non-blocking — never fail the hook
 
+    # --- Abductive Diagnosis safety net ---
+    # Detect retry-count files without corresponding diagnosis logs.
+    # Non-blocking: only logs warning, does not fail the hook.
+    try:
+        _check_missing_diagnosis(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
     # --- ULW Compliance safety net ---
     # Check ULW Intensifier compliance and warn on violations.
     # Non-blocking: only logs warning to stderr, does not fail the hook.
@@ -584,6 +592,64 @@ def _check_missing_dks_validation(project_dir):
                 )
                 return  # One warning is enough — avoid spam
         except (IOError, UnicodeDecodeError):
+            pass
+
+
+def _check_missing_diagnosis(project_dir):
+    """Detect retry-count files without corresponding diagnosis logs.
+
+    Safety net: Scans gate-logs/ directories for .step-N-retry-count files.
+    If a retry counter exists (retries > 0) but no corresponding diagnosis
+    log is found in diagnosis-logs/, logs a warning to stderr.
+
+    P1 Compliance: File existence checks (deterministic).
+    SOT Compliance: Read-only.
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    gate_dirs = ["verification-logs", "pacs-logs", "review-logs"]
+    gate_names = ["verification", "pacs", "review"]
+
+    for gate_dir_name, gate_name in zip(gate_dirs, gate_names):
+        gate_dir = os.path.join(project_dir, gate_dir_name)
+        if not os.path.isdir(gate_dir):
+            continue
+
+        retry_pattern = re.compile(r"^\.step-(\d+)-retry-count$")
+        try:
+            for fname in os.listdir(gate_dir):
+                match = retry_pattern.match(fname)
+                if not match:
+                    continue
+                step_num = match.group(1)
+
+                # Read retry count
+                retry_path = os.path.join(gate_dir, fname)
+                try:
+                    with open(retry_path, "r", encoding="utf-8") as f:
+                        retries = int(f.read().strip() or "0")
+                except (ValueError, OSError):
+                    retries = 0
+
+                if retries <= 0:
+                    continue
+
+                # Check for corresponding diagnosis log
+                diag_dir = os.path.join(project_dir, "diagnosis-logs")
+                has_diagnosis = False
+                if os.path.isdir(diag_dir):
+                    for df in os.listdir(diag_dir):
+                        if df.startswith(f"step-{step_num}-{gate_name}-") and df.endswith(".md"):
+                            has_diagnosis = True
+                            break
+
+                if not has_diagnosis:
+                    print(
+                        f"[Diagnosis Safety Net] Step {step_num}: "
+                        f"{gate_name} retry count={retries} but no diagnosis log "
+                        f"found at diagnosis-logs/step-{step_num}-{gate_name}-*.md",
+                        file=sys.stderr,
+                    )
+        except OSError:
             pass
 
 

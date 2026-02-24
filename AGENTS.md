@@ -281,7 +281,7 @@ AgenticWorkflow/
 │   │   └── maintenance.md     (Setup Maintenance 건강 검진 — /maintenance)
 │   ├── hooks/scripts/         ← Context Preservation System + Setup Hooks + Safety Hooks
 │   │   ├── context_guard.py   (Hook 통합 디스패처 — 4개 이벤트의 단일 진입점)
-│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), Translation P1 검증(validate_translation_output T1-T7, check_glossary_freshness T8, verify_pacs_arithmetic T9 범용, validate_verification_log V1a-V1c), Predictive Debugging P1(aggregate_risk_scores+validate_risk_scores RS1-RS6+_RISK_WEIGHTS 13개 가중치+_RECENCY_DECAY_DAYS 감쇠), pACS P1 검증(validate_pacs_output PA1-PA6 — pACS 로그 구조 무결성: 파일 존재·최소 크기·차원 점수·Pre-mortem·min() 산술·Color Zone), L0 Anti-Skip Guard(validate_step_output L0a-L0c — 산출물 파일 존재+최소 크기+비공백), Team Summaries KI 아카이브(_extract_team_summaries — SOT active_team.completed_summaries → KI 보존), 모듈 레벨 regex 컴파일(9개+8개+8개 패턴 — 프로세스당 1회))
+│   │   ├── _context_lib.py    (공유 라이브러리 — 파싱, 생성, SOT 캡처, Smart Throttling, Autopilot 상태 읽기·검증, ULW 감지·준수 검증, 절삭 상수 중앙화, sot_paths() 경로 통합, 다단계 전환 감지, 결정 품질 태그 정렬, Error Taxonomy 12패턴+Resolution 매칭, Success Patterns(Edit/Write→Bash 성공 시퀀스 추출), IMMORTAL-aware 압축+감사 추적, E5 Guard 중앙화(is_rich_snapshot+update_latest_with_guard), Knowledge Archive 통합(archive_and_index_session — 부분 실패 격리), 경로 태그 추출(extract_path_tags), KI 스키마 검증(_validate_session_facts — RLM 필수 키 보장), SOT 스키마 검증(validate_sot_schema — 워크플로우 state.yaml 구조 무결성 8항목 검증: S1-S6 기본 + S7 pacs 5필드(dimensions, current_step_score, weak_dimension, history, pre_mortem_flag) + S8 active_team 5필드(name, status(partial|all_completed), tasks_completed, tasks_pending, completed_summaries)), Adversarial Review P1 검증(validate_review_output R1-R5, parse_review_verdict, calculate_pacs_delta, validate_review_sequence), Translation P1 검증(validate_translation_output T1-T7, check_glossary_freshness T8, verify_pacs_arithmetic T9 범용, validate_verification_log V1a-V1c), Predictive Debugging P1(aggregate_risk_scores+validate_risk_scores RS1-RS6+_RISK_WEIGHTS 13개 가중치+_RECENCY_DECAY_DAYS 감쇠), pACS P1 검증(validate_pacs_output PA1-PA6 — pACS 로그 구조 무결성: 파일 존재·최소 크기·차원 점수·Pre-mortem·min() 산술·Color Zone), L0 Anti-Skip Guard(validate_step_output L0a-L0c — 산출물 파일 존재+최소 크기+비공백), Team Summaries KI 아카이브(_extract_team_summaries — SOT active_team.completed_summaries → KI 보존), Abductive Diagnosis Layer(diagnose_failure_context 사전 증거 수집 + validate_diagnosis_log AD1-AD10 사후 검증 + _extract_diagnosis_patterns KA 아카이빙 + Fast-Path FP1-FP3 + 가설 우선순위 H1/H2/H3), 모듈 레벨 regex 컴파일(9개+8개+8개+4개+5개 패턴 — 프로세스당 1회))
 │   │   ├── save_context.py    (저장 엔진)
 │   │   ├── restore_context.py (복원 — RLM 포인터 + 완료/Git 상태 + Predictive Debugging 위험 점수 캐시 생성)
 │   │   ├── update_work_log.py (작업 로그 누적 — 9개 도구 추적)
@@ -1072,6 +1072,63 @@ Task → L0 → L1 → L1.5 → Review(L2) → PASS → Translation → SOT upda
 | `@reviewer`/`@fact-checker` 에이전트 미정의 | Sub-agent 호출 실패 시 사용자 에스컬레이션 |
 
 > **설계 결정**: Adversarial Review를 기존 L2 Calibration의 Enhanced 버전으로 위치시킨다. L2 Calibration의 "교차 검증"을 "적대적 검토"로 강화하되, 기존 L0/L1/L1.5 계층은 전혀 변경하지 않는다. `Review:` 필드가 없는 단계는 이전과 동일하게 동작한다.
+
+---
+
+### 5.6 Abductive Diagnosis Protocol
+
+품질 게이트(Verification Gate, pACS, Adversarial Review) FAIL 시 즉시 재시도하는 대신, **3단계 진단**을 거쳐 재시도 품질을 높인다. 기존 4계층 QA(L0→L1→L1.5→L2)는 변경하지 않으며, FAIL과 재시도 **사이**에 삽입되는 부가 계층이다.
+
+#### 3단계 프로세스
+
+| 단계 | 주체 | 입력 | 출력 | 성격 |
+|------|------|------|------|------|
+| **Step A — P1 사전 증거 수집** | `diagnose_context.py` | SOT, 로그 파일, 재시도 이력 | 구조화된 증거 번들 (JSON) | 결정론적 |
+| **Step B — LLM 진단** | Orchestrator (Claude) | 증거 번들 + 가설 우선순위 | 진단 로그 (`diagnosis-logs/step-N-gate-timestamp.md`) | 판단적 |
+| **Step C — P1 사후 검증** | `validate_diagnosis.py` | 진단 로그 | AD1-AD10 구조적 무결성 (JSON) | 결정론적 |
+
+#### 가설 체계 (H1/H2/H3)
+
+| 가설 | 라벨 | 우선순위 결정 기준 |
+|------|------|-------------------|
+| **H1** | 상류 데이터 품질 문제 | 이전 단계 산출물 누락/과소 시 최우선 |
+| **H2** | 현재 단계 실행 격차 | 기본 최우선 (가장 빈번) |
+| **H3** | 기준 해석 오류 | Review 게이트에서 우선순위 상승 |
+
+#### Fast-Path (FP1-FP3)
+
+LLM 진단을 건너뛰는 결정론적 단축 경로:
+
+| ID | 조건 | 진단 | 동작 |
+|----|------|------|------|
+| **FP1** | 산출물 파일 부재 | "파일 미생성" | 즉시 재실행 |
+| **FP2** | 산출물 크기 < 100B | "불완전 생성" | 즉시 재실행 |
+| **FP3** | 동일 가설 2회 연속 선택 | "접근법 고착" | 사용자 에스컬레이션 |
+
+#### P1 사후 검증 (AD1-AD10)
+
+| 검증 | 설명 |
+|------|------|
+| AD1 | 진단 로그 파일 존재 |
+| AD2 | 최소 크기 ≥ 100 bytes |
+| AD3 | Gate 필드 일치 |
+| AD4 | 선택된 가설 존재 (H1/H2/H3) |
+| AD5 | 증거 항목 ≥ 1개 |
+| AD6 | Action Plan 섹션 존재 |
+| AD7 | 순방향 단계 참조 금지 |
+| AD8 | 가설 ≥ 2개 (대안 고려) |
+| AD9 | 선택 가설이 나열된 가설 중 하나 |
+| AD10 | 이전 진단 참조 (재시도 > 0 시) |
+
+#### 하위 호환성
+
+| 상황 | 동작 |
+|------|------|
+| `diagnosis-logs/` 미존재 | 기존 동작 그대로 — 진단 없이 재시도 |
+| 진단 없이 재시도 실행 | 정상 동작 — 안전망이 stderr 경고만 출력 |
+| Fast-Path 해당 | LLM 진단 건너뛀 — P1 사전 증거만으로 즉시 판단 |
+
+> **설계 결정**: Abductive Diagnosis는 기존 4계층 QA를 변경하지 않는 부가 계층이다. 진단 결과는 `diagnosis-logs/`에만 기록하고 SOT는 수정하지 않는다. Knowledge Archive에 `diagnosis_patterns`로 아카이빙되어 cross-session 학습이 가능하다.
 
 ---
 

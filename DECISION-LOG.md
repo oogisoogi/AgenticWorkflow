@@ -340,6 +340,16 @@
 - **대안**: 시간순 → 기각 (최근 intent가 오래된 decision을 밀어냄), 필터링 없음 → 기각 (노이즈가 신호를 압도)
 - **관련 커밋**: `2c91985` feat: Context Preservation 품질 강화
 
+### ADR-047: Abductive Diagnosis Layer — 품질 게이트 FAIL 시 구조화된 진단
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: 4계층 품질 보장(L0→L1→L1.5→L2)에서 게이트 FAIL 시 즉시 재시도하는 구조는 "왜 실패했는가?"를 분석하지 않아, 동일한 실패를 반복하거나 비효율적 재시도가 발생한다.
+- **결정**: FAIL과 재시도 사이에 3단계 진단(P1 사전 증거 수집 → LLM 판단 → P1 사후 검증)을 삽입한다. 기존 4계층 QA는 변경하지 않는 부가 계층(additive-only)으로 구현한다. 진단 결과는 `diagnosis-logs/`에만 기록하고 SOT는 수정하지 않는다. Fast-Path(FP1-FP3)로 결정론적 단축 경로를 제공한다.
+- **근거**: (1) 재시도 품질 향상 — 실패 원인에 맞는 수정 전략 선택, (2) 하위 호환성 — diagnosis-logs/ 없으면 기존 동작 그대로, (3) cross-session 학습 — Knowledge Archive에 diagnosis_patterns 아카이빙으로 패턴 축적.
+- **대안**: (a) SOT에 진단 상태 추가 → 기각 (SOT 스키마 복잡성 증가, 절대 기준 2 부담), (b) 재시도 횟수만 증가 → 기각 (근본 원인 미분석, 동일 실패 반복), (c) 별도 진단 에이전트 → 기각 (과도한 복잡성, 오케스트레이터 내 진단으로 충분)
+- **관련 커밋**: (pending)
+
 ---
 
 ## 6. Language & Translation (언어 및 번역)
@@ -693,6 +703,7 @@
 | 2026-02-23 | (pending) | ADR-044: G1 — 교차 단계 추적성 (Cross-Step Traceability) |
 | 2026-02-23 | (pending) | ADR-045: G2 — 팀 중간 체크포인트 패턴 (Dense Checkpoint Pattern) |
 | 2026-02-23 | (pending) | ADR-046: G3 — 도메인 지식 구조 (Domain Knowledge Structure) |
+| 2026-02-23 | (pending) | ADR-047: Abductive Diagnosis Layer — 품질 게이트 FAIL 시 구조화된 진단 |
 
 ---
 

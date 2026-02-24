@@ -198,6 +198,26 @@ _SYSTEM_CMD_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Used by Abductive Diagnosis functions — diagnosis-logs/ parsing
+# Captures the FULL heading line (including H-ID) so AD9 can extract H[123] from it.
+# E.g., "## H1: Upstream data quality issue" → captures "H1: Upstream data quality issue"
+_DIAG_HYPOTHESIS_RE = re.compile(
+    r"^#+\s*((?:H\d|Hypothesis)\b.+)", re.MULTILINE | re.IGNORECASE,
+)
+_DIAG_SELECTED_RE = re.compile(
+    r"(?:Selected|Chosen|Primary)\s*(?:Hypothesis|H\d)\s*:\s*(.+)",
+    re.IGNORECASE,
+)
+_DIAG_EVIDENCE_RE = re.compile(
+    r"^-\s*\*?\*?Evidence\*?\*?\s*:\s*(.+)", re.MULTILINE | re.IGNORECASE,
+)
+_DIAG_GATE_RE = re.compile(
+    r"Gate\s*:\s*(verification|pacs|review)", re.IGNORECASE,
+)
+_DIAG_SOURCE_STEP_RE = re.compile(
+    r"\(source:\s*Step\s+(\d+)\)", re.IGNORECASE,
+)
+
 
 # =============================================================================
 # Transcript Parsing
@@ -1746,6 +1766,35 @@ def generate_snapshot_md(session_id, trigger, project_dir, entries, work_log=Non
     except Exception:
         pass  # Non-blocking — ULW section is supplementary
 
+    # Section 2.6.5: Diagnosis State (IMMORTAL, conditional)
+    try:
+        diag_dir = os.path.join(project_dir, "diagnosis-logs")
+        if os.path.isdir(diag_dir):
+            diag_files = sorted([
+                f for f in os.listdir(diag_dir) if f.endswith(".md")
+            ])
+            if diag_files:
+                sections.append("### Diagnosis State")
+                sections.append("<!-- IMMORTAL: 세션 경계에서 진단 맥락 보존 -->")
+                sections.append("")
+                # Show last 3 diagnosis logs
+                for df in diag_files[-3:]:
+                    dpath = os.path.join(diag_dir, df)
+                    try:
+                        with open(dpath, "r", encoding="utf-8") as f:
+                            dcontent = f.read(1000)
+                        sel = _DIAG_SELECTED_RE.search(dcontent)
+                        gate_m = _DIAG_GATE_RE.search(dcontent)
+                        sections.append(
+                            f"- `{df}`: gate={gate_m.group(1) if gate_m else '?'}, "
+                            f"hypothesis={sel.group(1).strip() if sel else '?'}"
+                        )
+                    except Exception:
+                        sections.append(f"- `{df}`: (parse error)")
+                sections.append("")
+    except Exception:
+        pass  # Non-blocking — diagnosis section is supplementary
+
     # Section 2.7: Design Decisions (C-1 — IMMORTAL, conditional)
     if decisions:
         sections.append(f"{E5_DESIGN_DECISIONS_MARKER} (Design Decisions)")
@@ -2814,6 +2863,7 @@ _KI_REQUIRED_DEFAULTS = {
     "tags": [],
     "phase": "",
     "completion_summary": {},
+    "diagnosis_patterns": [],
 }
 
 
@@ -3225,6 +3275,11 @@ def extract_session_facts(session_id, trigger, project_dir, entries, token_estim
     if team_summaries:
         facts["team_summaries"] = team_summaries
 
+    # 6. Abductive Diagnosis patterns — archive to KI for cross-session learning
+    diagnosis_patterns = _extract_diagnosis_patterns(project_dir)
+    if diagnosis_patterns:
+        facts["diagnosis_patterns"] = diagnosis_patterns
+
     return facts
 
 
@@ -3478,6 +3533,29 @@ def _extract_quality_gate_state(project_dir):
             lines.append(
                 f"- **Verification**: PASS {pass_count}건, FAIL {fail_count}건"
             )
+        except Exception:
+            pass
+
+    # Diagnosis status for the latest step (if diagnosis-logs/ exists)
+    diag_dir = os.path.join(project_dir, "diagnosis-logs")
+    if os.path.isdir(diag_dir):
+        try:
+            diag_files = [
+                f for f in os.listdir(diag_dir)
+                if f.startswith(f"step-{max_step}-") and f.endswith(".md")
+            ]
+            if diag_files:
+                latest_diag = sorted(diag_files)[-1]
+                diag_path = os.path.join(diag_dir, latest_diag)
+                with open(diag_path, "r", encoding="utf-8") as f:
+                    diag_content = f.read(2000)
+                selected = _DIAG_SELECTED_RE.search(diag_content)
+                gate_match = _DIAG_GATE_RE.search(diag_content)
+                diag_gate = gate_match.group(1) if gate_match else "?"
+                diag_hyp = selected.group(1).strip() if selected else "?"
+                lines.append(
+                    f"- **Diagnosis**: gate={diag_gate}, hypothesis={diag_hyp}"
+                )
         except Exception:
             pass
 
@@ -5516,3 +5594,531 @@ def _validate_dks_output_refs(
                     f"DK7 FAIL: Constraint '{con.get('id', '?')}' violated: "
                     f"sum({field_name})={total} > {max_val}"
                 )
+
+
+# =============================================================================
+# Abductive Diagnosis Layer (P1: Deterministic Pre/Post Analysis)
+# =============================================================================
+# Inserts a 3-step diagnosis (P1 pre-evidence → LLM judgment → P1 post-validation)
+# between quality gate FAIL and retry. Existing 4-layer QA is NOT modified.
+# SOT Compliance: Read-only access to SOT, verification-logs/, pacs-logs/,
+#                 review-logs/, diagnosis-logs/.
+# P1 Compliance: All evidence gathering and validation is deterministic.
+
+
+def diagnose_failure_context(project_dir, step, gate, sot_data=None):
+    """Pre-analysis: Gather deterministic evidence bundle for a failed quality gate.
+
+    Called by Orchestrator AFTER a gate FAIL and BEFORE retry.
+    Returns a dict with structured evidence for LLM-based hypothesis selection.
+
+    Args:
+        project_dir: Project root path.
+        step: Step number that failed.
+        gate: One of 'verification', 'pacs', 'review'.
+        sot_data: Optional pre-loaded SOT dict (avoids re-reading).
+
+    Returns:
+        dict with keys: step, gate, retry_history, upstream_evidence,
+                        hypothesis_priority, fast_path, raw_evidence.
+    """
+    retry_history = _gather_retry_history(project_dir, step, gate)
+    upstream_evidence = _gather_upstream_evidence(project_dir, step, sot_data)
+    hypothesis_priority = _determine_hypothesis_priority(
+        retry_history, upstream_evidence, gate
+    )
+    fast_path = _check_fast_path_eligibility(
+        project_dir, step, gate, retry_history, sot_data=sot_data
+    )
+    raw_evidence = _gather_raw_evidence(project_dir, step, gate)
+
+    return {
+        "step": step,
+        "gate": gate,
+        "retry_history": retry_history,
+        "upstream_evidence": upstream_evidence,
+        "hypothesis_priority": hypothesis_priority,
+        "fast_path": fast_path,
+        "raw_evidence": raw_evidence,
+    }
+
+
+def _gather_retry_history(project_dir, step, gate):
+    """Read retry counter and previous diagnosis logs for this step+gate.
+
+    Returns:
+        dict with keys: retries_used (int), max_retries (int),
+                        previous_diagnoses (list of dicts).
+    """
+    result = {
+        "retries_used": 0,
+        "max_retries": 2,
+        "previous_diagnoses": [],
+    }
+
+    # Read retry counter
+    counter_dir = os.path.join(project_dir, f"{gate}-logs")
+    counter_file = os.path.join(counter_dir, f".step-{step}-retry-count")
+    if os.path.exists(counter_file):
+        try:
+            with open(counter_file, "r", encoding="utf-8") as f:
+                result["retries_used"] = int(f.read().strip() or "0")
+        except (ValueError, OSError):
+            pass
+
+    # Detect ULW mode for max_retries adjustment (2 → 3)
+    # D-7: ULW detection pattern must match validate_retry_budget.py _ULW_SNAPSHOT_RE
+    # and restore_context.py — all use "ULW 상태" section header presence.
+    snapshot_path = os.path.join(
+        project_dir, ".claude", "context-snapshots", "latest.md"
+    )
+    if os.path.exists(snapshot_path):
+        try:
+            with open(snapshot_path, "r", encoding="utf-8") as f:
+                content = f.read(8000)  # First 8KB only
+            if re.search(r"ULW 상태|Ultrawork Mode State", content):
+                result["max_retries"] = 3
+        except OSError:
+            pass
+
+    # Gather previous diagnosis logs
+    diag_dir = os.path.join(project_dir, "diagnosis-logs")
+    if os.path.isdir(diag_dir):
+        try:
+            for fname in sorted(os.listdir(diag_dir)):
+                if fname.startswith(f"step-{step}-{gate}-") and fname.endswith(".md"):
+                    fpath = os.path.join(diag_dir, fname)
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        selected = _DIAG_SELECTED_RE.search(content)
+                        result["previous_diagnoses"].append({
+                            "file": fname,
+                            "selected_hypothesis": selected.group(1).strip() if selected else "unknown",
+                        })
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    return result
+
+
+def _gather_upstream_evidence(project_dir, step, sot_data=None):
+    """Collect evidence from upstream step outputs referenced by SOT.
+
+    Returns:
+        dict with keys: upstream_outputs (list of {step, path, exists, size}),
+                        sot_current_step (int), sot_status (str).
+    """
+    result = {
+        "upstream_outputs": [],
+        "sot_current_step": step,
+        "sot_status": "unknown",
+    }
+
+    # Load SOT if not provided
+    if sot_data is None:
+        sot_data = {}
+        try:
+            import yaml
+            for sp in sot_paths(project_dir):
+                if os.path.exists(sp):
+                    with open(sp, "r", encoding="utf-8") as f:
+                        sot_data = yaml.safe_load(f) or {}
+                    break
+        except Exception:
+            pass
+
+    result["sot_current_step"] = sot_data.get("current_step", step)
+    result["sot_status"] = sot_data.get("workflow_status", "unknown")
+
+    # Gather upstream outputs (steps 1..step-1)
+    # Guard: YAML `outputs: null` returns None, not {}
+    outputs = sot_data.get("outputs") or {}
+    for prev_step in range(1, step):
+        key = f"step-{prev_step}"
+        path_raw = outputs.get(key, "")
+        if not path_raw:
+            continue
+        full_path = os.path.join(project_dir, path_raw)
+        result["upstream_outputs"].append({
+            "step": prev_step,
+            "path": path_raw,
+            "exists": os.path.exists(full_path),
+            "size": os.path.getsize(full_path) if os.path.exists(full_path) else 0,
+        })
+
+    return result
+
+
+def _determine_hypothesis_priority(retry_history, upstream_evidence, gate):
+    """Rule-based hypothesis prioritization based on available evidence.
+
+    Three hypothesis categories (H1, H2, H3):
+        H1: Upstream data quality (missing/thin upstream outputs)
+        H2: Current step execution gap (most common)
+        H3: Criteria interpretation error (rare)
+
+    Returns:
+        list of dicts with keys: id (str), label (str), priority (int 1-3),
+                                  reason (str).
+    """
+    hypotheses = []
+
+    # H1: Upstream data quality — check if any upstream output is missing/thin
+    thin_upstreams = []
+    for uo in upstream_evidence.get("upstream_outputs", []):
+        if not uo.get("exists"):
+            thin_upstreams.append(f"step-{uo['step']} missing")
+        elif uo.get("size", 0) < MIN_OUTPUT_SIZE:
+            thin_upstreams.append(f"step-{uo['step']} thin ({uo['size']}B)")
+
+    h1_priority = 1 if thin_upstreams else 3
+    hypotheses.append({
+        "id": "H1",
+        "label": "Upstream data quality issue",
+        "priority": h1_priority,
+        "reason": "; ".join(thin_upstreams) if thin_upstreams else "All upstream outputs present and adequate",
+    })
+
+    # H2: Current step execution gap — most common, default high priority
+    prev_diag = retry_history.get("previous_diagnoses", [])
+    h2_priority = 2 if prev_diag else 1
+    # If previous diagnosis already selected H2, lower priority (try different hypothesis)
+    if prev_diag and any(
+        d.get("selected_hypothesis", "").startswith("H2") or
+        "execution" in d.get("selected_hypothesis", "").lower()
+        for d in prev_diag
+    ):
+        h2_priority = 2
+
+    hypotheses.append({
+        "id": "H2",
+        "label": "Current step execution gap",
+        "priority": h2_priority,
+        "reason": f"{len(prev_diag)} previous diagnosis(es)" if prev_diag else "First attempt",
+    })
+
+    # H3: Criteria interpretation error — higher priority for review gate
+    h3_priority = 2 if gate == "review" else 3
+    hypotheses.append({
+        "id": "H3",
+        "label": "Criteria interpretation error",
+        "priority": h3_priority,
+        "reason": "Review gate benefits from criteria re-examination" if gate == "review" else "Low prior probability",
+    })
+
+    # Sort by priority (1 = highest)
+    hypotheses.sort(key=lambda h: h["priority"])
+    return hypotheses
+
+
+def _check_fast_path_eligibility(project_dir, step, gate, retry_history,
+                                 sot_data=None):
+    """Deterministic fast-path checks (FP1-FP3) that skip LLM diagnosis.
+
+    FP1: Missing output file — diagnosis is trivially 'file not generated'.
+    FP2: Empty/near-empty output — diagnosis is 'incomplete generation'.
+    FP3: Identical retry — same hypothesis selected twice without change.
+
+    Args:
+        sot_data: Optional pre-loaded SOT dict (avoids redundant I/O).
+
+    Returns:
+        dict with keys: eligible (bool), reason (str), fp_id (str or None).
+    """
+    result = {"eligible": False, "reason": "", "fp_id": None}
+
+    # FP1: Missing output file for current step
+    try:
+        if sot_data is None:
+            import yaml
+            sot_data = {}
+            for sp in sot_paths(project_dir):
+                if os.path.exists(sp):
+                    with open(sp, "r", encoding="utf-8") as f:
+                        sot_data = yaml.safe_load(f) or {}
+                    break
+        # Guard: YAML `outputs: null` returns None, not {}
+        outputs = sot_data.get("outputs") or {}
+        step_key = f"step-{step}"
+        output_path_raw = outputs.get(step_key, "")
+        if output_path_raw:
+            full_path = os.path.join(project_dir, output_path_raw)
+            if not os.path.exists(full_path):
+                result["eligible"] = True
+                result["reason"] = f"FP1: Output file missing — {output_path_raw}"
+                result["fp_id"] = "FP1"
+                return result
+            # FP2: Empty/near-empty output
+            fsize = os.path.getsize(full_path)
+            if fsize < MIN_OUTPUT_SIZE:
+                result["eligible"] = True
+                result["reason"] = f"FP2: Output too small ({fsize}B < {MIN_OUTPUT_SIZE}B)"
+                result["fp_id"] = "FP2"
+                return result
+    except Exception:
+        pass
+
+    # FP3: Identical retry — same hypothesis selected in 2+ previous diagnoses
+    prev_diag = retry_history.get("previous_diagnoses", [])
+    if len(prev_diag) >= 2:
+        selected = [d.get("selected_hypothesis", "") for d in prev_diag[-2:]]
+        if selected[0] and selected[0] == selected[1]:
+            result["eligible"] = True
+            result["reason"] = f"FP3: Same hypothesis '{selected[0]}' selected twice — escalate"
+            result["fp_id"] = "FP3"
+            return result
+
+    return result
+
+
+def _gather_raw_evidence(project_dir, step, gate):
+    """Bundle raw log content for the failing gate.
+
+    Returns:
+        dict with keys: gate_log_path (str), gate_log_excerpt (str),
+                        pacs_log_excerpt (str or None).
+    """
+    result = {
+        "gate_log_path": "",
+        "gate_log_excerpt": "",
+        "pacs_log_excerpt": None,
+    }
+
+    # Determine log path based on gate type
+    if gate == "verification":
+        log_path = os.path.join(
+            project_dir, "verification-logs", f"step-{step}-verify.md"
+        )
+    elif gate == "pacs":
+        log_path = os.path.join(
+            project_dir, "pacs-logs", f"step-{step}-pacs.md"
+        )
+    elif gate == "review":
+        log_path = os.path.join(
+            project_dir, "review-logs", f"step-{step}-review.md"
+        )
+    else:
+        return result
+
+    result["gate_log_path"] = log_path
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                # Read only first ERROR_RESULT_CHARS to avoid OOM on large logs
+                result["gate_log_excerpt"] = f.read(ERROR_RESULT_CHARS)
+        except OSError:
+            pass
+
+    # Always include pacs log if available (even for non-pacs gates)
+    if gate != "pacs":
+        pacs_path = os.path.join(
+            project_dir, "pacs-logs", f"step-{step}-pacs.md"
+        )
+        if os.path.exists(pacs_path):
+            try:
+                with open(pacs_path, "r", encoding="utf-8") as f:
+                    result["pacs_log_excerpt"] = f.read(ERROR_RESULT_CHARS)
+            except OSError:
+                pass
+
+    return result
+
+
+def validate_diagnosis_log(project_dir, step, gate):
+    """P1 Post-validation: Verify diagnosis log structural integrity (AD1-AD10).
+
+    Called after LLM writes the diagnosis log. All checks are deterministic.
+
+    Args:
+        project_dir: Project root path.
+        step: Step number.
+        gate: One of 'verification', 'pacs', 'review'.
+
+    Returns:
+        tuple(is_valid: bool, warnings: list[str])
+
+    Checks:
+        AD1: Diagnosis log file exists in diagnosis-logs/
+        AD2: Minimum file size (≥ 100 bytes)
+        AD3: Gate field matches expected gate
+        AD4: Selected hypothesis present (H1/H2/H3)
+        AD5: Evidence section present (≥ 1 evidence item)
+        AD6: Action plan section present
+        AD7: No forward step references (source: Step N where N > step)
+        AD8: Hypothesis count ≥ 2 (must consider alternatives)
+        AD9: Selected hypothesis is one of the listed hypotheses
+        AD10: Previous diagnosis referenced (if retry > 0)
+    """
+    warnings = []
+
+    # AD1: File exists
+    diag_dir = os.path.join(project_dir, "diagnosis-logs")
+    # Find the latest diagnosis log for this step+gate
+    diag_path = None
+    if os.path.isdir(diag_dir):
+        candidates = sorted([
+            f for f in os.listdir(diag_dir)
+            if f.startswith(f"step-{step}-{gate}-") and f.endswith(".md")
+        ])
+        if candidates:
+            diag_path = os.path.join(diag_dir, candidates[-1])
+
+    if not diag_path or not os.path.exists(diag_path):
+        warnings.append(
+            f"AD1 FAIL: No diagnosis log found for step-{step} gate={gate} "
+            f"in diagnosis-logs/"
+        )
+        return False, warnings
+
+    # Read content
+    try:
+        with open(diag_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError as e:
+        warnings.append(f"AD1 FAIL: Cannot read diagnosis log — {e}")
+        return False, warnings
+
+    # AD2: Minimum size
+    if len(content) < 100:
+        warnings.append(
+            f"AD2 FAIL: Diagnosis log too small ({len(content)}B < 100B)"
+        )
+
+    # AD3: Gate field matches
+    gate_match = _DIAG_GATE_RE.search(content)
+    if gate_match:
+        found_gate = gate_match.group(1).lower()
+        if found_gate != gate.lower():
+            warnings.append(
+                f"AD3 FAIL: Gate mismatch — expected '{gate}', found '{found_gate}'"
+            )
+    else:
+        warnings.append("AD3 FAIL: No Gate field found in diagnosis log")
+
+    # AD4: Selected hypothesis present
+    selected_match = _DIAG_SELECTED_RE.search(content)
+    if not selected_match:
+        warnings.append("AD4 FAIL: No selected hypothesis found")
+
+    # AD5: Evidence items (≥ 1)
+    evidence_items = _DIAG_EVIDENCE_RE.findall(content)
+    if len(evidence_items) < 1:
+        warnings.append(
+            f"AD5 FAIL: Insufficient evidence items ({len(evidence_items)} < 1)"
+        )
+
+    # AD6: Action plan section
+    action_plan_re = re.compile(
+        r"^#+\s*(?:Action\s*Plan|Recommended\s*Action|Next\s*Steps?)\b",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if not action_plan_re.search(content):
+        warnings.append("AD6 FAIL: No Action Plan section found")
+
+    # AD7: No forward step references
+    source_refs = _DIAG_SOURCE_STEP_RE.findall(content)
+    for ref_step_str in source_refs:
+        ref_step = int(ref_step_str)
+        if ref_step > step:
+            warnings.append(
+                f"AD7 FAIL: Forward reference to Step {ref_step} (current: {step})"
+            )
+
+    # AD8: Hypothesis count ≥ 2
+    hypotheses_found = _DIAG_HYPOTHESIS_RE.findall(content)
+    if len(hypotheses_found) < 2:
+        warnings.append(
+            f"AD8 FAIL: Insufficient hypotheses ({len(hypotheses_found)} < 2)"
+        )
+
+    # AD9: Selected hypothesis is one of the listed ones
+    # Extract H-IDs only from hypothesis headings (not from arbitrary body text)
+    if selected_match and hypotheses_found:
+        listed_h_ids = set()
+        for h_text in hypotheses_found:
+            h_id_match = re.search(r"\bH[123]\b", h_text)
+            if h_id_match:
+                listed_h_ids.add(h_id_match.group())
+        selected_h_id = re.search(
+            r"\bH[123]\b", selected_match.group(1).strip()
+        )
+        if selected_h_id and selected_h_id.group() not in listed_h_ids:
+            warnings.append(
+                f"AD9 FAIL: Selected hypothesis '{selected_h_id.group()}' "
+                f"not found among listed hypotheses {listed_h_ids}"
+            )
+
+    # AD10: Previous diagnosis referenced (if retry > 0)
+    retry_history = _gather_retry_history(project_dir, step, gate)
+    if retry_history["retries_used"] > 0 and retry_history["previous_diagnoses"]:
+        prev_ref_re = re.compile(
+            r"(?:previous|prior|earlier)\s+(?:diagnosis|attempt|retry)",
+            re.IGNORECASE,
+        )
+        if not prev_ref_re.search(content):
+            warnings.append(
+                "AD10 WARNING: No reference to previous diagnosis "
+                f"(retry #{retry_history['retries_used']})"
+            )
+
+    # Determine overall validity (any FAIL → invalid)
+    is_valid = not any("FAIL" in w for w in warnings)
+    return is_valid, warnings
+
+
+def _extract_diagnosis_patterns(project_dir):
+    """Extract diagnosis patterns from diagnosis-logs/ for Knowledge Archive.
+
+    Scans diagnosis-logs/ for completed diagnosis files and extracts
+    step, gate, selected_hypothesis, and evidence summary.
+
+    Returns:
+        list of dicts with keys: step, gate, selected_hypothesis, evidence_count.
+    """
+    patterns = []
+    diag_dir = os.path.join(project_dir, "diagnosis-logs")
+    if not os.path.isdir(diag_dir):
+        return patterns
+
+    try:
+        for fname in sorted(os.listdir(diag_dir)):
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(diag_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Extract step and gate from filename: step-N-gate-timestamp.md
+                parts = fname.replace(".md", "").split("-")
+                step_num = None
+                gate_name = None
+                for i, p in enumerate(parts):
+                    if p == "step" and i + 1 < len(parts):
+                        try:
+                            step_num = int(parts[i + 1])
+                        except ValueError:
+                            pass
+                    if p in ("verification", "pacs", "review"):
+                        gate_name = p
+
+                selected = _DIAG_SELECTED_RE.search(content)
+                evidence_items = _DIAG_EVIDENCE_RE.findall(content)
+
+                patterns.append({
+                    "step": step_num,
+                    "gate": gate_name,
+                    "selected_hypothesis": (
+                        selected.group(1).strip() if selected else "unknown"
+                    ),
+                    "evidence_count": len(evidence_items),
+                })
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+    return patterns
