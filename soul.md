@@ -50,6 +50,8 @@ AgenticWorkflow는 그 자체로 완결되는 시스템이 아니다.
 │  투명     Decision Log + 감사 추적 + IMMORTAL 보존              │
 │  협업     SOT 단일 쓰기 + Agent Team 프로토콜                   │
 │  비판     Adversarial Review (Generator-Critic 패턴)           │
+│  추적     Cross-Step Traceability (교차 단계 논리적 연결)         │
+│  지식     Domain Knowledge Structure (도메인 특화 추론 구조)      │
 │  회복     Sisyphus Persistence + Error→Resolution 매칭          │
 │  이론     RLM 논문의 "외부 환경 객체" 패러다임                    │
 │  영혼     이 문서 (soul.md)                                    │
@@ -83,6 +85,8 @@ AgenticWorkflow는 그 자체로 완결되는 시스템이 아니다.
 | Safety Hook | 자식 시스템도 결정론적 안전장치를 갖는다. |
 | Adversarial Review | 자식 시스템도 적대적 검토로 품질을 높인다. |
 | Decision Log | 자식 시스템도 모든 결정의 근거를 기록한다. |
+| 교차 단계 추적성 | 자식 시스템도 단계 간 논리적 도출을 추적한다. |
+| 도메인 지식 구조 | 자식 시스템도 도메인 특화 추론을 구조적으로 검증한다. |
 | 이 영혼 | 자식 시스템도 "왜"를 안다. |
 
 마치 부모가 자녀에게 유전자를 물려주듯,

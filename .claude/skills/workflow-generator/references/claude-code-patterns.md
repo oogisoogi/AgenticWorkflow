@@ -248,6 +248,54 @@ Sub-agent와 달리 각 팀원이 완전히 독립된 컨텍스트를 가짐.
 
 > **참조**: 에이전트에 컨텍스트를 전달하는 3가지 패턴(Full Delegation, Filtered Delegation, Recursive Decomposition)은 `references/context-injection-patterns.md`에서 상세히 다룬다.
 
+#### Dense Checkpoint Pattern (DCP)
+
+`(team)` 단계에서 Teammate가 전체 Task 완료 후에야 Team Lead가 검증하는 기본 구조는, 초반 방향 오류 시 전체 재작업을 야기한다. DCP는 중간 체크포인트(CP)를 삽입하여 조기에 방향 오류를 감지한다.
+
+**기존 인프라만 사용**: `TaskCreate` + `SendMessage` 프리미티브. 신규 Hook/스크립트 불필요.
+
+**적용 기준:**
+
+| 조건 | 패턴 |
+|------|------|
+| Task 예상 턴 수 ≤ 10 | `standard` (기존 방식) |
+| Task 예상 턴 수 > 10 | `dense` (CP-1/2/3) |
+| Task에 방향 결정 포인트 존재 | `dense` 권장 |
+| Task 실패 시 재작업 비용이 큼 | `dense` 강력 권장 |
+
+**체크포인트 구조 (최대 3개):**
+
+| CP | 역할 | 산출물 |
+|----|------|--------|
+| CP-1 | Discovery/Setup — 방향 설정 | 대상 목록, 데이터 소스, 방법론 보고 |
+| CP-2 | Collection/Draft — 중간 산출물 | 수집 데이터 요약, 초안, 갭 식별 |
+| CP-3 | Final — 최종 산출물 | 완성된 분석 + pACS 자기 평가 |
+
+**TaskCreate Description에 CP 프로토콜 임베드:**
+
+```markdown
+### Checkpoint Protocol (Dense Checkpoint Pattern)
+You MUST report at each checkpoint BEFORE proceeding.
+Wait for Team Lead acknowledgment before continuing.
+
+**CP-1: [Phase Name]**
+- [What to do]
+- Report via SendMessage: [what to report]
+- STOP and wait for Team Lead response
+
+**CP-2: [Phase Name]** (after CP-1 approval)
+- [What to do]
+- Report via SendMessage: [what to report]
+- STOP and wait for Team Lead response
+
+**CP-3: [Phase Name]** (after CP-2 approval)
+- [Final work + output]
+- SendMessage: final report + pACS self-rating
+- TaskUpdate(completed)
+```
+
+**SOT 영향**: 없음. `active_team` 스키마 변경 없음. CP는 `SendMessage` 기반 임시 조율이며 SOT에 기록하지 않는다. `completed_summaries`의 `summary` 필드에 CP 이력을 자연어로 포함 가능 (선택적).
+
 ---
 
 ### 3. Hooks

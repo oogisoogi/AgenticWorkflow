@@ -11,7 +11,7 @@ workflow:
   parent_genome:
     source: "AgenticWorkflow"
     version: "2026-02-20"
-    inherited_dna: ["absolute-criteria", "sot-pattern", "3-phase-structure", "4-layer-qa", "safety-hooks", "adversarial-review", "decision-log", "context-preservation"]
+    inherited_dna: ["absolute-criteria", "sot-pattern", "3-phase-structure", "4-layer-qa", "safety-hooks", "adversarial-review", "decision-log", "context-preservation", "cross-step-traceability", "domain-knowledge-structure"]
 
   # 단계별 산출물 경로 — Anti-Skip Guard가 파일 존재 + 최소 크기(100 bytes) 검증
   outputs:
@@ -62,3 +62,12 @@ workflow:
   #   last_verified_step: 2            # 마지막 검증 통과 단계
   #   retries:                         # 재시도 이력 (최대 2회)
   #     step-2: 1                      # step-2에서 1회 재시도 발생
+
+  # --- Domain Knowledge Structure (optional — Research 단계에서 구축 시 활성화) ---
+  # domain_knowledge:
+  #   file: "domain-knowledge.yaml"
+  #   entity_count: 0
+  #   relation_count: 0
+  #   constraint_count: 0
+  #   built_at_step: null
+  #   last_validated: null

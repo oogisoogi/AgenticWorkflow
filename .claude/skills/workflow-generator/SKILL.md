@@ -295,6 +295,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
 2. Case 1: 대화로 요구사항 수집 / Case 2: 문서 분석 → 확인 대화
 3. **Genome Inheritance**: `Inherited DNA (Parent Genome)` 섹션을 workflow.md에 포함 (유전 프로토콜 — `references/workflow-template.md` 참조). `parent_genome.version`은 워크플로우 생성 시점의 날짜(YYYY-MM-DD)를 사용한다. CCP 맥락화 시 코딩 기준점(CAP-1~4)을 포함한다.
 4. 설계 원칙 P1~P4 적용하며 3단계 구조로 작업 정의
+   - 도메인 지식 구조(DKS) 필요성을 평가한다: 의학·법률·경쟁 분석 등 도메인 특화 추론이 필요한 워크플로우는 Research 단계에 DKS 구축 단계를 포함한다. DKS를 사용하는 워크플로우는 관련 단계의 Post-processing에 `python3 .claude/hooks/scripts/validate_domain_knowledge.py --project-dir . --check-output --step N`을 포함한다. 상세: `AGENTS.md §5.3 DKS`
 5. 각 단계에 데이터 전처리/후처리 명시 (P1)
 6. 휴먼-인-더-루프 지점 표시
 7. **각 단계에 `Verification` 필드 정의** (AGENTS.md §5.3 — 필수):
@@ -302,11 +303,12 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
    - **모든 에이전트 실행 단계에 `Verification` 필수** — Research/Planning/Implementation 구분 없음 (Research 단계도 "완전성" 검증 필요: 예 "5개 경쟁사 모두 분석 완료")
    - `(human)` 단계만 예외 — 사람이 검증자이므로 `Verification` 필드 불필요
    - 각 기준은 **제3자가 참/거짓 판정 가능한 구체적 문장**으로 작성
-   - 4가지 기준 유형을 조합하여 포함:
+   - 5가지 기준 유형을 조합하여 포함:
      - **구조적 완전성**: 산출물 내부 구조 → "5개 섹션 모두 포함", "각 항목에 3개 이상 하위 항목"
      - **기능적 목표**: 작업 목표 달성 → "경쟁사 3곳 이상의 가격 데이터", "모든 API endpoint 구현"
      - **데이터 정합성**: 데이터 정확성 → "모든 URL 유효, placeholder 없음", "수치 데이터 출처 명시"
      - **파이프라인 연결**: 다음 단계 입력 호환 → "Step N이 필요로 하는 필드 포함", "출력 형식이 Step N+1 입력과 일치"
+     - **교차 단계 추적성**: 이전 단계 데이터 논리적 도출 → "분석 주장의 80% 이상이 [trace:step-N] 마커로 출처 추적 가능"
 8. 각 단계에 **Review 필드** 설정 (AGENTS.md §5.5 — 선택적):
    - 연구/분석 산출물 (사실 검증 필요) → `@fact-checker`
    - 코드/기술 산출물 (로직/완전성 검증 필요) → `@reviewer`
@@ -326,6 +328,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
      - `active_team` 스키마: name, status, tasks_completed/pending, completed_summaries
      - SOT 갱신 4시점: TeamCreate 직후 → Teammate 완료 시 → 전체 완료 시 → TeamDelete 직후
      - 상세: `references/workflow-template.md §Agent Team 사용 시 SOT 스키마`
+   - **Checkpoint Pattern**: 각 Task의 예상 턴 수를 평가하여 `standard`(≤ 10 턴) 또는 `dense`(> 10 턴) 패턴을 선택. 상세: `references/claude-code-patterns.md §DCP`
 11. **English-First 실행 원칙 적용** (AGENTS.md §5.2):
    - 모든 에이전트 Task 설명과 프롬프트는 **영어**로 작성 (AI 성능 극대화 — 절대 기준 1)
    - 사용자 대화(워크플로우 설계)는 한국어, 에이전트 실행은 영어
@@ -336,7 +339,7 @@ Orchestrator (품질 조율 및 전체 흐름 관리)
     - "이 단계를 자동화하면 품질이 더 안정적인가?" — 자동화 기회 발굴
     - "품질을 높이기 위해 추가해야 할 단계가 있는가?" — 검증/보강 단계 추가
     - "각 `Verification` 기준이 **파이프라인 연결**을 포함하는가?" — 단계 간 데이터 흐름 검증
-    - **DNA Inheritance P1 검증**: `python3 .claude/hooks/scripts/validate_workflow.py --workflow-path ./workflow.md` 실행 → W1-W6 통과 확인
+    - **DNA Inheritance P1 검증**: `python3 .claude/hooks/scripts/validate_workflow.py --workflow-path ./workflow.md` 실행 → W1-W8 통과 확인
     - 참조: `prompt/distill-partner.md`
 
 ## Autopilot Mode 지원

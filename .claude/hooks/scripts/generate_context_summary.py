@@ -152,6 +152,22 @@ def main():
     except Exception:
         pass  # Non-blocking — never fail the hook
 
+    # --- Cross-Step Traceability safety net ---
+    # Detect outputs with trace markers but no CT validation run.
+    # Non-blocking: only logs warning, does not fail the hook.
+    try:
+        _check_missing_traceability(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
+    # --- Domain Knowledge Structure safety net ---
+    # Detect DKS file + DKS markers in outputs but no DK validation run.
+    # Non-blocking: only logs warning, does not fail the hook.
+    try:
+        _check_missing_dks_validation(project_dir)
+    except Exception:
+        pass  # Non-blocking — never fail the hook
+
     # --- ULW Compliance safety net ---
     # Check ULW Intensifier compliance and warn on violations.
     # Non-blocking: only logs warning to stderr, does not fail the hook.
@@ -384,6 +400,191 @@ def _check_missing_verifications(project_dir):
                 f"no verification report found at verification-logs/step-{step_num}-verify.md",
                 file=sys.stderr,
             )
+
+
+def _check_missing_traceability(project_dir):
+    """Detect outputs with trace markers but no CT validation evidence.
+
+    Safety net: Scans SOT outputs for files containing [trace:step-N:...]
+    markers. If trace markers exist in an output but no corresponding
+    validate_traceability.py invocation is evident (checked via work_log
+    or stdout capture), logs a warning.
+
+    Simpler heuristic: If pacs-logs/step-N-pacs.md exists (step completed)
+    AND the step's output contains [trace:step-...] markers, warn if the
+    Orchestrator may have skipped CT validation. Since CT validation
+    outputs to stdout (no log file), we check work_log for the command.
+
+    P1 Compliance: File content regex scan (deterministic).
+    SOT Compliance: Read-only.
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    pacs_dir = os.path.join(project_dir, "pacs-logs")
+    if not os.path.isdir(pacs_dir):
+        return
+
+    # Import trace marker regex from shared library
+    try:
+        from _context_lib import _TRACE_MARKER_RE, sot_paths
+    except ImportError:
+        return
+
+    # Load SOT to resolve output paths
+    sot_data = None
+    try:
+        import yaml
+        for sp in sot_paths(project_dir):
+            if os.path.exists(sp):
+                with open(sp, "r", encoding="utf-8") as f:
+                    sot_data = yaml.safe_load(f) or {}
+                break
+    except Exception:
+        return
+
+    if not sot_data:
+        return
+
+    outputs = sot_data.get("outputs", {})
+    if not outputs and isinstance(sot_data.get("workflow"), dict):
+        outputs = sot_data["workflow"].get("outputs", {})
+
+    step_pattern = re.compile(r"^step-(\d+)-pacs\.md$")
+
+    for fname in os.listdir(pacs_dir):
+        match = step_pattern.match(fname)
+        if not match:
+            continue
+        step_num = match.group(1)
+        step_key = f"step-{step_num}"
+
+        # Get output path for this step
+        output_path_raw = outputs.get(step_key)
+        if not output_path_raw:
+            continue
+
+        output_path = os.path.join(project_dir, output_path_raw)
+        if not os.path.exists(output_path):
+            continue
+
+        # Check if output contains trace markers
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            markers = _TRACE_MARKER_RE.findall(content)
+            if len(markers) >= 3:
+                # Output has trace markers — check if work_log has CT validation
+                work_log = os.path.join(
+                    project_dir, ".claude", "context-snapshots", "work_log.jsonl"
+                )
+                ct_validated = False
+                if os.path.exists(work_log):
+                    try:
+                        with open(work_log, "r", encoding="utf-8") as wf:
+                            for line in wf:
+                                if "validate_traceability" in line and f"--step {step_num}" in line:
+                                    ct_validated = True
+                                    break
+                    except Exception:
+                        pass
+
+                if not ct_validated:
+                    print(
+                        f"[Traceability Safety Net] Step {step_num}: output contains "
+                        f"{len(markers)} trace markers but no CT validation detected. "
+                        f"Run: python3 .claude/hooks/scripts/validate_traceability.py "
+                        f"--step {step_num} --project-dir .",
+                        file=sys.stderr,
+                    )
+        except (IOError, UnicodeDecodeError):
+            pass  # Binary files or read errors — skip silently
+
+
+def _check_missing_dks_validation(project_dir):
+    """Detect DKS markers in outputs without DK validation.
+
+    Safety net: If domain-knowledge.yaml exists AND any step output
+    contains [dks:xxx] markers, warn if no DK validation evidence
+    is found in work_log.
+
+    P1 Compliance: File existence + regex scan (deterministic).
+    SOT Compliance: Read-only.
+    Non-blocking: Only logs to stderr, never fails.
+    """
+    dk_path = os.path.join(project_dir, "domain-knowledge.yaml")
+    if not os.path.exists(dk_path):
+        return  # No DKS file — nothing to validate
+
+    # Import DKS regex from shared library
+    try:
+        from _context_lib import _DKS_REF_RE, sot_paths
+    except ImportError:
+        return
+
+    # Load SOT
+    sot_data = None
+    try:
+        import yaml
+        for sp in sot_paths(project_dir):
+            if os.path.exists(sp):
+                with open(sp, "r", encoding="utf-8") as f:
+                    sot_data = yaml.safe_load(f) or {}
+                break
+    except Exception:
+        return
+
+    if not sot_data:
+        return
+
+    outputs = sot_data.get("outputs", {})
+    if not outputs and isinstance(sot_data.get("workflow"), dict):
+        outputs = sot_data["workflow"].get("outputs", {})
+
+    # Check work_log for any DK validation command
+    work_log = os.path.join(
+        project_dir, ".claude", "context-snapshots", "work_log.jsonl"
+    )
+    dk_validated = False
+    if os.path.exists(work_log):
+        try:
+            with open(work_log, "r", encoding="utf-8") as wf:
+                for line in wf:
+                    if "validate_domain_knowledge" in line:
+                        dk_validated = True
+                        break
+        except Exception:
+            pass
+
+    if dk_validated:
+        return  # Already validated — no warning needed
+
+    # Scan outputs for DKS markers (skip translation files — step-N-ko)
+    for key, path_raw in outputs.items():
+        if not key.startswith("step-") or not key.split("-")[1].isdigit():
+            continue
+        if key.endswith("-ko"):  # Skip Korean translation files
+            continue
+
+        output_path = os.path.join(project_dir, path_raw)
+        if not os.path.exists(output_path):
+            continue
+
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            dks_refs = _DKS_REF_RE.findall(content)
+            if dks_refs:
+                step_num = key.split("-")[1]
+                print(
+                    f"[DKS Safety Net] Step {step_num}: output contains "
+                    f"{len(dks_refs)} [dks:...] markers but domain-knowledge.yaml "
+                    f"validation not detected. Run: python3 .claude/hooks/scripts/"
+                    f"validate_domain_knowledge.py --project-dir . --check-output "
+                    f"--step {step_num}",
+                    file=sys.stderr,
+                )
+                return  # One warning is enough — avoid spam
+        except (IOError, UnicodeDecodeError):
+            pass
 
 
 def _check_ulw_compliance_safety_net(entries):

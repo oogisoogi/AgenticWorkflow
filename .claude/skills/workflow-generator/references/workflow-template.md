@@ -55,7 +55,7 @@ workflow.md 파일의 표준 구조.
 - **Pre-processing**: [Python script 등으로 데이터 정제 — 생략 가능]
 - **Agent**: `@[agent-name]`
 - **Verification**:
-  - [ ] [구체적, 측정 가능한 기준 — 구조적 완전성/기능적 목표/데이터 정합성/파이프라인 연결]
+  - [ ] [구체적, 측정 가능한 기준 — 구조적 완전성/기능적 목표/데이터 정합성/파이프라인 연결/교차 단계 추적성]
   - [ ] [구체적, 측정 가능한 기준]
 - **Task**: [수행 작업]
 - **Output**: [단계 산출물]
@@ -159,8 +159,13 @@ mcpServers: [사용 가능 MCP]       # 선택적
 ```markdown
 ### [N]. (team) [단계명]
 - **Team**: `[team-name]`
+- **Checkpoint Pattern**: [standard|dense] — 선택 기준: `references/claude-code-patterns.md §DCP`
 - **Tasks**:
   - `@[teammate-1]` ([model]): [작업 설명]
+    - **Checkpoints** (dense 패턴 시):
+      - CP-1: [방향 설정 산출물]
+      - CP-2: [중간 산출물]
+      - CP-3: [최종 산출물]
   - `@[teammate-2]` ([model]): [작업 설명]
 - **Join**: [합류 조건 — 예: 모든 팀원 완료 후 다음 단계]
 - **SOT 쓰기**: Team Lead만 `state.yaml` 갱신 (팀원은 산출물 파일만 생성)

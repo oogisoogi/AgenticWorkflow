@@ -626,6 +626,36 @@
 - **대안**: 기존 ADR-023 유지 → 기각 (2축 직교가 실제 사용 패턴과 부합), 제한 없는 재시도 → 기각 (무한 루프 위험)
 - **영향 범위**: CLAUDE.md, AGENTS.md, `_context_lib.py`, `restore_context.py`, `generate_context_summary.py`, DECISION-LOG.md, README.md, USER-MANUAL.md, ARCHITECTURE.md, GEMINI.md, copilot-instructions.md, agenticworkflow.mdc, soul.md — 총 13개 파일. 추가: `validate_retry_budget.py`(P1 재시도 예산 봉쇄 — RB1-RB3, --check-and-increment atomic 모드), `setup_init.py`/`setup_maintenance.py`(REQUIRED_SCRIPTS D-7 동기화) — 총 16개 파일
 
+### ADR-044: G1 — 교차 단계 추적성 (Cross-Step Traceability)
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: 기존 4계층 품질 보장은 각 단계를 수직으로 검증하나, 단계 간 수평 연결(Step 5 분석이 Step 1 리서치에서 실제로 도출되었는가)은 검증 불가
+- **결정**: 5번째 Verification 기준 유형 "교차 단계 추적성" 추가. `[trace:step-N:section-id:locator]` 인라인 마커로 단계 간 논리적 연결을 명시. P1 검증 스크립트 `validate_traceability.py` (CT1-CT5)
+- **근거**: Agentic RAG 연구에서 "chunk 간 연결성 부재"가 핵심 문제점으로 지목됨. 동일 원리를 워크플로우 단계 간 적용
+- **대안**: (1) 자연어 참조만 사용 — 기각 (결정론적 검증 불가). (2) 전체 산출물 임베딩 비교 — 기각 (과도한 인프라 요구)
+- **관련 파일**: `_context_lib.py`, `validate_traceability.py`, `generate_context_summary.py`, `setup_init.py`, `setup_maintenance.py`, `AGENTS.md`, `workflow-template.md`
+
+### ADR-045: G2 — 팀 중간 체크포인트 패턴 (Dense Checkpoint Pattern)
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: (team) 단계에서 Teammate가 전체 Task 완료 후 Team Lead 검증 시 초반 방향 오류 발견 → 전체 재작업
+- **결정**: Dense Checkpoint Pattern(DCP) 설계 패턴 추가. CP-1(방향 설정) → CP-2(중간 산출물) → CP-3(최종 산출물). 기존 TaskCreate + SendMessage 프리미티브만 사용, 신규 인프라 없음
+- **근거**: Princeton Fuzzy Graph Reward 연구의 "중간 보상 신호(intermediate reward signal)" 개념 적용 — 최종 산출물만 평가하는 sparse reward를 dense reward로 전환
+- **대안**: (1) SOT에 CP 상태 추적 — 기각 (스키마 변경 불필요한 복잡도). (2) Hook 기반 자동 CP — 기각 (SendMessage 기반 유연성이 더 적합)
+- **관련 파일**: `claude-code-patterns.md`, `workflow-template.md`, `SKILL.md`
+
+### ADR-046: G3 — 도메인 지식 구조 (Domain Knowledge Structure)
+
+- **날짜**: 2026-02-23
+- **상태**: Accepted
+- **맥락**: 기존 검증은 구조적 품질만 체크. 도메인 특화 추론(의학: 증상→질병, 법률: 판례→원칙)의 타당성은 검증 불가
+- **결정**: `domain-knowledge.yaml` 스키마 + `[dks:entity-id]` 참조 마커 패턴 추가. Research 단계에서 구축, Implementation에서 검증 기준으로 활용. P1 검증 스크립트 `validate_domain_knowledge.py` (DK1-DK7). 선택적 패턴 — 모든 워크플로우가 필요로 하지 않음
+- **근거**: Hybrid RAG의 "KG(Knowledge Graph) 기반 정확도 향상" 패턴을 워크플로우 게놈에 내장. 자식 시스템이 도메인에 맞게 발현
+- **대안**: (1) 전체 KG DB 인프라 — 기각 (과도한 의존성). (2) 자연어 검증만 — 기각 (P1 결정론적 검증 불가). (3) 필수 패턴 — 기각 (코드 생성·블로그 등 불필요한 도메인에 부담)
+- **관련 파일**: `_context_lib.py`, `validate_domain_knowledge.py`, `generate_context_summary.py`, `setup_init.py`, `setup_maintenance.py`, `state.yaml.example`, `AGENTS.md`, `soul.md`
+
 ---
 
 ## 부록: 커밋 히스토리 기반 타임라인
@@ -660,6 +690,9 @@
 | 2026-02-23 | (pending) | ADR-041: 코딩 기준점 (Coding Anchor Points, CAP-1~4) |
 | 2026-02-23 | (pending) | ADR-042: Hook 설정 Global → Project 통합 |
 | 2026-02-23 | (pending) | ADR-043: ULW 재설계 — 직교 철저함 오버레이 (Supersedes ADR-023) |
+| 2026-02-23 | (pending) | ADR-044: G1 — 교차 단계 추적성 (Cross-Step Traceability) |
+| 2026-02-23 | (pending) | ADR-045: G2 — 팀 중간 체크포인트 패턴 (Dense Checkpoint Pattern) |
+| 2026-02-23 | (pending) | ADR-046: G3 — 도메인 지식 구조 (Domain Knowledge Structure) |
 
 ---
 

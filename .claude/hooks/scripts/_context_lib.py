@@ -4956,7 +4956,7 @@ def _normalize_to_relative(filename, project_dir, modified_files):
 
 
 # ---------------------------------------------------------------------------
-# Workflow.md DNA Inheritance P1 Validation (W1-W6)
+# Workflow.md DNA Inheritance P1 Validation (W1-W8)
 # ---------------------------------------------------------------------------
 
 # Module-level compiled regex for W3/W4 checks (process-lifetime, one-time cost)
@@ -4976,10 +4976,26 @@ _WORKFLOW_CONSTITUTIONAL_RE = re.compile(
 _WORKFLOW_CAP_RE = re.compile(
     r"CAP-[1-4]|코딩\s*기준점|Coding\s*Anchor\s*Points", re.IGNORECASE
 )
+# W7: Cross-step traceability Verification → validate_traceability post-processing
+_WORKFLOW_CT_VERIFICATION_RE = re.compile(
+    r"교차\s*단계\s*추적성|cross[- ]?step\s*traceability|trace:step-",
+    re.IGNORECASE,
+)
+_WORKFLOW_CT_POSTPROCESS_RE = re.compile(
+    r"validate_traceability", re.IGNORECASE,
+)
+# W8: DKS Verification → validate_domain_knowledge post-processing
+_WORKFLOW_DKS_VERIFICATION_RE = re.compile(
+    r"domain[- ]?knowledge|도메인\s*지식\s*구조|\[dks:|domain-knowledge\.yaml",
+    re.IGNORECASE,
+)
+_WORKFLOW_DKS_POSTPROCESS_RE = re.compile(
+    r"validate_domain_knowledge", re.IGNORECASE,
+)
 
 
 def validate_workflow_md(workflow_path):
-    """W1-W6: Generated workflow.md structural integrity for DNA inheritance.
+    """W1-W8: Generated workflow.md structural integrity for DNA inheritance.
 
     P1 Compliance: All validation is deterministic (regex + string checks).
     SOT Compliance: Read-only — no file writes.
@@ -4991,6 +5007,10 @@ def validate_workflow_md(workflow_path):
       W4: Inherited Patterns table present (≥ 3 data rows)
       W5: Constitutional Principles section present
       W6: Coding Anchor Points (CAP) reference present
+      W7: If Verification mentions cross-step traceability, validate_traceability
+          post-processing must be present (Verification-Validator consistency)
+      W8: If workflow references domain knowledge, validate_domain_knowledge
+          post-processing must be present (Verification-Validator consistency)
 
     Args:
         workflow_path: Absolute path to generated workflow.md
@@ -5050,5 +5070,449 @@ def validate_workflow_md(workflow_path):
             "W6 FAIL: Coding Anchor Points (CAP) reference not found"
         )
 
+    # W7: Verification-Validator consistency — Cross-Step Traceability
+    # If any Verification criteria mentions traceability, the workflow must
+    # include validate_traceability post-processing to enforce P1 validation.
+    if _WORKFLOW_CT_VERIFICATION_RE.search(content):
+        if not _WORKFLOW_CT_POSTPROCESS_RE.search(content):
+            warnings.append(
+                "W7 FAIL: Workflow references cross-step traceability in "
+                "Verification criteria but has no validate_traceability.py "
+                "Post-processing command"
+            )
+
+    # W8: Verification-Validator consistency — Domain Knowledge Structure
+    # If the workflow references domain knowledge (DKS), the workflow must
+    # include validate_domain_knowledge post-processing.
+    if _WORKFLOW_DKS_VERIFICATION_RE.search(content):
+        if not _WORKFLOW_DKS_POSTPROCESS_RE.search(content):
+            warnings.append(
+                "W8 FAIL: Workflow references domain knowledge structure but "
+                "has no validate_domain_knowledge.py Post-processing command"
+            )
+
     has_fail = any("FAIL" in w for w in warnings)
     return (not has_fail, warnings)
+
+
+# ---------------------------------------------------------------------------
+# Cross-Step Traceability P1 Validation (CT1-CT5)
+# ---------------------------------------------------------------------------
+
+# Module-level compiled regex for trace marker extraction
+# Format: [trace:step-N:section-id] or [trace:step-N:section-id:locator]
+_TRACE_MARKER_RE = re.compile(
+    r'\[trace:step-(\d+):([a-z0-9_-]+)(?::([a-z0-9_-]+))?\]',
+    re.IGNORECASE,
+)
+# Heading extraction for section-id resolution (CT3)
+_HEADING_SLUG_RE = re.compile(r'^#+\s+(.+)$', re.MULTILINE)
+
+# Minimum number of trace markers required (CT4)
+_MIN_TRACE_MARKERS = 3
+
+
+def validate_cross_step_traceability(project_dir, step_number, sot_data=None):
+    """CT1-CT5: Cross-step traceability structural integrity.
+
+    P1 Compliance: Filesystem + regex — deterministic.
+    SOT Compliance: Read-only — reads SOT outputs for path resolution.
+
+    Validates that a step's output contains trace markers referencing
+    previous steps, enabling horizontal (cross-step) verification.
+
+    Checks:
+      CT1: Trace markers exist in output (>= 1)
+      CT2: Referenced step outputs exist on disk (SOT outputs.step-N path)
+      CT3: Section IDs resolve to headings in source files (Warning only)
+      CT4: Minimum trace marker density (>= MIN_TRACE_MARKERS)
+      CT5: No forward references (step-N where N >= current step)
+
+    Args:
+        project_dir: Absolute path to project root
+        step_number: Current step number being validated
+        sot_data: Parsed SOT dict (optional). If None, reads from disk.
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+    """
+    warnings = []
+    trace_count = 0
+    verified_count = 0
+
+    # Load SOT if not provided
+    if sot_data is None:
+        for sp in sot_paths(project_dir):
+            if os.path.exists(sp):
+                try:
+                    import yaml
+                    with open(sp, "r", encoding="utf-8") as f:
+                        sot_data = yaml.safe_load(f) or {}
+                    break
+                except Exception:
+                    pass
+        if sot_data is None:
+            return (False, ["CT FAIL: SOT file not found — cannot resolve output paths"])
+
+    # Extract outputs from SOT (handle nested and flat schemas)
+    outputs = sot_data.get("outputs", {})
+    if not outputs and isinstance(sot_data.get("workflow"), dict):
+        outputs = sot_data["workflow"].get("outputs", {})
+
+    # Step 1 has no previous steps — traceability N/A
+    if step_number <= 1:
+        return (True, ["CT SKIP: Step 1 has no previous steps — traceability N/A"])
+
+    # Get current step output path
+    step_key = f"step-{step_number}"
+    output_path_raw = outputs.get(step_key)
+    if not output_path_raw:
+        return (False, [f"CT FAIL: No output path in SOT outputs.{step_key}"])
+
+    output_path = os.path.join(project_dir, output_path_raw)
+    if not os.path.exists(output_path):
+        return (False, [f"CT FAIL: Output file not found: {output_path_raw}"])
+
+    # Read output content
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        return (False, [f"CT FAIL: Cannot read output file: {e}"])
+
+    # Extract all trace markers
+    markers = _TRACE_MARKER_RE.findall(content)
+    trace_count = len(markers)
+
+    # CT1: At least one trace marker must exist
+    if trace_count == 0:
+        warnings.append("CT1 FAIL: No [trace:step-N:...] markers found in output")
+        return (False, warnings)
+
+    # CT4: Minimum density
+    if trace_count < _MIN_TRACE_MARKERS:
+        warnings.append(
+            f"CT4 FAIL: Only {trace_count} trace markers found, "
+            f"minimum {_MIN_TRACE_MARKERS} required"
+        )
+
+    # Validate each marker
+    for ref_step_str, section_id, locator in markers:
+        ref_step = int(ref_step_str)
+
+        # CT5: No forward references
+        if ref_step >= step_number:
+            warnings.append(
+                f"CT5 FAIL: Forward reference [trace:step-{ref_step}:...] "
+                f"in step {step_number} — must reference earlier steps only"
+            )
+            continue
+
+        # CT2: Referenced step output exists
+        ref_step_key = f"step-{ref_step}"
+        ref_output_raw = outputs.get(ref_step_key)
+        if not ref_output_raw:
+            warnings.append(
+                f"CT2 FAIL: Referenced step-{ref_step} has no output in SOT"
+            )
+            continue
+
+        ref_output_path = os.path.join(project_dir, ref_output_raw)
+        if not os.path.exists(ref_output_path):
+            warnings.append(
+                f"CT2 FAIL: Referenced output file not found: {ref_output_raw}"
+            )
+            continue
+
+        # CT3: Section ID resolution (Warning only, not FAIL)
+        try:
+            with open(ref_output_path, "r", encoding="utf-8") as f:
+                ref_content = f.read()
+            headings = _HEADING_SLUG_RE.findall(ref_content)
+            slugified = [_slugify_heading(h) for h in headings]
+            if section_id.lower() not in slugified:
+                warnings.append(
+                    f"CT3 WARNING: Section '{section_id}' not resolved in "
+                    f"step-{ref_step} headings (may be a sub-section or ID)"
+                )
+            else:
+                verified_count += 1
+        except (IOError, UnicodeDecodeError):
+            verified_count += 1  # Can't read = trust the reference
+
+    # Append metadata as info (not FAIL)
+    warnings.append(
+        f"CT INFO: trace_count={trace_count}, verified_count={verified_count}"
+    )
+
+    has_fail = any("FAIL" in w for w in warnings)
+    return (not has_fail, warnings)
+
+
+def _slugify_heading(heading_text):
+    """Convert a markdown heading to a slug for section-id matching.
+
+    Matches the trace marker convention: lowercase, alphanumeric + hyphens.
+    Strips markdown artifacts: links [text](url) → text, bold/italic markers,
+    backticks, and other non-alphanumeric characters.
+    """
+    slug = heading_text.strip()
+    # Remove markdown links: [text](url) → text
+    slug = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', slug)
+    # Remove inline code backticks
+    slug = re.sub(r'`([^`]*)`', r'\1', slug)
+    slug = slug.lower()
+    slug = re.sub(r'[^a-z0-9\s-]', '', slug)
+    slug = re.sub(r'[\s]+', '-', slug)
+    slug = slug.strip('-')
+    return slug
+
+
+# ---------------------------------------------------------------------------
+# Domain Knowledge Structure P1 Validation (DK1-DK7)
+# ---------------------------------------------------------------------------
+
+# Module-level compiled regex for DKS reference markers
+# Format: [dks:entity-id] or [dks:relation-id]
+_DKS_REF_RE = re.compile(r'\[dks:([a-z0-9_-]+)\]', re.IGNORECASE)
+# Valid ID format: lowercase letter start, alphanumeric + hyphens + underscores
+# Character class MUST match _DKS_REF_RE capture group (D-7: both allow [a-z0-9_-])
+_DKS_ID_RE = re.compile(r'^[a-z][a-z0-9_-]*$')
+
+
+def validate_domain_knowledge(project_dir, check_output_step=None, sot_data=None):
+    """DK1-DK7: Domain Knowledge Structure structural integrity.
+
+    P1 Compliance: Filesystem + YAML parse + regex — deterministic.
+    SOT Compliance: Read-only — no file writes.
+
+    Validates domain-knowledge.yaml schema and optionally cross-references
+    with step output DKS markers.
+
+    Checks:
+      DK1: File exists and YAML is valid
+      DK2: metadata contains required keys (domain, schema_version)
+      DK3: entities structure (id unique + slug format, type string, attributes dict)
+      DK4: relations referential integrity (subject/object -> entities.id, confidence valid)
+      DK5: constraints structure (id, description, check present)
+      DK6: (--check-output) Output DKS markers resolve to entity/relation IDs
+      DK7: (--check-output) Constraint non-violation (best-effort numeric check)
+
+    Args:
+        project_dir: Absolute path to project root
+        check_output_step: Step number to cross-check DKS markers (optional)
+        sot_data: Parsed SOT dict (optional). If None, reads from disk.
+
+    Returns:
+        tuple: (is_valid: bool, warnings: list[str])
+    """
+    warnings = []
+
+    dk_path = os.path.join(project_dir, "domain-knowledge.yaml")
+
+    # DK1: File exists and YAML is valid
+    if not os.path.exists(dk_path):
+        return (False, ["DK1 FAIL: domain-knowledge.yaml not found"])
+
+    try:
+        import yaml
+        with open(dk_path, "r", encoding="utf-8") as f:
+            dk_data = yaml.safe_load(f)
+        if not isinstance(dk_data, dict):
+            return (False, ["DK1 FAIL: domain-knowledge.yaml is not a valid YAML mapping"])
+    except Exception as e:
+        return (False, [f"DK1 FAIL: Cannot parse domain-knowledge.yaml: {e}"])
+
+    # DK2: metadata required keys
+    metadata = dk_data.get("metadata", {})
+    if not isinstance(metadata, dict):
+        warnings.append("DK2 FAIL: 'metadata' must be a mapping")
+    else:
+        for key in ("domain", "schema_version"):
+            if key not in metadata:
+                warnings.append(f"DK2 FAIL: metadata.{key} is missing")
+
+    # DK3: entities structure
+    entities = dk_data.get("entities", [])
+    entity_ids = set()
+    if not isinstance(entities, list):
+        warnings.append("DK3 FAIL: 'entities' must be a list")
+        entities = []
+
+    for i, entity in enumerate(entities):
+        if not isinstance(entity, dict):
+            warnings.append(f"DK3 FAIL: entities[{i}] is not a mapping")
+            continue
+        eid = entity.get("id")
+        if not eid:
+            warnings.append(f"DK3 FAIL: entities[{i}] missing 'id'")
+        elif not _DKS_ID_RE.match(str(eid)):
+            warnings.append(
+                f"DK3 FAIL: entities[{i}].id '{eid}' is not valid slug format "
+                f"(lowercase letter start, alphanumeric + hyphens)"
+            )
+        else:
+            if eid in entity_ids:
+                warnings.append(f"DK3 FAIL: Duplicate entity id '{eid}'")
+            entity_ids.add(eid)
+
+        if not isinstance(entity.get("type"), str):
+            warnings.append(f"DK3 FAIL: entities[{i}].type must be a string")
+        if not isinstance(entity.get("attributes", {}), dict):
+            warnings.append(f"DK3 FAIL: entities[{i}].attributes must be a mapping")
+
+    # DK4: relations referential integrity
+    relations = dk_data.get("relations", [])
+    relation_ids = set()
+    valid_confidences = {"high", "medium", "low"}
+    if not isinstance(relations, list):
+        if relations is not None:
+            warnings.append("DK4 FAIL: 'relations' must be a list")
+        relations = []
+
+    for i, rel in enumerate(relations):
+        if not isinstance(rel, dict):
+            warnings.append(f"DK4 FAIL: relations[{i}] is not a mapping")
+            continue
+        rid = rel.get("id")
+        if rid:
+            if rid in relation_ids:
+                warnings.append(f"DK4 FAIL: Duplicate relation id '{rid}'")
+            relation_ids.add(rid)
+
+        subj = rel.get("subject")
+        obj = rel.get("object")
+        if subj and subj not in entity_ids:
+            warnings.append(
+                f"DK4 FAIL: relations[{i}].subject '{subj}' not found in entities"
+            )
+        if obj and obj not in entity_ids:
+            warnings.append(
+                f"DK4 FAIL: relations[{i}].object '{obj}' not found in entities"
+            )
+        conf = rel.get("confidence")
+        if conf and str(conf).lower() not in valid_confidences:
+            warnings.append(
+                f"DK4 FAIL: relations[{i}].confidence '{conf}' must be "
+                f"high|medium|low"
+            )
+
+    # DK5: constraints structure
+    constraints = dk_data.get("constraints", [])
+    if not isinstance(constraints, list):
+        if constraints is not None:
+            warnings.append("DK5 FAIL: 'constraints' must be a list")
+        constraints = []
+
+    for i, con in enumerate(constraints):
+        if not isinstance(con, dict):
+            warnings.append(f"DK5 FAIL: constraints[{i}] is not a mapping")
+            continue
+        for key in ("id", "description", "check"):
+            if key not in con:
+                warnings.append(f"DK5 FAIL: constraints[{i}] missing '{key}'")
+
+    # DK6 + DK7: Output cross-check (optional)
+    if check_output_step is not None:
+        _validate_dks_output_refs(
+            project_dir, check_output_step, entity_ids, relation_ids,
+            constraints, dk_data, sot_data, warnings,
+        )
+
+    # Summary info
+    warnings.append(
+        f"DK INFO: entity_count={len(entity_ids)}, "
+        f"relation_count={len(relation_ids)}, "
+        f"constraint_count={len(constraints)}"
+    )
+
+    has_fail = any("FAIL" in w for w in warnings)
+    return (not has_fail, warnings)
+
+
+def _validate_dks_output_refs(
+    project_dir, step_number, entity_ids, relation_ids,
+    constraints, dk_data, sot_data, warnings,
+):
+    """DK6-DK7: Cross-check DKS references in step output.
+
+    DK6: All [dks:xxx] markers resolve to entity or relation IDs.
+    DK7: Best-effort numeric constraint validation.
+    """
+    # Load SOT if not provided
+    if sot_data is None:
+        for sp in sot_paths(project_dir):
+            if os.path.exists(sp):
+                try:
+                    import yaml
+                    with open(sp, "r", encoding="utf-8") as f:
+                        sot_data = yaml.safe_load(f) or {}
+                    break
+                except Exception:
+                    pass
+        if sot_data is None:
+            warnings.append("DK6 SKIP: SOT file not found — cannot resolve output path")
+            return
+
+    # Extract outputs from SOT
+    outputs = sot_data.get("outputs", {})
+    if not outputs and isinstance(sot_data.get("workflow"), dict):
+        outputs = sot_data["workflow"].get("outputs", {})
+
+    step_key = f"step-{step_number}"
+    output_path_raw = outputs.get(step_key)
+    if not output_path_raw:
+        warnings.append(f"DK6 SKIP: No output path in SOT outputs.{step_key}")
+        return
+
+    output_path = os.path.join(project_dir, output_path_raw)
+    if not os.path.exists(output_path):
+        warnings.append(f"DK6 SKIP: Output file not found: {output_path_raw}")
+        return
+
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (IOError, UnicodeDecodeError) as e:
+        warnings.append(f"DK6 SKIP: Cannot read output: {e}")
+        return
+
+    # DK6: Resolve DKS markers
+    all_ids = entity_ids | relation_ids
+    dks_refs = _DKS_REF_RE.findall(content)
+    unresolved = []
+    for ref_id in dks_refs:
+        if ref_id.lower() not in {eid.lower() for eid in all_ids}:
+            unresolved.append(ref_id)
+
+    if unresolved:
+        warnings.append(
+            f"DK6 FAIL: Unresolved DKS references: {', '.join(unresolved)}"
+        )
+
+    # DK7: Best-effort constraint validation (numeric sum checks)
+    entities_list = dk_data.get("entities", []) if dk_data else []
+    for con in constraints:
+        check_str = str(con.get("check", ""))
+        sum_match = re.match(
+            r'sum\((\w+)\)\s*<=\s*(\d+(?:\.\d+)?)', check_str
+        )
+        if sum_match:
+            field_name = sum_match.group(1)
+            max_val = float(sum_match.group(2))
+            total = 0.0
+            found_any = False
+            for entity in entities_list:
+                attrs = entity.get("attributes", {})
+                if field_name in attrs:
+                    try:
+                        val_str = str(attrs[field_name]).replace("%", "").replace("$", "")
+                        total += float(val_str)
+                        found_any = True
+                    except (ValueError, TypeError):
+                        pass
+            if found_any and total > max_val:
+                warnings.append(
+                    f"DK7 FAIL: Constraint '{con.get('id', '?')}' violated: "
+                    f"sum({field_name})={total} > {max_val}"
+                )
